@@ -1,0 +1,42 @@
+[project]
+name = "eventyay-teamshifts"
+dynamic = ["version"]
+description = "Volunteer and shift management plugin for eventyay"
+readme = "README.md"
+license = {file = "LICENSE"}
+keywords = ["Eventyay"]
+authors = [
+    {name = "FOSSASIA", email = "contact@fossasia.org"},
+]
+maintainers = [
+    {name = "FOSSASIA", email = "contact@fossasia.org"},
+]
+
+dependencies = [
+]
+
+[project.entry-points."pretix.plugin"]
+teamshifts = "teamshifts"
+
+[project.entry-points."distutils.commands"]
+build = "pretix_plugin_build.build:CustomBuild"
+
+[build-system]
+requires = [
+    "setuptools",
+    "pretix-plugin-build",
+]
+
+[project.urls]
+homepage = "https://github.com/fossasia/eventyay-teamshifts"
+repository = "https://github.com/fossasia/eventyay-teamshifts"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.dynamic]
+version = {attr = "teamshifts.__version__"}
+
+[tool.setuptools.packages.find]
+include = ["teamshifts*"]
+namespaces = false

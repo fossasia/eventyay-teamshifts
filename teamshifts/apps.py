@@ -5,7 +5,7 @@ from . import __version__
 try:
     from eventyay.base.plugins import PluginConfig
 except ImportError:
-    raise RuntimeError("Please use a later version of eventyay-tickets")
+    raise RuntimeError("Please use a later version of eventyay")
 
 
 class TeamShiftsApp(PluginConfig):

@@ -1,7 +1,7 @@
 [project]
 name = "eventyay-teamshifts"
 dynamic = ["version"]
-description = "Volunteer and shift management plugin for eventyay"
+description = "Team and shift management plugin for eventyay"
 readme = "README.md"
 license = {file = "LICENSE"}
 keywords = ["Eventyay"]

@@ -1,0 +1,39 @@
+name: Tests
+
+on:
+  push:
+    branches: [ main, master ]
+    paths-ignore:
+      - 'teamshifts/locale/**'
+  pull_request:
+    branches: [ main, master ]
+    paths-ignore:
+      - 'teamshifts/locale/**'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    name: Tests
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Install system dependencies
+        run: sudo apt update && sudo apt install gettext
+
+      - name: Install Dependencies
+        run: |
+          uv sync
+          uv pip install pytest pytest-django
+
+      - name: Run checks
+        run: uv run pytest tests

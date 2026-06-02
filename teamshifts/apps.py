@@ -16,7 +16,7 @@ class TeamShiftsApp(PluginConfig):
     class EventyayPluginMeta:
         name = _("Team Shifts")
         author = "FOSSASIA"
-        description = _("Volunteer and shift management plugin for eventyay")
+        description = _("Team and shift management plugin for eventyay")
         visible = True
         version = __version__
         category = "FEATURE"

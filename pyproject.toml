@@ -3,7 +3,7 @@ name = "eventyay-teamshifts"
 dynamic = ["version"]
 description = "Team and shift management plugin for eventyay"
 readme = "README.md"
-license = {file = "LICENSE"}
+license = {text = "Apache-2.0"}
 keywords = ["Eventyay"]
 authors = [
     {name = "FOSSASIA", email = "contact@fossasia.org"},
@@ -40,3 +40,16 @@ version = {attr = "teamshifts.__version__"}
 [tool.setuptools.packages.find]
 include = ["teamshifts*"]
 namespaces = false
+
+[tool.ruff]
+line-length = 160
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["I"]
+ignore = ["N802", "E402"]
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+known-first-party = ["teamshifts"]
+known-third-party = ["eventyay"]

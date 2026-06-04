@@ -28,12 +28,12 @@ jobs:
           enable-cache: true
 
       - name: Install system dependencies
-        run: sudo apt update && sudo apt install gettext
+        run: sudo apt-get update && sudo apt-get install -y gettext
 
       - name: Install Dependencies
         run: |
           uv sync
-          uv pip install pytest pytest-django
+          uv pip install pytest
 
       - name: Run checks
         run: uv run pytest tests

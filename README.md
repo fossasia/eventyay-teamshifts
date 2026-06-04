@@ -1,19 +1,19 @@
 # eventyay-teamshifts
 
-A plugin for [eventyay](https://github.com/fossasia/eventyay) that will provide volunteer and shift management for events. This initial package bootstraps plugin registration; future phases will add Calls for Volunteers, role management, application review, shift scheduling, and volunteer assignment within the eventyay control panel.
+A plugin for [eventyay](https://github.com/fossasia/eventyay) that will provide team coordination and shift management for events. This initial package bootstraps plugin registration; future phases will add team role management, application review, shift scheduling, and team member assignment within eventyay.
 
 ## Planned Features
 
-- Call for Volunteers configuration per event (open/close, description)
-- Volunteer role management (name, capacity, description)
-- Public volunteer sign-up form at `/event/{slug}/volunteers/`
+- Team role configuration per event (open/close, description, capacity)
+- Team member role management (name, capacity, description)
+- Public team member sign-up form at `/teamshifts/event/<org>/<event>/apply/`
 - Organiser application review panel (accept / reject)
 - Shift schedule builder with a Vue 3 grid editor
-- Volunteer assignment with capacity enforcement
+- Team member assignment with capacity enforcement
 - Moderator delegation for per-shift oversight
 - Email notifications via Celery (assignment confirmations, reminders)
 - 24-hour shift reminder via Celery Beat
-- Volunteer personal calendar view
+- Personal calendar view
 - iCal export for assigned shifts (stretch goal)
 - Public shift board (stretch goal)
 
@@ -48,19 +48,21 @@ A plugin for [eventyay](https://github.com/fossasia/eventyay) that will provide 
 
 ## Code Style
 
-This plugin enforces code style via `black`, `isort`, and `flake8`. To check locally:
+This plugin enforces code style via `ruff` (import sorting + formatting) and `flake8`. CI runs these checks automatically on every PR.
+
+To check locally:
 
 ```bash
-black --check .
-isort -c .
+ruff check --select I .
+ruff format --check .
 flake8 .
 ```
 
 To auto-fix:
 
 ```bash
-isort .
-black .
+ruff check --select I --fix .
+ruff format .
 ```
 
 To enforce checks automatically before each commit:
@@ -80,16 +82,15 @@ pytest tests/
 ```
 teamshifts/
   apps.py           Plugin AppConfig and EventyayPluginMeta
-  models.py         CallForVolunteers, VolunteerRole, VolunteerApplication, Shift, ShiftAssignment
+  models.py         CallForEventTeam, EventStaff, Shift, ShiftAssignment
   views.py          Organiser control panel views
-  urls.py           URL routing under /control/event/<org>/<event>/teamshifts/
-  signals.py        Sidebar nav registration and log entry display
+  urls.py           URL routing under /teamshifts/event/<org>/<event>/
+  signals.py        Sidebar nav registration and dashboard widgets
   tasks.py          Celery tasks for email notifications
-  forms.py          Django forms for CFV settings, roles, sign-up
+  forms.py          Django forms for team settings, roles, sign-up
   serializers.py    DRF serializers for shift editor API
   api.py            REST API endpoints (shifts, assignments)
   templates/        Django HTML templates
   static/           Vue 3 shift editor (Vite build output)
   migrations/       Database migrations
 ```
-

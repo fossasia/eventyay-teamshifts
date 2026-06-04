@@ -4,8 +4,8 @@ from . import __version__
 
 try:
     from eventyay.base.plugins import PluginConfig
-except ImportError:
-    raise RuntimeError("Please use a later version of eventyay")
+except ImportError as e:
+    raise RuntimeError("Please use a later version of eventyay") from e
 
 
 class TeamShiftsApp(PluginConfig):

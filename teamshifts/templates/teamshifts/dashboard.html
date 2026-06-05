@@ -1,0 +1,16 @@
+{% extends "teamshifts/base.html" %}
+{% load i18n %}
+
+{% block content %}
+<h1>{% trans "TeamShifts" %}</h1>
+<p class="text-muted">
+    {% blocktrans trimmed with name=event.name %}
+        Team and shift management for <strong>{{ name }}</strong>.
+        Manage event teams, team roles, and shift scheduling from here.
+    {% endblocktrans %}
+</p>
+
+<div class="alert alert-info">
+    {% trans "This component is being set up. Team management features will be available in the next phase." %}
+</div>
+{% endblock %}

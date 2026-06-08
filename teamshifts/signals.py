@@ -1,7 +1,6 @@
 from django.dispatch import receiver
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
-
 from eventyay.control.signals import event_dashboard_components, event_dashboard_widgets
 
 
@@ -41,7 +40,7 @@ def teamshifts_dashboard_component(sender, request=None, **kwargs):
         "</div>"
         '<div class="panel-body">'
         "<p>{description}</p>"
-        '<p><a href="{url}">{link_text}</a></p>'
+        "<p>{go_to} <a href=\"{url}\">{link_text}</a></p>"
         "</div>"
         "</div>"
     ).format(
@@ -52,6 +51,7 @@ def teamshifts_dashboard_component(sender, request=None, **kwargs):
                 " applications, and build a shift schedule for your event staff."
             )
         ),
+        go_to=str(_("Go to")),
         url=url,
-        link_text=str(_("Go to TeamShifts Dashboard")),
+        link_text=str(_("TeamShifts Dashboard")),
     )

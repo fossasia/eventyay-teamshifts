@@ -1,6 +1,3 @@
-import importlib
-
-
 def test_plugin_version():
     import teamshifts
 
@@ -10,10 +7,10 @@ def test_plugin_version():
 def test_appconfig_meta():
     try:
         from teamshifts.apps import TeamShiftsApp
-    except RuntimeError:
+    except (RuntimeError, ModuleNotFoundError):
         import pytest
 
-        pytest.skip("eventyay not installed, skipping AppConfig test")
+        pytest.skip("eventyay or Django not installed, skipping AppConfig test")
 
     assert TeamShiftsApp.name == "teamshifts"
     meta = TeamShiftsApp.EventyayPluginMeta

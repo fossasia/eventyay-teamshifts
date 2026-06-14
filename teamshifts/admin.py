@@ -14,7 +14,12 @@ class CallForTeamMembersAdmin(admin.ModelAdmin):
     list_display = ("event", "title", "active", "deadline")
     list_filter = ("active",)
     search_fields = ("event__name", "event__slug")
-    readonly_fields = ("event",)
+
+    def get_readonly_fields(self, request, obj=None):
+        # Allow selecting the event when creating; lock it on edits.
+        if obj is not None:
+            return ("event",)
+        return ()
 
 
 @admin.register(TeamRole)

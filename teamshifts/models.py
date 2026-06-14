@@ -1,3 +1,4 @@
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 from django_scopes import ScopedManager
@@ -99,6 +100,10 @@ class TeamMemberApplication(models.Model):
         verbose_name_plural = _("Team Member Applications")
         unique_together = ("event", "user", "role")
 
+    def clean(self):
+        if self.role_id and self.event_id and self.role.event_id != self.event_id:
+            raise ValidationError({"role": _("The selected role does not belong to this event.")})
+
     def __str__(self):
         return f"{self.user.email} → {self.role.name} ({self.get_status_display()})"
 
@@ -127,6 +132,12 @@ class Shift(models.Model):
         verbose_name = _("Shift")
         verbose_name_plural = _("Shifts")
         ordering = ["start_time"]
+
+    def clean(self):
+        if self.role_id and self.event_id and self.role.event_id != self.event_id:
+            raise ValidationError({"role": _("The selected role does not belong to this event.")})
+        if self.start_time and self.end_time and self.end_time <= self.start_time:
+            raise ValidationError({"end_time": _("End time must be after start time.")})
 
     def __str__(self):
         label = self.name or self.role.name

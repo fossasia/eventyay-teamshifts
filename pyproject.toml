@@ -45,6 +45,13 @@ repository = "https://github.com/fossasia/eventyay-teamshifts"
 [tool.setuptools]
 include-package-data = true
 
+[tool.setuptools.package-data]
+"teamshifts" = [
+    "templates/**/*",
+    "static/**/*",
+    "locale/**/*",
+]
+
 [tool.setuptools.dynamic]
 version = {attr = "teamshifts.__version__"}
 

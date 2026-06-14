@@ -20,12 +20,14 @@ dependencies = [
 dev = [
     "pytest",
     "pytest-django",
+    "ruff",
 ]
 
 [dependency-groups]
-test = [
+dev = [
     "pytest",
     "pytest-django",
+    "ruff",
 ]
 
 [project.entry-points."pretix.plugin"]

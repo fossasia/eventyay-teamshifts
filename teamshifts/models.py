@@ -1,0 +1,174 @@
+from django.db import models
+from django.utils.translation import gettext_lazy as _
+from django_scopes import ScopedManager
+from i18nfield.fields import I18nTextField
+
+
+class ApplicationStatus(models.TextChoices):
+    PENDING = "pending", _("Pending")
+    ACCEPTED = "accepted", _("Accepted")
+    REJECTED = "rejected", _("Rejected")
+
+
+class CallForTeamMembers(models.Model):
+    """
+    Call for Team Members settings for an event.
+    One per event. The organiser can customise the public-facing title
+    (e.g. "Call for Volunteers", "Call for Team Members").
+    """
+
+    event = models.OneToOneField(
+        "base.Event",
+        on_delete=models.CASCADE,
+        related_name="call_for_team_members",
+    )
+    active = models.BooleanField(default=False, verbose_name=_("Active"))
+    deadline = models.DateTimeField(null=True, blank=True, verbose_name=_("Deadline"))
+    title = models.CharField(
+        max_length=200,
+        default=_("Call for Team Members"),
+        verbose_name=_("Title"),
+        help_text=_("Displayed to applicants. Can be customised, e.g. 'Call for Volunteers' or 'Call for Staff'."),
+    )
+    description = I18nTextField(verbose_name=_("Description"), blank=True, null=True)
+
+    objects = ScopedManager(event="event")
+
+    class Meta:
+        verbose_name = _("Call for Team Members")
+        verbose_name_plural = _("Calls for Team Members")
+
+    def __str__(self):
+        return f"{self.title} — {self.event.slug} ({'active' if self.active else 'inactive'})"
+
+
+class TeamRole(models.Model):
+    event = models.ForeignKey(
+        "base.Event",
+        on_delete=models.CASCADE,
+        related_name="team_roles",
+    )
+    name = models.CharField(max_length=190, verbose_name=_("Role Name"))
+    description = models.TextField(blank=True, verbose_name=_("Description"))
+
+    objects = ScopedManager(event="event")
+
+    class Meta:
+        verbose_name = _("Team Role")
+        verbose_name_plural = _("Team Roles")
+        unique_together = ("event", "name")
+
+    def __str__(self):
+        return f"{self.name} ({self.event.slug})"
+
+
+class TeamMemberApplication(models.Model):
+    event = models.ForeignKey(
+        "base.Event",
+        on_delete=models.CASCADE,
+        related_name="team_member_applications",
+    )
+    user = models.ForeignKey(
+        "base.User",
+        on_delete=models.CASCADE,
+        related_name="team_member_applications",
+    )
+    role = models.ForeignKey(
+        TeamRole,
+        on_delete=models.CASCADE,
+        related_name="applications",
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=ApplicationStatus.choices,
+        default=ApplicationStatus.PENDING,
+        verbose_name=_("Status"),
+    )
+    availability_notes = models.TextField(
+        blank=True,
+        verbose_name=_("Availability Notes"),
+        help_text=_("Applicant's notes on their availability for shifts."),
+    )
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Applied At"))
+    updated_at = models.DateTimeField(auto_now=True, verbose_name=_("Updated At"))
+
+    objects = ScopedManager(event="event")
+
+    class Meta:
+        verbose_name = _("Team Member Application")
+        verbose_name_plural = _("Team Member Applications")
+        unique_together = ("event", "user", "role")
+
+    def __str__(self):
+        return f"{self.user.email} → {self.role.name} ({self.get_status_display()})"
+
+
+class Shift(models.Model):
+    event = models.ForeignKey(
+        "base.Event",
+        on_delete=models.CASCADE,
+        related_name="shifts",
+    )
+    role = models.ForeignKey(
+        TeamRole,
+        on_delete=models.CASCADE,
+        related_name="shifts",
+    )
+    name = models.CharField(max_length=190, blank=True, verbose_name=_("Shift Name"))
+    location = models.CharField(max_length=190, blank=True, verbose_name=_("Location"))
+    start_time = models.DateTimeField(verbose_name=_("Start Time"))
+    end_time = models.DateTimeField(verbose_name=_("End Time"))
+    capacity = models.PositiveIntegerField(default=1, verbose_name=_("Capacity"))
+    description = models.TextField(blank=True, verbose_name=_("Description"))
+
+    objects = ScopedManager(event="event")
+
+    class Meta:
+        verbose_name = _("Shift")
+        verbose_name_plural = _("Shifts")
+        ordering = ["start_time"]
+
+    def __str__(self):
+        label = self.name or self.role.name
+        return f"{label} ({self.start_time:%Y-%m-%d %H:%M} – {self.end_time:%H:%M})"
+
+    @property
+    def filled_count(self):
+        return self.assignments.count()
+
+    @property
+    def is_full(self):
+        return self.filled_count >= self.capacity
+
+
+class ShiftAssignment(models.Model):
+    shift = models.ForeignKey(
+        Shift,
+        on_delete=models.CASCADE,
+        related_name="assignments",
+    )
+    team_member = models.ForeignKey(
+        "base.User",
+        on_delete=models.CASCADE,
+        related_name="shift_assignments",
+    )
+    assigned_by = models.ForeignKey(
+        "base.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="assignments_made",
+    )
+    assigned_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Assigned At"))
+    is_moderator = models.BooleanField(default=False, verbose_name=_("Is Moderator"))
+    notified = models.BooleanField(default=False, verbose_name=_("Notified"))
+
+    objects = ScopedManager(event="shift__event")
+
+    class Meta:
+        verbose_name = _("Shift Assignment")
+        verbose_name_plural = _("Shift Assignments")
+        unique_together = ("shift", "team_member")
+
+    def __str__(self):
+        return f"{self.team_member.email} → {self.shift}"

@@ -1,0 +1,33 @@
+{% extends "pretixcontrol/base.html" %}
+{% load i18n %}
+
+{% block nav %}{% endblock %}
+
+{% block title %}{% trans "Application submitted" %} :: {{ event.name }}{% endblock %}
+
+{% block content %}
+    <nav id="event-nav" class="header-nav">
+        <div class="navigation">
+            <div class="navigation-title">
+                <h1>{% trans "Application submitted" %}</h1>
+            </div>
+        </div>
+    </nav>
+
+    <div class="panel panel-success">
+        <div class="panel-body text-center" style="padding: 48px 24px;">
+            <span class="fa fa-check-circle fa-4x text-success" style="margin-bottom: 16px; display: block;"></span>
+            <h3>{% trans "Thank you!" %}</h3>
+            <p class="text-muted">
+                {% blocktrans trimmed with name=event.name %}
+                    Your application has been submitted for <strong>{{ name }}</strong>.
+                    You will be notified once it has been reviewed.
+                {% endblocktrans %}
+            </p>
+            <a href="{% url 'plugins:teamshifts:apply' organizer=request.organizer.slug event=event.slug %}"
+               class="btn btn-default">
+                {% trans "Submit another application" %}
+            </a>
+        </div>
+    </div>
+{% endblock %}

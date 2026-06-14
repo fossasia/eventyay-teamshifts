@@ -1,0 +1,36 @@
+{% extends "teamshifts/base.html" %}
+{% load i18n %}
+{% load bootstrap3 %}
+
+{% block title %}{% trans "Call for Team Members" %} :: {{ request.event.name }}{% endblock %}
+
+{% block content %}
+    <nav id="event-nav" class="header-nav">
+        <div class="navigation">
+            <div class="navigation-title">
+                <h1>{% trans "Call for Team Members" %}</h1>
+            </div>
+        </div>
+    </nav>
+
+    <form action="" method="post" class="form-horizontal">
+        {% csrf_token %}
+        {% bootstrap_form_errors form %}
+        <fieldset>
+            <legend>{% trans "Settings" %}</legend>
+            {% bootstrap_field form.title layout="control" %}
+            {% bootstrap_field form.active layout="control" %}
+            {% bootstrap_field form.deadline layout="control" %}
+            {% bootstrap_field form.description layout="control" %}
+        </fieldset>
+        <div class="form-group submit-group">
+            <button type="submit" class="btn btn-primary btn-save">
+                {% trans "Save" %}
+            </button>
+            <a href="{% url 'plugins:teamshifts:dashboard' organizer=request.organizer.slug event=request.event.slug %}"
+               class="btn btn-default btn-lg">
+                {% trans "Cancel" %}
+            </a>
+        </div>
+    </form>
+{% endblock %}

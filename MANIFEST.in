@@ -1,4 +1,0 @@
-recursive-include teamshifts/static *
-recursive-include teamshifts/templates *
-recursive-include teamshifts/locale *
-exclude .gitlab-ci.yml

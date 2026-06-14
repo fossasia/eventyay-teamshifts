@@ -8,7 +8,7 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ("base", "0028_product_free_price_max_product_free_price_min_and_more"),
+        ("base", "0029_organizerfollower"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

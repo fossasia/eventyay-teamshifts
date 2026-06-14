@@ -25,6 +25,8 @@ def teamshifts_dashboard_widget(sender, subevent=None, lazy=False, **kwargs):
 
 @receiver(event_dashboard_components, dispatch_uid="teamshifts_dashboard_component")
 def teamshifts_dashboard_component(sender, request=None, **kwargs):
+    if request is None or not request.user.has_event_permission(request.organizer, sender, "can_change_event_settings", request=request):
+        return ""
     url = reverse(
         "plugins:teamshifts:dashboard",
         kwargs={

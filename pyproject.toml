@@ -1,6 +1,7 @@
 [project]
 name = "eventyay-teamshifts"
 dynamic = ["version"]
+requires-python = ">=3.12"
 description = "Team and shift management plugin for eventyay"
 readme = "README.md"
 license = {text = "Apache-2.0"}
@@ -15,16 +16,24 @@ maintainers = [
 dependencies = [
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-django",
+]
+
+[dependency-groups]
+test = [
+    "pytest",
+    "pytest-django",
+]
+
 [project.entry-points."pretix.plugin"]
 teamshifts = "teamshifts"
-
-[project.entry-points."distutils.commands"]
-build = "pretix_plugin_build.build:CustomBuild"
 
 [build-system]
 requires = [
     "setuptools",
-    "pretix-plugin-build",
 ]
 
 [project.urls]

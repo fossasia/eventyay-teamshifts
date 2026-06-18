@@ -280,4 +280,126 @@ class Migration(migrations.Migration):
                 "unique_together": {("shift", "team_member")},
             },
         ),
+        migrations.CreateModel(
+            name="TeamApplicationQuestion",
+            fields=[
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                (
+                    "question",
+                    i18nfield.fields.I18nTextField(verbose_name="Question"),
+                ),
+                (
+                    "help_text",
+                    i18nfield.fields.I18nTextField(blank=True, null=True, verbose_name="Help text"),
+                ),
+                (
+                    "variant",
+                    models.CharField(
+                        choices=[
+                            ("string", "Text (one-line)"),
+                            ("text", "Multi-line text"),
+                            ("number", "Number"),
+                            ("boolean", "Confirmation (yes/no)"),
+                            ("date", "Date"),
+                            ("choices", "Choose one option"),
+                            ("multiple_choice", "Choose one or more options"),
+                        ],
+                        default="string",
+                        max_length=20,
+                        verbose_name="Field type",
+                    ),
+                ),
+                (
+                    "required",
+                    models.BooleanField(default=False, verbose_name="Required"),
+                ),
+                (
+                    "position",
+                    models.PositiveIntegerField(default=0, verbose_name="Position"),
+                ),
+                (
+                    "options",
+                    models.TextField(
+                        blank=True,
+                        help_text="One option per line. Only used for choice / multiple choice fields.",
+                        verbose_name="Options",
+                    ),
+                ),
+                (
+                    "active",
+                    models.BooleanField(default=True, verbose_name="Active"),
+                ),
+                (
+                    "event",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="team_application_questions",
+                        to="base.event",
+                    ),
+                ),
+                (
+                    "role",
+                    models.ForeignKey(
+                        blank=True,
+                        help_text="Leave blank to ask this question for every role.",
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="application_questions",
+                        to="teamshifts.teamrole",
+                    ),
+                ),
+            ],
+            options={
+                "verbose_name": "Application Question",
+                "verbose_name_plural": "Application Questions",
+                "ordering": ["position", "pk"],
+            },
+        ),
+        migrations.CreateModel(
+            name="TeamApplicationAnswer",
+            fields=[
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                (
+                    "answer",
+                    models.TextField(blank=True, verbose_name="Answer"),
+                ),
+                (
+                    "application",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="answers",
+                        to="teamshifts.teammemberapplication",
+                    ),
+                ),
+                (
+                    "question",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="answers",
+                        to="teamshifts.teamapplicationquestion",
+                    ),
+                ),
+            ],
+            options={
+                "verbose_name": "Application Answer",
+                "verbose_name_plural": "Application Answers",
+                "unique_together": {("application", "question")},
+            },
+        ),
     ]

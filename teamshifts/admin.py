@@ -4,6 +4,8 @@ from .models import (
     CallForTeamMembers,
     Shift,
     ShiftAssignment,
+    TeamApplicationAnswer,
+    TeamApplicationQuestion,
     TeamMemberApplication,
     TeamRole,
 )
@@ -57,3 +59,21 @@ class ShiftAssignmentAdmin(admin.ModelAdmin):
 
     def has_change_permission(self, request, obj=None):
         return False
+
+
+@admin.register(TeamApplicationQuestion)
+class TeamApplicationQuestionAdmin(admin.ModelAdmin):
+    list_display = ("event", "role", "variant", "required", "position", "active")
+    list_filter = ("variant", "required", "active", "event__organizer")
+    search_fields = ("event__slug", "role__name")
+    ordering = ("event", "role", "position")
+
+
+@admin.register(TeamApplicationAnswer)
+class TeamApplicationAnswerAdmin(admin.ModelAdmin):
+    list_display = ("application", "question")
+    search_fields = (
+        "application__user__email",
+        "question__event__slug",
+    )
+    readonly_fields = ("application", "question")

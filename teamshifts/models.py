@@ -183,3 +183,97 @@ class ShiftAssignment(models.Model):
 
     def __str__(self):
         return f"{self.team_member.email} → {self.shift}"
+
+
+class QuestionVariant(models.TextChoices):
+    STRING = "string", _("Text (one-line)")
+    TEXT = "text", _("Multi-line text")
+    NUMBER = "number", _("Number")
+    BOOLEAN = "boolean", _("Confirmation (yes/no)")
+    DATE = "date", _("Date")
+    CHOICES = "choices", _("Choose one option")
+    MULTIPLE = "multiple_choice", _("Choose one or more options")
+
+
+class TeamApplicationQuestion(models.Model):
+    event = models.ForeignKey(
+        "base.Event",
+        on_delete=models.CASCADE,
+        related_name="team_application_questions",
+    )
+    role = models.ForeignKey(
+        TeamRole,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="application_questions",
+        help_text=_("Leave blank to ask this question for every role."),
+    )
+    question = I18nTextField(verbose_name=_("Question"))
+    help_text = I18nTextField(verbose_name=_("Help text"), blank=True, null=True)
+    variant = models.CharField(
+        max_length=20,
+        choices=QuestionVariant.choices,
+        default=QuestionVariant.STRING,
+        verbose_name=_("Field type"),
+    )
+    required = models.BooleanField(default=False, verbose_name=_("Required"))
+    position = models.PositiveIntegerField(default=0, verbose_name=_("Position"))
+    options = models.TextField(
+        blank=True,
+        verbose_name=_("Options"),
+        help_text=_("One option per line. Only used for choice / multiple choice fields."),
+    )
+    active = models.BooleanField(default=True, verbose_name=_("Active"))
+
+    objects = ScopedManager(event="event")
+
+    class Meta:
+        verbose_name = _("Application Question")
+        verbose_name_plural = _("Application Questions")
+        ordering = ["position", "pk"]
+
+    def clean(self):
+        if self.role_id and self.event_id and self.role.event_id != self.event_id:
+            raise ValidationError({"role": _("The selected role does not belong to this event.")})
+
+    def get_options(self):
+        """Return the options list for choice-style variants."""
+        if self.variant not in (QuestionVariant.CHOICES, QuestionVariant.MULTIPLE):
+            return []
+        return [line.strip() for line in (self.options or "").splitlines() if line.strip()]
+
+    def __str__(self):
+        return f"{self.question} ({self.get_variant_display()})"
+
+
+class TeamApplicationAnswer(models.Model):
+    """
+    The applicant's answer to a single :class:`TeamApplicationQuestion`.
+
+    The raw answer is stored as text. For ``MULTIPLE`` variants the value is a
+    newline-separated list of selected option labels. For ``BOOLEAN`` it is
+    "true" or "false".
+    """
+
+    application = models.ForeignKey(
+        TeamMemberApplication,
+        on_delete=models.CASCADE,
+        related_name="answers",
+    )
+    question = models.ForeignKey(
+        TeamApplicationQuestion,
+        on_delete=models.CASCADE,
+        related_name="answers",
+    )
+    answer = models.TextField(blank=True, verbose_name=_("Answer"))
+
+    objects = ScopedManager(event="application__event")
+
+    class Meta:
+        verbose_name = _("Application Answer")
+        verbose_name_plural = _("Application Answers")
+        unique_together = ("application", "question")
+
+    def __str__(self):
+        return f"{self.application} → {self.question}: {self.answer[:30]}"

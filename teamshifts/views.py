@@ -6,10 +6,18 @@ from django.views.generic import FormView, TemplateView, View
 from django_scopes import scope
 from eventyay.control.permissions import EventPermissionRequiredMixin
 
-from .forms import CallForTeamMembersForm, TeamMemberApplicationForm, TeamRoleForm
+from .forms import (
+    CallForTeamMembersForm,
+    TeamApplicationQuestionForm,
+    TeamMemberApplicationForm,
+    TeamRoleForm,
+    render_answer_for_review,
+)
 from .models import (
     ApplicationStatus,
     CallForTeamMembers,
+    TeamApplicationAnswer,
+    TeamApplicationQuestion,
     TeamMemberApplication,
     TeamRole,
 )
@@ -36,31 +44,37 @@ class TeamShiftsDashboard(EventPermissionRequiredMixin, TemplateView):
 
 
 class CFMSettingsView(EventPermissionRequiredMixin, View):
+    """
+    Settings page that doubles as the form builder (mirrors the orga:cfp.text
+    pattern in the talks component): shows CFM settings plus the inline list
+    of organiser-defined custom application questions.
+    """
+
     permission = "can_change_event_settings"
     template_name = "teamshifts/cfv_settings.html"
 
-    def get_object(self):
+    def _get_cfm(self):
         with scope(event=self.request.event):
-            obj, _ = CallForTeamMembers.objects.get_or_create(event=self.request.event)
+            obj, _created = CallForTeamMembers.objects.get_or_create(event=self.request.event)
         return obj
 
+    def _questions(self):
+        with scope(event=self.request.event):
+            return list(TeamApplicationQuestion.objects.filter(event=self.request.event).select_related("role").order_by("position", "pk"))
+
     def get(self, request, *args, **kwargs):
-        cfm = self.get_object()
-        form = CallForTeamMembersForm(instance=cfm)
-        return render(request, self.template_name, {"form": form, "cfm": cfm})
+        cfm = self._get_cfm()
+        form = CallForTeamMembersForm(instance=cfm, locales=request.event.settings.locales)
+        return render(request, self.template_name, {"form": form, "cfm": cfm, "questions": self._questions()})
 
     def post(self, request, *args, **kwargs):
-        cfm = self.get_object()
-        form = CallForTeamMembersForm(request.POST, instance=cfm)
+        cfm = self._get_cfm()
+        form = CallForTeamMembersForm(request.POST, instance=cfm, locales=request.event.settings.locales)
         if form.is_valid():
             form.save()
             messages.success(request, _("Settings saved."))
-            return redirect(
-                "plugins:teamshifts:cfm_settings",
-                organizer=request.organizer.slug,
-                event=request.event.slug,
-            )
-        return render(request, self.template_name, {"form": form, "cfm": cfm})
+            return redirect("plugins:teamshifts:cfm_settings", organizer=request.organizer.slug, event=request.event.slug)
+        return render(request, self.template_name, {"form": form, "cfm": cfm, "questions": self._questions()})
 
 
 class TeamRoleListView(EventPermissionRequiredMixin, View):
@@ -79,11 +93,7 @@ class TeamRoleListView(EventPermissionRequiredMixin, View):
             role.event = request.event
             role.save()
             messages.success(request, _("Role '%s' created.") % role.name)
-            return redirect(
-                "plugins:teamshifts:roles",
-                organizer=request.organizer.slug,
-                event=request.event.slug,
-            )
+            return redirect("plugins:teamshifts:roles", organizer=request.organizer.slug, event=request.event.slug)
         with scope(event=request.event):
             roles = list(TeamRole.objects.filter(event=request.event))
         return render(request, self.template_name, {"roles": roles, "form": form})
@@ -97,24 +107,60 @@ class TeamRoleDeleteView(EventPermissionRequiredMixin, View):
         with scope(event=event):
             role = get_object_or_404(TeamRole, pk=kwargs["pk"], event=event)
             if role.applications.exists():
-                messages.error(
-                    request,
-                    _("Cannot delete '%s': it has existing applications.") % role.name,
-                )
+                messages.error(request, _("Cannot delete '%s': it has existing applications.") % role.name)
             elif role.shifts.exists():
-                messages.error(
-                    request,
-                    _("Cannot delete '%s': it is used by existing shifts.") % role.name,
-                )
+                messages.error(request, _("Cannot delete '%s': it is used by existing shifts.") % role.name)
             else:
                 name = role.name
                 role.delete()
                 messages.success(request, _("Role '%s' deleted.") % name)
-        return redirect(
-            "plugins:teamshifts:roles",
-            organizer=request.organizer.slug,
-            event=event.slug,
-        )
+        return redirect("plugins:teamshifts:roles", organizer=request.organizer.slug, event=event.slug)
+
+
+class QuestionEditView(EventPermissionRequiredMixin, View):
+    """
+    Handles both create (no pk / question_create URL) and edit (pk / question_edit URL).
+    On success redirects back to cfm_settings where the list lives.
+    """
+
+    permission = "can_change_event_settings"
+    template_name = "teamshifts/question_edit.html"
+
+    def _get_instance(self, request, pk):
+        if pk is None:
+            return None
+        with scope(event=request.event):
+            return get_object_or_404(TeamApplicationQuestion, pk=pk, event=request.event)
+
+    def get(self, request, *args, **kwargs):
+        instance = self._get_instance(request, kwargs.get("pk"))
+        form = TeamApplicationQuestionForm(instance=instance, event=request.event, locales=request.event.settings.locales)
+        return render(request, self.template_name, {"form": form, "question": instance})
+
+    def post(self, request, *args, **kwargs):
+        instance = self._get_instance(request, kwargs.get("pk"))
+        form = TeamApplicationQuestionForm(request.POST, instance=instance, event=request.event, locales=request.event.settings.locales)
+        if form.is_valid():
+            saved = form.save()
+            if instance is None:
+                messages.success(request, _("Question '%s' added.") % saved.question)
+            else:
+                messages.success(request, _("Question saved."))
+            return redirect("plugins:teamshifts:cfm_settings", organizer=request.organizer.slug, event=request.event.slug)
+        return render(request, self.template_name, {"form": form, "question": instance})
+
+
+class QuestionDeleteView(EventPermissionRequiredMixin, View):
+    permission = "can_change_event_settings"
+
+    def post(self, request, *args, **kwargs):
+        event = request.event
+        with scope(event=event):
+            question = get_object_or_404(TeamApplicationQuestion, pk=kwargs["pk"], event=event)
+            label = str(question.question)
+            question.delete()
+        messages.success(request, _("Question '%s' deleted.") % label)
+        return redirect("plugins:teamshifts:cfm_settings", organizer=request.organizer.slug, event=event.slug)
 
 
 class ApplicationListView(EventPermissionRequiredMixin, TemplateView):
@@ -125,7 +171,7 @@ class ApplicationListView(EventPermissionRequiredMixin, TemplateView):
         ctx = super().get_context_data(**kwargs)
         event = self.request.event
         with scope(event=event):
-            qs = TeamMemberApplication.objects.filter(event=event).select_related("user", "role").order_by("-created_at")
+            qs = TeamMemberApplication.objects.filter(event=event).select_related("user", "role").prefetch_related("answers__question").order_by("-created_at")
             status_filter = self.request.GET.get("status")
             role_filter = self.request.GET.get("role")
             search = self.request.GET.get("q", "").strip()
@@ -137,7 +183,11 @@ class ApplicationListView(EventPermissionRequiredMixin, TemplateView):
             if search:
                 qs = qs.filter(user__email__icontains=search)
 
-            ctx["applications"] = list(qs)
+            applications = list(qs)
+            for app in applications:
+                app.rendered_answers = [{"question": a.question, "value": render_answer_for_review(a.question, a.answer)} for a in app.answers.all()]
+
+            ctx["applications"] = applications
             ctx["roles"] = list(TeamRole.objects.filter(event=event))
             ctx["status_choices"] = ApplicationStatus.choices
             ctx["current_status"] = status_filter
@@ -164,11 +214,7 @@ class ApplicationStatusView(EventPermissionRequiredMixin, View):
             messages.warning(request, _("Application by %s rejected.") % application.user.email)
         else:
             raise Http404
-        return redirect(
-            "plugins:teamshifts:applications",
-            organizer=request.organizer.slug,
-            event=event.slug,
-        )
+        return redirect("plugins:teamshifts:applications", organizer=request.organizer.slug, event=event.slug)
 
 
 class PublicApplyView(FormView):
@@ -210,26 +256,20 @@ class PublicApplyView(FormView):
         role = form.cleaned_data["role"]
         with scope(event=event):
             if TeamMemberApplication.objects.filter(event=event, user=self.request.user, role=role).exists():
-                messages.error(
-                    self.request,
-                    _("You have already applied for the role '%s'.") % role.name,
-                )
+                messages.error(self.request, _("You have already applied for the role '%s'.") % role.name)
                 return self.form_invalid(form)
-            TeamMemberApplication.objects.create(
+            application = TeamMemberApplication.objects.create(
                 event=event,
                 user=self.request.user,
                 role=role,
                 availability_notes=form.cleaned_data.get("availability_notes", ""),
             )
-        messages.success(
-            self.request,
-            _("Your application for '%s' has been submitted.") % role.name,
-        )
-        return redirect(
-            "plugins:teamshifts:apply_thanks",
-            organizer=self.organizer.slug,
-            event=event.slug,
-        )
+            for question, answer_text in form.get_question_answers():
+                if question.role_id and question.role_id != role.pk:
+                    continue
+                TeamApplicationAnswer.objects.create(application=application, question=question, answer=answer_text)
+        messages.success(self.request, _("Your application for '%s' has been submitted.") % role.name)
+        return redirect("plugins:teamshifts:apply_thanks", organizer=self.organizer.slug, event=event.slug)
 
 
 class PublicApplyThanksView(TemplateView):

@@ -1,5 +1,11 @@
 {% extends "pretixcontrol/base.html" %}
 {% load i18n %}
+{% load static %}
+
+{% block custom_header %}
+    {{ block.super }}
+    <link rel="stylesheet" type="text/css" href="{% static 'teamshifts/teamshifts.css' %}">
+{% endblock %}
 
 {% block title %}{% trans "TeamShifts" %} :: {{ request.event.name }}{% endblock %}
 
@@ -13,17 +19,18 @@
     </li>
     <li>
         <a href="{% url 'plugins:teamshifts:cfm_settings' organizer=request.organizer.slug event=request.event.slug %}"
-           class="has-children {% if url_name == 'cfm_settings' %}active{% endif %}">
+           class="has-children {% if url_name == 'cfm_settings' or url_name == 'question_create' or url_name == 'question_edit' %}active{% endif %}">
             <span class="fa fa-fw fa-bullhorn"></span>
             <span class="sidebar-text">{% trans "Call for Team Members" %}</span>
         </a>
         <a class="arrow" href="#" data-toggle="collapse" data-target="#collapse-cfm">
             <span class="fa arrow"></span>
         </a>
-        <ul class="nav nav-second-level {% if url_name == 'cfm_settings' %}in{% endif %}" id="collapse-cfm">
+        <ul class="nav nav-second-level {% if url_name == 'cfm_settings' or url_name == 'question_create' or url_name == 'question_edit' %}in{% endif %}"
+            id="collapse-cfm">
             <li>
                 <a href="{% url 'plugins:teamshifts:cfm_settings' organizer=request.organizer.slug event=request.event.slug %}"
-                   {% if url_name == 'cfm_settings' %}class="active"{% endif %}>
+                   {% if url_name == 'cfm_settings' or url_name == 'question_create' or url_name == 'question_edit' %}class="active"{% endif %}>
                     <span class="sidebar-text">{% trans "Settings" %}</span>
                 </a>
             </li>

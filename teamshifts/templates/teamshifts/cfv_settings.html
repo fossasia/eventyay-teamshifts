@@ -5,30 +5,113 @@
 {% block title %}{% trans "Call for Team Members" %} :: {{ request.event.name }}{% endblock %}
 
 {% block content %}
-    <nav id="event-nav" class="header-nav">
-        <div class="navigation">
-            <div class="navigation-title">
+    <nav id='event-nav' class='header-nav'>
+        <div class='navigation'>
+            <div class='navigation-title'>
                 <h1>{% trans "Call for Team Members" %}</h1>
             </div>
         </div>
     </nav>
 
-    <form action="" method="post" class="form-horizontal">
+    <form action='' method='post' class='form-horizontal'>
         {% csrf_token %}
         {% bootstrap_form_errors form %}
         <fieldset>
             <legend>{% trans "Settings" %}</legend>
-            {% bootstrap_field form.title layout="control" %}
-            {% bootstrap_field form.active layout="control" %}
-            {% bootstrap_field form.deadline layout="control" %}
-            {% bootstrap_field form.description layout="control" %}
+            {% bootstrap_field form.title layout='control' %}
+            {% bootstrap_field form.active layout='control' %}
+            {% bootstrap_field form.deadline layout='control' %}
+            {% bootstrap_field form.description layout='control' %}
         </fieldset>
-        <div class="form-group submit-group">
-            <button type="submit" class="btn btn-primary btn-save">
+
+        <fieldset>
+            <legend>{% trans "Application questions" %}</legend>
+            <p class='help-block'>
+                {% blocktrans trimmed %}
+                    Custom questions you add here are shown to applicants on the public
+                    application form. Each question can apply to every role or only to a
+                    specific role.
+                {% endblocktrans %}
+            </p>
+            {% if questions %}
+                <div class='table-responsive'>
+                    <table class='table table-hover table-quotas'>
+                        <thead>
+                            <tr>
+                                <th>{% trans "Question" %}</th>
+                                <th>{% trans "Field type" %}</th>
+                                <th>{% trans "Role" %}</th>
+                                <th>{% trans "Required" %}</th>
+                                <th>{% trans "Active" %}</th>
+                                <th class='action-col-2'></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for q in questions %}
+                                <tr>
+                                    <td>
+                                        <a href='{% url "plugins:teamshifts:question_edit" organizer=request.organizer.slug event=request.event.slug pk=q.pk %}'>
+                                            <strong>{{ q.question }}</strong>
+                                        </a>
+                                    </td>
+                                    <td>{{ q.get_variant_display }}</td>
+                                    <td>
+                                        {% if q.role %}
+                                            <span class='label label-info'>{{ q.role.name }}</span>
+                                        {% else %}
+                                            <span class='text-muted'>{% trans "All roles" %}</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if q.required %}
+                                            <span class='label label-warning'>{% trans "Required" %}</span>
+                                        {% else %}
+                                            <span class='text-muted'>{% trans "Optional" %}</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if q.active %}
+                                            <span class='label label-success'>{% trans "Active" %}</span>
+                                        {% else %}
+                                            <span class='label label-default'>{% trans "Disabled" %}</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class='text-right flip'>
+                                        <a href='{% url "plugins:teamshifts:question_edit" organizer=request.organizer.slug event=request.event.slug pk=q.pk %}'
+                                           class='btn btn-default btn-sm'>
+                                            <span class='fa fa-edit'></span>
+                                        </a>
+                                        <form action='{% url "plugins:teamshifts:question_delete" organizer=request.organizer.slug event=request.event.slug pk=q.pk %}'
+                                              method='post'
+                                              class='helper-display-inline'>
+                                            {% csrf_token %}
+                                            <button type='submit'
+                                                    class='btn btn-delete btn-danger btn-sm'
+                                                    data-confirm='{% blocktrans trimmed with name=q.question %}Delete question "{{ name }}"?{% endblocktrans %}'>
+                                                <span class='fa fa-trash'></span>
+                                            </button>
+                                        </form>
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <p class='text-muted'>{% trans "No custom questions yet." %}</p>
+            {% endif %}
+            <a href='{% url "plugins:teamshifts:question_create" organizer=request.organizer.slug event=request.event.slug %}'
+               class='btn btn-default'>
+                <span class='fa fa-plus'></span> {% trans "Add a question" %}
+            </a>
+        </fieldset>
+
+        <div class='form-group submit-group'>
+            <button type='submit' class='btn btn-primary btn-save'>
                 {% trans "Save" %}
             </button>
-            <a href="{% url 'plugins:teamshifts:dashboard' organizer=request.organizer.slug event=request.event.slug %}"
-               class="btn btn-default btn-lg">
+            <a href='{% url "plugins:teamshifts:dashboard" organizer=request.organizer.slug event=request.event.slug %}'
+               class='btn btn-default btn-lg'>
                 {% trans "Cancel" %}
             </a>
         </div>

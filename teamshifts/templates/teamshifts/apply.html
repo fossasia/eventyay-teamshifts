@@ -1,12 +1,18 @@
 {% extends "pretixcontrol/base.html" %}
 {% load i18n %}
 {% load bootstrap3 %}
+{% load static %}
 
 {% block nav %}{% endblock %}
 
 {% block title %}
     {% if cfm %}{{ cfm.title }}{% else %}{% trans "Apply to join the team" %}{% endif %}
     :: {{ event.name }}
+{% endblock %}
+
+{% block custom_header %}
+    {{ block.super }}
+    <script type="module" src="{% static 'teamshifts/apply.js' %}"></script>
 {% endblock %}
 
 {% block content %}
@@ -77,11 +83,21 @@
                 <h3 class="panel-title">{% trans "New application" %}</h3>
             </div>
             <div class="panel-body">
-                <form action="" method="post" class="form-horizontal">
+                <form action="" method="post" class="form-horizontal" id="teamshifts-apply-form">
                     {% csrf_token %}
                     {% bootstrap_form_errors form %}
                     {% bootstrap_field form.role layout="control" %}
                     {% bootstrap_field form.availability_notes layout="control" %}
+                    {% if form.visible_questions %}
+                        <fieldset id="teamshifts-question-fields">
+                            <legend>{% trans "Additional questions" %}</legend>
+                            {% for question, field in form.visible_questions %}
+                                <div class="teamshifts-question-row" data-question-role="{{ question.role_id|default_if_none:'' }}">
+                                    {% bootstrap_field field layout="control" %}
+                                </div>
+                            {% endfor %}
+                        </fieldset>
+                    {% endif %}
                     <div class="form-group submit-group">
                         <button type="submit" class="btn btn-primary btn-save btn-lg">
                             {% trans "Submit application" %}

@@ -8,7 +8,7 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ("base", "0029_organizerfollower"),
+        ("base", "0030_room_is_unscheduled_team_polls_questions"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

@@ -31,3 +31,12 @@
 textarea[name^="help_text_"] {
     min-height: 80px;
 }
+
+/* Mirror the control panel's .optional styling on the public apply page.
+   layout='control' renders <span class="optional"> inside <label>, but the
+   presale CSS has no rule for it so it inherits the bold label weight. */
+label .optional {
+    color: #777;
+    font-weight: normal;
+    display: block;
+}

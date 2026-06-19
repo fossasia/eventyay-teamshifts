@@ -222,9 +222,11 @@ class PublicApplyView(FormView):
 
     def dispatch(self, request, *args, **kwargs):
         if not request.user.is_authenticated:
-            from django.contrib.auth.views import redirect_to_login
-
-            return redirect_to_login(request.get_full_path())
+            login_url = reverse(
+                "presale:event.login",
+                kwargs={"organizer": request.organizer.slug, "event": request.event.slug},
+            )
+            return redirect(f"{login_url}?next={request.get_full_path()}")
         self.event = request.event
         self.organizer = request.organizer
         with scope(event=self.event):
@@ -269,7 +271,7 @@ class PublicApplyView(FormView):
                     continue
                 TeamApplicationAnswer.objects.create(application=application, question=question, answer=answer_text)
         messages.success(self.request, _("Your application for '%s' has been submitted.") % role.name)
-        return redirect("plugins:teamshifts:apply_thanks", organizer=self.organizer.slug, event=event.slug)
+        return redirect(reverse("plugins:teamshifts:apply_thanks", kwargs={"organizer": self.organizer.slug, "event": event.slug}))
 
 
 class PublicApplyThanksView(TemplateView):
@@ -277,9 +279,11 @@ class PublicApplyThanksView(TemplateView):
 
     def dispatch(self, request, *args, **kwargs):
         if not request.user.is_authenticated:
-            from django.contrib.auth.views import redirect_to_login
-
-            return redirect_to_login(request.get_full_path())
+            login_url = reverse(
+                "presale:event.login",
+                kwargs={"organizer": request.organizer.slug, "event": request.event.slug},
+            )
+            return redirect(f"{login_url}?next={request.get_full_path()}")
         self.event = request.event
         return super().dispatch(request, *args, **kwargs)
 

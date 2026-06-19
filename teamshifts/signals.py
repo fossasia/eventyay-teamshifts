@@ -3,7 +3,7 @@ from django.urls import reverse
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
 from eventyay.control.signals import event_dashboard_components, event_dashboard_widgets
-from eventyay.presale.signals import front_page_top
+from eventyay.presale.signals import header_nav_tabs
 
 from .models import CallForTeamMembers
 
@@ -44,8 +44,8 @@ def teamshifts_dashboard_component(sender, request=None, **kwargs):
     )
 
 
-@receiver(front_page_top, dispatch_uid="teamshifts_front_page_top")
-def teamshifts_front_page_top(sender, request, **kwargs):
+@receiver(header_nav_tabs, dispatch_uid="teamshifts_header_nav_tab")
+def teamshifts_header_nav_tab(sender, request=None, **kwargs):
     try:
         cfm = sender.call_for_team_members
     except CallForTeamMembers.DoesNotExist:
@@ -56,16 +56,10 @@ def teamshifts_front_page_top(sender, request, **kwargs):
         "plugins:teamshifts:apply",
         kwargs={"organizer": sender.organizer.slug, "event": sender.slug},
     )
-    description_html = format_html("<p>{}</p>", cfm.description) if cfm.description else ""
+    is_active = request is not None and "/teamshifts/apply" in request.path_info
     return format_html(
-        '<div class="panel panel-info" id="teamshifts-cfm-panel">'
-        '<div class="panel-heading"><h3 class="panel-title">'
-        '<span class="fa fa-users"></span> {title}'
-        "</h3></div>"
-        '<div class="panel-body">{description}<a href="{url}" class="btn btn-primary btn-lg">{cta}</a></div>'
-        "</div>",
-        title=cfm.title,
-        description=description_html,
-        url=apply_url,
-        cta=str(_("Apply now")),
+        '<a href="{}" class="header-tab {}"><i class="fa fa-users"></i> {}</a>',
+        apply_url,
+        "active" if is_active else "",
+        cfm.title,
     )

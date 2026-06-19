@@ -12,6 +12,12 @@ class ApplicationStatus(models.TextChoices):
 
 
 class CallForTeamMembers(models.Model):
+    """
+    Call for Team Members settings for an event.
+    One per event. The organiser can customise the public-facing title
+    (e.g. "Call for Volunteers", "Call for Team Members").
+    """
+
     event = models.OneToOneField(
         "base.Event",
         on_delete=models.CASCADE,
@@ -193,10 +199,6 @@ class QuestionVariant(models.TextChoices):
     COUNTRY = "country", _("Country")
     PHONE = "phone", _("Phone number")
 
-    @classmethod
-    def needs_options(cls, variant):
-        return variant in (cls.CHOICES, cls.CHOICES_DROPDOWN, cls.MULTIPLE)
-
 
 class TeamApplicationQuestion(models.Model):
     event = models.ForeignKey(
@@ -210,7 +212,7 @@ class TeamApplicationQuestion(models.Model):
         null=True,
         blank=True,
         related_name="application_questions",
-        help_text=_("Leave blank to show for every role."),
+        help_text=_("Leave blank to ask this question for every role."),
     )
     question = I18nTextField(verbose_name=_("Question"))
     help_text = I18nTextField(verbose_name=_("Help text"), blank=True, null=True)
@@ -225,7 +227,7 @@ class TeamApplicationQuestion(models.Model):
     options = models.TextField(
         blank=True,
         verbose_name=_("Options"),
-        help_text=_("One option per line. Only used for radio / dropdown / checkbox fields."),
+        help_text=_("One option per line. Only used for choice / multiple choice fields."),
     )
     active = models.BooleanField(default=True, verbose_name=_("Active"))
 
@@ -241,7 +243,9 @@ class TeamApplicationQuestion(models.Model):
             raise ValidationError({"role": _("The selected role does not belong to this event.")})
 
     def get_options(self):
-        if not QuestionVariant.needs_options(self.variant):
+        """Return the options list for choice-style variants."""
+        needs_options = (QuestionVariant.CHOICES, QuestionVariant.CHOICES_DROPDOWN, QuestionVariant.MULTIPLE)
+        if self.variant not in needs_options:
             return []
         return [line.strip() for line in (self.options or "").splitlines() if line.strip()]
 
@@ -250,6 +254,14 @@ class TeamApplicationQuestion(models.Model):
 
 
 class TeamApplicationAnswer(models.Model):
+    """
+    The applicant's answer to a single :class:`TeamApplicationQuestion`.
+
+    The raw answer is stored as text. For ``MULTIPLE`` variants the value is a
+    newline-separated list of selected option labels. For ``BOOLEAN`` it is
+    "true" or "false".
+    """
+
     application = models.ForeignKey(
         TeamMemberApplication,
         on_delete=models.CASCADE,

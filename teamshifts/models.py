@@ -12,12 +12,6 @@ class ApplicationStatus(models.TextChoices):
 
 
 class CallForTeamMembers(models.Model):
-    """
-    Call for Team Members settings for an event.
-    One per event. The organiser can customise the public-facing title
-    (e.g. "Call for Volunteers", "Call for Team Members").
-    """
-
     event = models.OneToOneField(
         "base.Event",
         on_delete=models.CASCADE,
@@ -186,13 +180,22 @@ class ShiftAssignment(models.Model):
 
 
 class QuestionVariant(models.TextChoices):
-    STRING = "string", _("Text (one-line)")
+    STRING = "string", _("Text (one line)")
     TEXT = "text", _("Multi-line text")
     NUMBER = "number", _("Number")
-    BOOLEAN = "boolean", _("Confirmation (yes/no)")
+    BOOLEAN = "boolean", _("Confirmation (checkbox)")
     DATE = "date", _("Date")
-    CHOICES = "choices", _("Choose one option")
-    MULTIPLE = "multiple_choice", _("Choose one or more options")
+    DATETIME = "datetime", _("Date and time")
+    URL = "url", _("URL")
+    CHOICES = "choices", _("Radio button (choose one option)")
+    CHOICES_DROPDOWN = "choices_dropdown", _("Dropdown (choose one option)")
+    MULTIPLE = "multiple_choice", _("Checkbox (choose one or more options)")
+    COUNTRY = "country", _("Country")
+    PHONE = "phone", _("Phone number")
+
+    @classmethod
+    def needs_options(cls, variant):
+        return variant in (cls.CHOICES, cls.CHOICES_DROPDOWN, cls.MULTIPLE)
 
 
 class TeamApplicationQuestion(models.Model):
@@ -207,7 +210,7 @@ class TeamApplicationQuestion(models.Model):
         null=True,
         blank=True,
         related_name="application_questions",
-        help_text=_("Leave blank to ask this question for every role."),
+        help_text=_("Leave blank to show for every role."),
     )
     question = I18nTextField(verbose_name=_("Question"))
     help_text = I18nTextField(verbose_name=_("Help text"), blank=True, null=True)
@@ -222,7 +225,7 @@ class TeamApplicationQuestion(models.Model):
     options = models.TextField(
         blank=True,
         verbose_name=_("Options"),
-        help_text=_("One option per line. Only used for choice / multiple choice fields."),
+        help_text=_("One option per line. Only used for radio / dropdown / checkbox fields."),
     )
     active = models.BooleanField(default=True, verbose_name=_("Active"))
 
@@ -238,8 +241,7 @@ class TeamApplicationQuestion(models.Model):
             raise ValidationError({"role": _("The selected role does not belong to this event.")})
 
     def get_options(self):
-        """Return the options list for choice-style variants."""
-        if self.variant not in (QuestionVariant.CHOICES, QuestionVariant.MULTIPLE):
+        if not QuestionVariant.needs_options(self.variant):
             return []
         return [line.strip() for line in (self.options or "").splitlines() if line.strip()]
 
@@ -248,14 +250,6 @@ class TeamApplicationQuestion(models.Model):
 
 
 class TeamApplicationAnswer(models.Model):
-    """
-    The applicant's answer to a single :class:`TeamApplicationQuestion`.
-
-    The raw answer is stored as text. For ``MULTIPLE`` variants the value is a
-    newline-separated list of selected option labels. For ``BOOLEAN`` it is
-    "true" or "false".
-    """
-
     application = models.ForeignKey(
         TeamMemberApplication,
         on_delete=models.CASCADE,

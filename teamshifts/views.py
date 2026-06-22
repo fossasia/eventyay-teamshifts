@@ -275,10 +275,7 @@ class PublicApplyView(FormView):
 
     def dispatch(self, request, *args, **kwargs):
         if not request.user.is_authenticated:
-            login_url = reverse(
-                "presale:event.login",
-                kwargs={"organizer": request.organizer.slug, "event": request.event.slug},
-            )
+            login_url = reverse("eventyay_common:auth.login")
             return redirect(f"{login_url}?next={request.get_full_path()}")
         self.event = request.event
         self.organizer = request.organizer
@@ -343,10 +340,7 @@ class PublicApplyThanksView(TemplateView):
 
     def dispatch(self, request, *args, **kwargs):
         if not request.user.is_authenticated:
-            login_url = reverse(
-                "presale:event.login",
-                kwargs={"organizer": request.organizer.slug, "event": request.event.slug},
-            )
+            login_url = reverse("eventyay_common:auth.login")
             return redirect(f"{login_url}?next={request.get_full_path()}")
         self.event = request.event
         return super().dispatch(request, *args, **kwargs)

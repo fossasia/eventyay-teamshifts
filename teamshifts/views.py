@@ -38,15 +38,9 @@ class TeamShiftsDashboard(EventPermissionRequiredMixin, TemplateView):
             ctx["pending_count"] = TeamMemberApplication.objects.filter(event=event, status=ApplicationStatus.PENDING).count()
             ctx["accepted_count"] = TeamMemberApplication.objects.filter(event=event, status=ApplicationStatus.ACCEPTED).count()
             ctx["shift_count"] = Shift.objects.filter(event=event).count()
-            ctx["recent_applications"] = list(
-                TeamMemberApplication.objects.filter(event=event)
-                .select_related("user", "role")
-                .order_by("-created_at")[:5]
-            )
+            ctx["recent_applications"] = list(TeamMemberApplication.objects.filter(event=event).select_related("user", "role").order_by("-created_at")[:5])
             ctx["accepted_members"] = list(
-                TeamMemberApplication.objects.filter(event=event, status=ApplicationStatus.ACCEPTED)
-                .select_related("user", "role")
-                .order_by("-updated_at")[:8]
+                TeamMemberApplication.objects.filter(event=event, status=ApplicationStatus.ACCEPTED).select_related("user", "role").order_by("-updated_at")[:8]
             )
             try:
                 ctx["cfm"] = event.call_for_team_members
@@ -71,11 +65,7 @@ class CFMSettingsView(EventPermissionRequiredMixin, View):
 
     def _questions(self):
         with scope(event=self.request.event):
-            return list(
-                TeamApplicationQuestion.objects.filter(event=self.request.event)
-                .select_related("role")
-                .order_by("position", "pk")
-            )
+            return list(TeamApplicationQuestion.objects.filter(event=self.request.event).select_related("role").order_by("position", "pk"))
 
     def get(self, request, *args, **kwargs):
         cfm = self._get_cfm()
@@ -202,12 +192,7 @@ class ApplicationListView(EventPermissionRequiredMixin, TemplateView):
         ctx = super().get_context_data(**kwargs)
         event = self.request.event
         with scope(event=event):
-            qs = (
-                TeamMemberApplication.objects.filter(event=event)
-                .select_related("user", "role")
-                .prefetch_related("answers__question")
-                .order_by("-created_at")
-            )
+            qs = TeamMemberApplication.objects.filter(event=event).select_related("user", "role").prefetch_related("answers__question").order_by("-created_at")
             status_filter = self.request.GET.get("status")
             role_filter = self.request.GET.get("role")
             search = self.request.GET.get("q", "").strip()
@@ -221,10 +206,7 @@ class ApplicationListView(EventPermissionRequiredMixin, TemplateView):
 
             applications = list(qs)
             for app in applications:
-                app.rendered_answers = [
-                    {"question": a.question, "value": render_answer_for_review(a.question, a.answer)}
-                    for a in app.answers.all()
-                ]
+                app.rendered_answers = [{"question": a.question, "value": render_answer_for_review(a.question, a.answer)} for a in app.answers.all()]
 
             ctx["applications"] = applications
             ctx["roles"] = list(TeamRole.objects.filter(event=event))
@@ -286,10 +268,7 @@ class PublicApplyView(FormView):
         ctx["cfm"] = self.cfm
         ctx["cfm_open"] = self.cfm is not None and self.cfm.active
         with scope(event=self.event):
-            ctx["existing_applications"] = list(
-                TeamMemberApplication.objects.filter(event=self.event, user=self.request.user)
-                .select_related("role")
-            )
+            ctx["existing_applications"] = list(TeamMemberApplication.objects.filter(event=self.event, user=self.request.user).select_related("role"))
         return ctx
 
     def form_valid(self, form):

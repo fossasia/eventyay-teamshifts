@@ -100,10 +100,7 @@ class TeamMemberApplication(models.Model):
         null=True,
         blank=True,
         verbose_name=_("Attendance confirmed"),
-        help_text=_(
-            "Whether the team member has confirmed they will attend. "
-            "None = not yet responded, True = confirmed, False = declined."
-        ),
+        help_text=_("Whether the team member has confirmed they will attend. None = not yet responded, True = confirmed, False = declined."),
     )
     created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Applied At"))
     updated_at = models.DateTimeField(auto_now=True, verbose_name=_("Updated At"))

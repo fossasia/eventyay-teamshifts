@@ -24,10 +24,7 @@ class Migration(migrations.Migration):
                 blank=True,
                 null=True,
                 verbose_name="Attendance confirmed",
-                help_text=(
-                    "Whether the team member has confirmed they will attend. "
-                    "None = not yet responded, True = confirmed, False = declined."
-                ),
+                help_text=("Whether the team member has confirmed they will attend. None = not yet responded, True = confirmed, False = declined."),
             ),
         ),
     ]

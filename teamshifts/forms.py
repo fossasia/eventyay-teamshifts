@@ -102,6 +102,12 @@ class TeamMemberApplicationForm(forms.Form):
         help_text=_("Which days/hours can you commit to?"),
         widget=forms.Textarea(attrs={"class": "form-control", "rows": 4}),
     )
+    phone = forms.CharField(
+        required=False,
+        label=_("Phone / Mobile"),
+        help_text=_("Optional. We may use this to contact you regarding your shift."),
+        widget=forms.TextInput(attrs={"class": "form-control", "type": "tel", "placeholder": "+1 555 000 0000"}),
+    )
 
     QUESTION_FIELD_PREFIX = "question_"
 

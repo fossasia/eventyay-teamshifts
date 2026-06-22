@@ -41,6 +41,11 @@ urlpatterns = [
         name="question_create",
     ),
     path(
+        "teamshifts/event/<orgslug:organizer>/<slug:event>/settings/questions/reorder/",
+        views.QuestionReorderView.as_view(),
+        name="question_reorder",
+    ),
+    path(
         "teamshifts/event/<orgslug:organizer>/<slug:event>/settings/questions/<int:pk>/edit/",
         views.QuestionEditView.as_view(),
         name="question_edit",

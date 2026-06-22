@@ -1,6 +1,13 @@
 {% extends "teamshifts/base.html" %}
 {% load i18n %}
 {% load bootstrap3 %}
+{% load static %}
+
+{% block custom_header %}
+    {{ block.super }}
+    <link rel='stylesheet' type='text/css' href='{% static "orga/css/dragsort.css" %}'>
+    <script defer src='{% static "teamshifts/dragsort.js" %}'></script>
+{% endblock %}
 
 {% block title %}{% trans "Call for Team Members" %} :: {{ request.event.name }}{% endblock %}
 
@@ -44,11 +51,12 @@
                                 <th>{% trans "Required" %}</th>
                                 <th>{% trans "Active" %}</th>
                                 <th class='action-col-2'></th>
+                                <th></th>
                             </tr>
                         </thead>
-                        <tbody>
+                        <tbody dragsort-url="{% url 'plugins:teamshifts:question_reorder' organizer=request.organizer.slug event=request.event.slug %}">
                             {% for q in questions %}
-                                <tr>
+                                <tr dragsort-id="{{ q.pk }}">
                                     <td>
                                         <a href='{% url "plugins:teamshifts:question_edit" organizer=request.organizer.slug event=request.event.slug pk=q.pk %}'>
                                             <strong>{{ q.question }}</strong>
@@ -91,6 +99,13 @@
                                                 <span class='fa fa-trash'></span>
                                             </button>
                                         </form>
+                                    </td>
+                                    <td>
+                                        <button type='button' draggable='true'
+                                                class='btn btn-default btn-sm dragsort-button'
+                                                title='{% trans "Drag to reorder" %}'>
+                                            <span class='fa fa-arrows-v'></span>
+                                        </button>
                                     </td>
                                 </tr>
                             {% endfor %}

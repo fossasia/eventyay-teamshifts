@@ -1,6 +1,7 @@
 from django.contrib import messages
-from django.http import Http404
+from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 from django.views.generic import FormView, TemplateView, View
 from django_scopes import scope
@@ -16,6 +17,7 @@ from .forms import (
 from .models import (
     ApplicationStatus,
     CallForTeamMembers,
+    Shift,
     TeamApplicationAnswer,
     TeamApplicationQuestion,
     TeamMemberApplication,
@@ -35,7 +37,17 @@ class TeamShiftsDashboard(EventPermissionRequiredMixin, TemplateView):
             ctx["application_count"] = TeamMemberApplication.objects.filter(event=event).count()
             ctx["pending_count"] = TeamMemberApplication.objects.filter(event=event, status=ApplicationStatus.PENDING).count()
             ctx["accepted_count"] = TeamMemberApplication.objects.filter(event=event, status=ApplicationStatus.ACCEPTED).count()
-            ctx["recent_applications"] = list(TeamMemberApplication.objects.filter(event=event).select_related("user", "role").order_by("-created_at")[:5])
+            ctx["shift_count"] = Shift.objects.filter(event=event).count()
+            ctx["recent_applications"] = list(
+                TeamMemberApplication.objects.filter(event=event)
+                .select_related("user", "role")
+                .order_by("-created_at")[:5]
+            )
+            ctx["accepted_members"] = list(
+                TeamMemberApplication.objects.filter(event=event, status=ApplicationStatus.ACCEPTED)
+                .select_related("user", "role")
+                .order_by("-updated_at")[:8]
+            )
             try:
                 ctx["cfm"] = event.call_for_team_members
             except CallForTeamMembers.DoesNotExist:
@@ -45,8 +57,7 @@ class TeamShiftsDashboard(EventPermissionRequiredMixin, TemplateView):
 
 class CFMSettingsView(EventPermissionRequiredMixin, View):
     """
-    Settings page that doubles as the form builder (mirrors the orga:cfp.text
-    pattern in the talks component): shows CFM settings plus the inline list
+    Settings page / form builder: shows CFM settings plus the inline list
     of organiser-defined custom application questions.
     """
 
@@ -60,7 +71,11 @@ class CFMSettingsView(EventPermissionRequiredMixin, View):
 
     def _questions(self):
         with scope(event=self.request.event):
-            return list(TeamApplicationQuestion.objects.filter(event=self.request.event).select_related("role").order_by("position", "pk"))
+            return list(
+                TeamApplicationQuestion.objects.filter(event=self.request.event)
+                .select_related("role")
+                .order_by("position", "pk")
+            )
 
     def get(self, request, *args, **kwargs):
         cfm = self._get_cfm()
@@ -118,10 +133,7 @@ class TeamRoleDeleteView(EventPermissionRequiredMixin, View):
 
 
 class QuestionEditView(EventPermissionRequiredMixin, View):
-    """
-    Handles both create (no pk / question_create URL) and edit (pk / question_edit URL).
-    On success redirects back to cfm_settings where the list lives.
-    """
+    """Create (no pk) or edit (pk) a custom application question."""
 
     permission = "can_change_event_settings"
     template_name = "teamshifts/question_edit.html"
@@ -163,6 +175,25 @@ class QuestionDeleteView(EventPermissionRequiredMixin, View):
         return redirect("plugins:teamshifts:cfm_settings", organizer=request.organizer.slug, event=event.slug)
 
 
+class QuestionReorderView(EventPermissionRequiredMixin, View):
+    """
+    AJAX endpoint for drag-and-drop question reordering.
+    Accepts POST with 'order=pk1,pk2,pk3,...' and updates position on each question.
+    Returns HTTP 204 on success.
+    """
+
+    permission = "can_change_event_settings"
+
+    def post(self, request, *args, **kwargs):
+        order_str = request.POST.get("order", "")
+        pks = [pk.strip() for pk in order_str.split(",") if pk.strip().isdigit()]
+        event = request.event
+        with scope(event=event):
+            for position, pk in enumerate(pks):
+                TeamApplicationQuestion.objects.filter(pk=int(pk), event=event).update(position=position)
+        return HttpResponse(status=204)
+
+
 class ApplicationListView(EventPermissionRequiredMixin, TemplateView):
     permission = "can_change_event_settings"
     template_name = "teamshifts/applications.html"
@@ -171,7 +202,12 @@ class ApplicationListView(EventPermissionRequiredMixin, TemplateView):
         ctx = super().get_context_data(**kwargs)
         event = self.request.event
         with scope(event=event):
-            qs = TeamMemberApplication.objects.filter(event=event).select_related("user", "role").prefetch_related("answers__question").order_by("-created_at")
+            qs = (
+                TeamMemberApplication.objects.filter(event=event)
+                .select_related("user", "role")
+                .prefetch_related("answers__question")
+                .order_by("-created_at")
+            )
             status_filter = self.request.GET.get("status")
             role_filter = self.request.GET.get("role")
             search = self.request.GET.get("q", "").strip()
@@ -185,7 +221,10 @@ class ApplicationListView(EventPermissionRequiredMixin, TemplateView):
 
             applications = list(qs)
             for app in applications:
-                app.rendered_answers = [{"question": a.question, "value": render_answer_for_review(a.question, a.answer)} for a in app.answers.all()]
+                app.rendered_answers = [
+                    {"question": a.question, "value": render_answer_for_review(a.question, a.answer)}
+                    for a in app.answers.all()
+                ]
 
             ctx["applications"] = applications
             ctx["roles"] = list(TeamRole.objects.filter(event=event))
@@ -247,7 +286,10 @@ class PublicApplyView(FormView):
         ctx["cfm"] = self.cfm
         ctx["cfm_open"] = self.cfm is not None and self.cfm.active
         with scope(event=self.event):
-            ctx["existing_applications"] = list(TeamMemberApplication.objects.filter(event=self.event, user=self.request.user).select_related("role"))
+            ctx["existing_applications"] = list(
+                TeamMemberApplication.objects.filter(event=self.event, user=self.request.user)
+                .select_related("role")
+            )
         return ctx
 
     def form_valid(self, form):
@@ -265,13 +307,19 @@ class PublicApplyView(FormView):
                 user=self.request.user,
                 role=role,
                 availability_notes=form.cleaned_data.get("availability_notes", ""),
+                phone=form.cleaned_data.get("phone", ""),
             )
             for question, answer_text in form.get_question_answers():
                 if question.role_id and question.role_id != role.pk:
                     continue
                 TeamApplicationAnswer.objects.create(application=application, question=question, answer=answer_text)
         messages.success(self.request, _("Your application for '%s' has been submitted.") % role.name)
-        return redirect(reverse("plugins:teamshifts:apply_thanks", kwargs={"organizer": self.organizer.slug, "event": event.slug}))
+        return redirect(
+            reverse(
+                "plugins:teamshifts:apply_thanks",
+                kwargs={"organizer": self.organizer.slug, "event": event.slug},
+            )
+        )
 
 
 class PublicApplyThanksView(TemplateView):

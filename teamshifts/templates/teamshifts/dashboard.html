@@ -4,146 +4,149 @@
 {% block title %}{% trans "TeamShifts" %} :: {{ request.event.name }}{% endblock %}
 
 {% block content %}
-    <nav id='event-nav' class='header-nav'>
-        <div class='navigation'>
-            <div class='navigation-title'>
-                <h2>
-                    {{ request.event.name }}
-                    <small class='text-muted'>{{ request.event.get_date_range_display }}</small>
-                </h2>
-            </div>
-        </div>
-    </nav>
-
-    <div class='dashboard'>
-        <div class='widget-container widget-small'>
-            <a href='{% url "plugins:teamshifts:cfm_settings" organizer=request.organizer.slug event=request.event.slug %}' class='widget'>
-                <div class='numwidget'>
-                    {% if cfm and cfm.active %}
-                        <span class='num'><span class='fa fa-bullhorn'></span></span>
-                        <span class='text'>{% trans "Call for Team Members" %}<br><span class='label label-success'>{% trans "Open" %}</span></span>
-                    {% else %}
-                        <span class='num'><span class='fa fa-bullhorn'></span></span>
-                        <span class='text'>{% trans "Call for Team Members" %}<br><span class='label label-default'>{% trans "Closed" %}</span></span>
-                    {% endif %}
-                </div>
-            </a>
-        </div>
-        <div class='widget-container widget-small'>
-            <a href='{% url "plugins:teamshifts:roles" organizer=request.organizer.slug event=request.event.slug %}' class='widget'>
-                <div class='numwidget'>
-                    <span class='num'>{{ role_count }}</span>
-                    <span class='text'>{% trans "Open Roles" %}</span>
-                </div>
-            </a>
-        </div>
-        <div class='widget-container widget-small'>
-            <a href='{% url "plugins:teamshifts:applications" organizer=request.organizer.slug event=request.event.slug %}?status=pending' class='widget'>
-                <div class='numwidget'>
-                    <span class='num'>{{ pending_count }}</span>
-                    <span class='text'>{% trans "Pending Applications" %}</span>
-                </div>
-            </a>
-        </div>
-        <div class='widget-container widget-small'>
-            <a href='{% url "plugins:teamshifts:applications" organizer=request.organizer.slug event=request.event.slug %}?status=accepted' class='widget'>
-                <div class='numwidget'>
-                    <span class='num'>{{ accepted_count }}</span>
-                    <span class='text'>{% trans "Accepted Members" %}</span>
-                </div>
-            </a>
-        </div>
+  <nav id='event-nav' class='header-nav'>
+    <div class='navigation'>
+      <div class='navigation-title'>
+        <h2>
+          {{ request.event.name }}
+          <small class='text-muted'>{{ request.event.get_date_range_display }}</small>
+        </h2>
+      </div>
     </div>
+  </nav>
 
-    <p>&nbsp;</p>
-
-    <div class='row'>
-        <div class='col-md-6'>
-            <div class='panel panel-default'>
-                <div class='panel-heading'>
-                    <h3 class='panel-title'>
-                        {% trans "Recent Applications" %}
-                        <a href='{% url "plugins:teamshifts:applications" organizer=request.organizer.slug event=request.event.slug %}'
-                           class='pull-right flip'>
-                            <small>{% trans "View all" %}</small>
-                        </a>
-                    </h3>
-                </div>
-                {% if recent_applications %}
-                    <div class='table-responsive'>
-                        <table class='table table-condensed table-hover'>
-                            <thead>
-                                <tr>
-                                    <th>{% trans "Applicant" %}</th>
-                                    <th>{% trans "Role" %}</th>
-                                    <th>{% trans "Status" %}</th>
-                                    <th>{% trans "Date" %}</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for app in recent_applications %}
-                                    <tr>
-                                        <td>{{ app.user.email }}</td>
-                                        <td>{{ app.role.name }}</td>
-                                        <td>
-                                            {% if app.status == 'pending' %}
-                                                <span class='label label-warning'>{% trans "Pending" %}</span>
-                                            {% elif app.status == 'accepted' %}
-                                                <span class='label label-success'>{% trans "Accepted" %}</span>
-                                            {% else %}
-                                                <span class='label label-danger'>{% trans "Rejected" %}</span>
-                                            {% endif %}
-                                        </td>
-                                        <td>{{ app.created_at|date:"SHORT_DATE_FORMAT" }}</td>
-                                    </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
-                {% else %}
-                    <div class='panel-body text-muted'>
-                        {% trans "No applications yet." %}
-                    </div>
-                {% endif %}
-            </div>
+  <div class='dashboard'>
+    <div class='widget-container widget-small'>
+      <a href='{% url "plugins:teamshifts:roles" organizer=request.organizer.slug event=request.event.slug %}' class='widget'>
+        <div class='numwidget'>
+          <span class='num'>{{ role_count }}</span>
+          <span class='text'>{% trans "Team Roles" %}</span>
         </div>
-        <div class='col-md-6'>
-            <div class='panel panel-default'>
-                <div class='panel-heading'>
-                    <h3 class='panel-title'>
-                        {% trans "Upcoming Shifts" %}
-                        <a href='{% url "plugins:teamshifts:roles" organizer=request.organizer.slug event=request.event.slug %}'
-                           class='pull-right flip'>
-                            <small>{% trans "Manage shifts" %}</small>
-                        </a>
-                    </h3>
-                </div>
-                <div class='panel-body text-muted'>
-                    {% trans "Shift scheduling will be available in a future phase via the shift editor." %}
-                </div>
-            </div>
-
-            <div class='panel panel-default'>
-                <div class='panel-heading'>
-                    <h3 class='panel-title'>{% trans "Quick Actions" %}</h3>
-                </div>
-                <div class='panel-body'>
-                    <p>
-                        <a href='{% url "plugins:teamshifts:apply" organizer=request.organizer.slug event=request.event.slug %}'
-                           class='btn btn-default btn-block' target='_blank'>
-                            <span class='fa fa-external-link'></span>
-                            {% trans "View public application page" %}
-                        </a>
-                    </p>
-                    <p>
-                        <a href='{% url "plugins:teamshifts:cfm_settings" organizer=request.organizer.slug event=request.event.slug %}'
-                           class='btn btn-default btn-block'>
-                            <span class='fa fa-cog'></span>
-                            {% trans "Configure Call for Team Members" %}
-                        </a>
-                    </p>
-                </div>
-            </div>
-        </div>
+      </a>
     </div>
+    <div class='widget-container widget-small'>
+      <a href='{% url "plugins:teamshifts:applications" organizer=request.organizer.slug event=request.event.slug %}?status=pending' class='widget'>
+        <div class='numwidget'>
+          <span class='num'>{{ pending_count }}</span>
+          <span class='text'>{% trans "Pending Applications" %}</span>
+        </div>
+      </a>
+    </div>
+    <div class='widget-container widget-small'>
+      <a href='{% url "plugins:teamshifts:applications" organizer=request.organizer.slug event=request.event.slug %}?status=accepted' class='widget'>
+        <div class='numwidget'>
+          <span class='num'>{{ accepted_count }}</span>
+          <span class='text'>{% trans "Accepted Members" %}</span>
+        </div>
+      </a>
+    </div>
+    <div class='widget-container widget-small'>
+      <a href='#' class='widget'>
+        <div class='numwidget'>
+          <span class='num'>{{ shift_count }}</span>
+          <span class='text'>{% trans "Total Shifts" %}</span>
+        </div>
+      </a>
+    </div>
+  </div>
+
+  <p>&nbsp;</p>
+
+  <div class='row'>
+    <div class='col-md-6'>
+      <div class='panel panel-default'>
+        <div class='panel-heading'>
+          <h3 class='panel-title'>
+            {% trans "Recent Applications" %}
+            <a href='{% url "plugins:teamshifts:applications" organizer=request.organizer.slug event=request.event.slug %}'
+               class='pull-right flip'>
+              <small>{% trans "View all" %}</small>
+            </a>
+          </h3>
+        </div>
+        {% if recent_applications %}
+          <div class='table-responsive'>
+            <table class='table table-condensed table-hover'>
+              <thead>
+                <tr>
+                  <th>{% trans "Applicant" %}</th>
+                  <th>{% trans "Role" %}</th>
+                  <th>{% trans "Status" %}</th>
+                  <th>{% trans "Date" %}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for app in recent_applications %}
+                  <tr>
+                    <td>{{ app.user.email }}</td>
+                    <td>{{ app.role.name }}</td>
+                    <td>
+                      {% if app.status == 'pending' %}
+                        <span class='label label-warning'>{% trans "Pending" %}</span>
+                      {% elif app.status == 'accepted' %}
+                        <span class='label label-success'>{% trans "Accepted" %}</span>
+                      {% else %}
+                        <span class='label label-danger'>{% trans "Rejected" %}</span>
+                      {% endif %}
+                    </td>
+                    <td>{{ app.created_at|date:"SHORT_DATE_FORMAT" }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <div class='panel-body text-muted'>{% trans "No applications yet." %}</div>
+        {% endif %}
+      </div>
+    </div>
+    <div class='col-md-6'>
+      <div class='panel panel-default'>
+        <div class='panel-heading'>
+          <h3 class='panel-title'>
+            {% trans "Accepted Team Members" %}
+            <a href='{% url "plugins:teamshifts:applications" organizer=request.organizer.slug event=request.event.slug %}?status=accepted'
+               class='pull-right flip'>
+              <small>{% trans "View all" %}</small>
+            </a>
+          </h3>
+        </div>
+        {% if accepted_members %}
+          <div class='table-responsive'>
+            <table class='table table-condensed table-hover'>
+              <thead>
+                <tr>
+                  <th>{% trans "Member" %}</th>
+                  <th>{% trans "Role" %}</th>
+                  <th>{% trans "Attendance" %}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for app in accepted_members %}
+                  <tr>
+                    <td>{{ app.user.email }}</td>
+                    <td><span class='label label-info'>{{ app.role.name }}</span></td>
+                    <td>
+                      {% if app.attendance_confirmed is None %}
+                        <span class='label label-default'>{% trans "Not confirmed" %}</span>
+                      {% elif app.attendance_confirmed %}
+                        <span class='label label-success'>{% trans "Confirmed" %}</span>
+                      {% else %}
+                        <span class='label label-danger'>{% trans "Declined" %}</span>
+                      {% endif %}
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <div class='panel-body text-muted'>
+            {% trans "No accepted members yet. Accept applications to see them here." %}
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
 {% endblock %}

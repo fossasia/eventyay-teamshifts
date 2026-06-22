@@ -90,6 +90,21 @@ class TeamMemberApplication(models.Model):
         verbose_name=_("Availability Notes"),
         help_text=_("Applicant's notes on their availability for shifts."),
     )
+    phone = models.CharField(
+        max_length=50,
+        blank=True,
+        verbose_name=_("Phone / Mobile"),
+        help_text=_("Optional contact number for shift coordination."),
+    )
+    attendance_confirmed = models.BooleanField(
+        null=True,
+        blank=True,
+        verbose_name=_("Attendance confirmed"),
+        help_text=_(
+            "Whether the team member has confirmed they will attend. "
+            "None = not yet responded, True = confirmed, False = declined."
+        ),
+    )
     created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Applied At"))
     updated_at = models.DateTimeField(auto_now=True, verbose_name=_("Updated At"))
 

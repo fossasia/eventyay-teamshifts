@@ -71,24 +71,14 @@
                 <h3 class='panel-title'>{% trans "New application" %}</h3>
             </div>
             <div class='panel-body'>
-                <div class='well well-sm' style='margin-bottom:1.2em;'>
-                    <strong>{% trans "Your details" %}</strong>
-                    <dl class='dl-horizontal' style='margin:0.5em 0 0;'>
-                        <dt>{% trans "Name" %}</dt>
-                        <dd>{{ request.user.fullname|default:'—' }}</dd>
-                        <dt>{% trans "Email" %}</dt>
-                        <dd>{{ request.user.email }}</dd>
-                    </dl>
-                    <p class='text-muted small' style='margin:0.4em 0 0;'>
-                        {% trans "To update your name or email, visit your account settings." %}
-                    </p>
-                </div>
                 <form action='' method='post' class='form-horizontal' id='teamshifts-apply-form'>
                     {% csrf_token %}
                     {% bootstrap_form_errors form %}
+                    {% bootstrap_field form.name layout='control' %}
+                    {% bootstrap_field form.email layout='control' %}
+                    {% bootstrap_field form.phone layout='control' %}
                     {% bootstrap_field form.role layout='control' %}
                     {% bootstrap_field form.availability_notes layout='control' %}
-                    {% bootstrap_field form.phone layout='control' %}
                     {% if form.visible_questions %}
                         <fieldset id='teamshifts-question-fields'>
                             <legend>{% trans "Additional questions" %}</legend>

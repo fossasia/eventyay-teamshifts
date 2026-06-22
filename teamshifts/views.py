@@ -1,5 +1,5 @@
 from django.contrib import messages
-from django.http import Http404, HttpResponse
+from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
@@ -166,22 +166,54 @@ class QuestionDeleteView(EventPermissionRequiredMixin, View):
 
 
 class QuestionReorderView(EventPermissionRequiredMixin, View):
-    """
-    AJAX endpoint for drag-and-drop question reordering.
-    Accepts POST with 'order=pk1,pk2,pk3,...' and updates position on each question.
-    Returns HTTP 204 on success.
-    """
-
     permission = "can_change_event_settings"
 
     def post(self, request, *args, **kwargs):
-        order_str = request.POST.get("order", "")
-        pks = [pk.strip() for pk in order_str.split(",") if pk.strip().isdigit()]
+        import json
+
+        try:
+            data = json.loads(request.body.decode("utf-8"))
+            pks = [str(pk) for pk in data.get("ids", [])]
+        except (json.JSONDecodeError, ValueError, AttributeError):
+            return HttpResponse(status=400)
         event = request.event
         with scope(event=event):
             for position, pk in enumerate(pks):
-                TeamApplicationQuestion.objects.filter(pk=int(pk), event=event).update(position=position)
+                if pk.isdigit():
+                    TeamApplicationQuestion.objects.filter(pk=int(pk), event=event).update(position=position)
         return HttpResponse(status=204)
+
+
+class QuestionToggleView(EventPermissionRequiredMixin, View):
+    permission = "can_change_event_settings"
+
+    def post(self, request, *args, **kwargs):
+        import json
+
+        event = request.event
+        with scope(event=event):
+            question = get_object_or_404(TeamApplicationQuestion, pk=kwargs["pk"], event=event)
+        try:
+            data = json.loads(request.body.decode())
+        except (json.JSONDecodeError, ValueError):
+            return JsonResponse({"error": "Invalid JSON"}, status=400)
+        field = data.get("field")
+        value = data.get("value")
+        if field is None or value is None:
+            return JsonResponse({"error": "Missing field or value"}, status=400)
+        if field == "active":
+            if not isinstance(value, bool):
+                return JsonResponse({"error": "Value must be boolean"}, status=400)
+            question.active = value
+            question.save(update_fields=["active"])
+        elif field == "question_required":
+            if value not in ("optional", "required"):
+                return JsonResponse({"error": "Invalid value"}, status=400)
+            question.required = value == "required"
+            question.save(update_fields=["required"])
+        else:
+            return JsonResponse({"error": f"Invalid field: {field}"}, status=400)
+        return JsonResponse({"success": True, "field": field, "value": value})
 
 
 class ApplicationListView(EventPermissionRequiredMixin, TemplateView):
@@ -260,6 +292,7 @@ class PublicApplyView(FormView):
     def get_form(self, form_class=None):
         kwargs = self.get_form_kwargs()
         kwargs["event"] = self.event
+        kwargs["user"] = self.request.user
         return TeamMemberApplicationForm(**kwargs)
 
     def get_context_data(self, **kwargs):
@@ -277,6 +310,10 @@ class PublicApplyView(FormView):
             messages.error(self.request, _("Applications are not currently open for this event."))
             return self.form_invalid(form)
         role = form.cleaned_data["role"]
+        name = form.cleaned_data.get("name", "").strip()
+        if name and name != self.request.user.fullname:
+            self.request.user.fullname = name
+            self.request.user.save(update_fields=["fullname"])
         with scope(event=event):
             if TeamMemberApplication.objects.filter(event=event, user=self.request.user, role=role).exists():
                 messages.error(self.request, _("You have already applied for the role '%s'.") % role.name)

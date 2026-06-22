@@ -41,7 +41,6 @@ class TeamRoleForm(forms.ModelForm):
 
 
 class TeamApplicationQuestionForm(forms.ModelForm):
-    # Declare role explicitly to avoid hitting the scoped manager at class-definition time.
     role = forms.ModelChoiceField(
         queryset=TeamRole.objects.none(),
         required=False,
@@ -90,6 +89,21 @@ class TeamApplicationQuestionForm(forms.ModelForm):
 
 
 class TeamMemberApplicationForm(forms.Form):
+    name = forms.CharField(
+        label=_("Full name"),
+        widget=forms.TextInput(attrs={"class": "form-control"}),
+    )
+    email = forms.EmailField(
+        label=_("Email address"),
+        widget=forms.EmailInput(attrs={"class": "form-control", "readonly": True}),
+        help_text=_("To change your email address, visit your account settings."),
+    )
+    phone = forms.CharField(
+        required=False,
+        label=_("Phone / Mobile"),
+        help_text=_("Optional. We may use this to contact you regarding your shift."),
+        widget=forms.TextInput(attrs={"class": "form-control", "type": "tel", "placeholder": "+1 555 000 0000"}),
+    )
     role = forms.ModelChoiceField(
         queryset=TeamRole.objects.none(),
         label=_("Role you are applying for"),
@@ -102,19 +116,16 @@ class TeamMemberApplicationForm(forms.Form):
         help_text=_("Which days/hours can you commit to?"),
         widget=forms.Textarea(attrs={"class": "form-control", "rows": 4}),
     )
-    phone = forms.CharField(
-        required=False,
-        label=_("Phone / Mobile"),
-        help_text=_("Optional. We may use this to contact you regarding your shift."),
-        widget=forms.TextInput(attrs={"class": "form-control", "type": "tel", "placeholder": "+1 555 000 0000"}),
-    )
 
     QUESTION_FIELD_PREFIX = "question_"
 
-    def __init__(self, *args, event=None, **kwargs):
+    def __init__(self, *args, event=None, user=None, **kwargs):
         super().__init__(*args, **kwargs)
         self._event = event
         self._questions = []
+        if user is not None:
+            self.fields["name"].initial = user.fullname or ""
+            self.fields["email"].initial = user.email
         if event is None:
             return
         with scopes_disabled():
@@ -122,11 +133,11 @@ class TeamMemberApplicationForm(forms.Form):
             self._questions = list(TeamApplicationQuestion.objects.filter(event=event, active=True).order_by("position", "pk"))
         for question in self._questions:
             field = self._build_field_for_question(question)
-            # Store which role (if any) this question belongs to so the
-            # template JS can show/hide it when the role selection changes.
             role_pk = str(question.role_id) if question.role_id else ""
             field.widget.attrs["data-question-role"] = role_pk
             field.widget.attrs["data-question-field"] = "1"
+            if question.role_id:
+                field.required = False
             self.fields[self._field_name_for(question)] = field
 
     @staticmethod

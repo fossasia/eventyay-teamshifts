@@ -103,7 +103,7 @@ class TeamRoleListView(EventPermissionRequiredMixin, View):
             messages.success(request, _("Role '%s' created.") % role.name)
             return redirect("plugins:teamshifts:roles", organizer=request.organizer.slug, event=request.event.slug)
         with scope(event=request.event):
-            roles = list(TeamRole.objects.filter(event=request.event))
+            roles = list(TeamRole.objects.filter(event=request.event).annotate(application_count=Count("applications")))
         return render(request, self.template_name, {"roles": roles, "form": form})
 
 
@@ -197,26 +197,26 @@ class QuestionToggleView(EventPermissionRequiredMixin, View):
         event = request.event
         with scope(event=event):
             question = get_object_or_404(TeamApplicationQuestion, pk=kwargs["pk"], event=event)
-        try:
-            data = json.loads(request.body.decode())
-        except (json.JSONDecodeError, ValueError):
-            return JsonResponse({"error": "Invalid JSON"}, status=400)
-        field = data.get("field")
-        value = data.get("value")
-        if field is None or value is None:
-            return JsonResponse({"error": "Missing field or value"}, status=400)
-        if field == "active":
-            if not isinstance(value, bool):
-                return JsonResponse({"error": "Value must be boolean"}, status=400)
-            question.active = value
-            question.save(update_fields=["active"])
-        elif field == "question_required":
-            if value not in ("optional", "required"):
-                return JsonResponse({"error": "Invalid value"}, status=400)
-            question.required = value == "required"
-            question.save(update_fields=["required"])
-        else:
-            return JsonResponse({"error": f"Invalid field: {field}"}, status=400)
+            try:
+                data = json.loads(request.body.decode())
+            except (json.JSONDecodeError, ValueError):
+                return JsonResponse({"error": "Invalid JSON"}, status=400)
+            field = data.get("field")
+            value = data.get("value")
+            if field is None or value is None:
+                return JsonResponse({"error": "Missing field or value"}, status=400)
+            if field == "active":
+                if not isinstance(value, bool):
+                    return JsonResponse({"error": "Value must be boolean"}, status=400)
+                question.active = value
+                question.save(update_fields=["active"])
+            elif field == "question_required":
+                if value not in ("optional", "required"):
+                    return JsonResponse({"error": "Invalid value"}, status=400)
+                question.required = value == "required"
+                question.save(update_fields=["required"])
+            else:
+                return JsonResponse({"error": f"Invalid field: {field}"}, status=400)
         return JsonResponse({"success": True, "field": field, "value": value})
 
 
@@ -262,17 +262,17 @@ class ApplicationStatusView(EventPermissionRequiredMixin, View):
         event = request.event
         with scope(event=event):
             application = get_object_or_404(TeamMemberApplication, pk=kwargs["pk"], event=event)
-        action = request.POST.get("action")
-        if action == "accept":
-            application.status = ApplicationStatus.ACCEPTED
-            application.save(update_fields=["status", "updated_at"])
-            messages.success(request, _("Application by %s accepted.") % application.user.email)
-        elif action == "reject":
-            application.status = ApplicationStatus.REJECTED
-            application.save(update_fields=["status", "updated_at"])
-            messages.warning(request, _("Application by %s rejected.") % application.user.email)
-        else:
-            raise Http404
+            action = request.POST.get("action")
+            if action == "accept":
+                application.status = ApplicationStatus.ACCEPTED
+                application.save(update_fields=["status", "updated_at"])
+                messages.success(request, _("Application by %s accepted.") % application.user.email)
+            elif action == "reject":
+                application.status = ApplicationStatus.REJECTED
+                application.save(update_fields=["status", "updated_at"])
+                messages.warning(request, _("Application by %s rejected.") % application.user.email)
+            else:
+                raise Http404
         return redirect("plugins:teamshifts:applications", organizer=request.organizer.slug, event=event.slug)
 
 

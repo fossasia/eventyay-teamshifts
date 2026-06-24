@@ -10,9 +10,7 @@ from .models import CallForTeamMembers
 
 @receiver(event_dashboard_widgets, dispatch_uid="teamshifts_dashboard_widget")
 def teamshifts_dashboard_widget(sender, subevent=None, lazy=False, request=None, **kwargs):
-    if request is None or not request.user.has_event_permission(
-        request.organizer, sender, "can_change_event_settings", request=request
-    ):
+    if request is None or not request.user.has_event_permission(request.organizer, sender, "can_change_event_settings", request=request):
         return []
     return [
         {

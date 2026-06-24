@@ -1,3 +1,5 @@
+import json
+
 from django.contrib import messages
 from django.db.models import Count
 from django.http import Http404, HttpResponse, JsonResponse
@@ -173,8 +175,6 @@ class QuestionReorderView(EventPermissionRequiredMixin, View):
     permission = "can_change_event_settings"
 
     def post(self, request, *args, **kwargs):
-        import json
-
         try:
             data = json.loads(request.body.decode("utf-8"))
             pks = [str(pk) for pk in data.get("ids", [])]
@@ -261,7 +261,11 @@ class ApplicationStatusView(EventPermissionRequiredMixin, View):
     def post(self, request, *args, **kwargs):
         event = request.event
         with scope(event=event):
-            application = get_object_or_404(TeamMemberApplication, pk=kwargs["pk"], event=event)
+            application = get_object_or_404(
+                TeamMemberApplication.objects.select_related("user"),
+                pk=kwargs["pk"],
+                event=event,
+            )
             action = request.POST.get("action")
             if action == "accept":
                 application.status = ApplicationStatus.ACCEPTED

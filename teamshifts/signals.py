@@ -58,7 +58,7 @@ def teamshifts_header_nav_tab(sender, request=None, **kwargs):
         "plugins:teamshifts:apply",
         kwargs={"organizer": sender.organizer.slug, "event": sender.slug},
     )
-    is_active = request is not None and "/teamshifts/apply" in request.path_info
+    is_active = request is not None and getattr(request, "resolver_match", None) is not None and request.resolver_match.url_name == "apply"
     return format_html(
         '<a href="{}" class="header-tab {}"><i class="fa fa-users"></i> {}</a>',
         apply_url,

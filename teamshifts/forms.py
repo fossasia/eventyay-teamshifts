@@ -1,13 +1,12 @@
 from django import forms
 from django.utils.translation import gettext_lazy as _
+from django_countries import countries
 from django_scopes import scopes_disabled
 
 from .models import (
     CallForTeamMembers,
     QuestionVariant,
-    TeamApplicationAnswer,
     TeamApplicationQuestion,
-    TeamMemberApplication,
     TeamRole,
 )
 
@@ -41,6 +40,7 @@ class TeamRoleForm(forms.ModelForm):
 
 
 class TeamApplicationQuestionForm(forms.ModelForm):
+    # Declared explicitly to avoid the scoped manager firing at class-definition time.
     role = forms.ModelChoiceField(
         queryset=TeamRole.objects.none(),
         required=False,
@@ -75,7 +75,7 @@ class TeamApplicationQuestionForm(forms.ModelForm):
         variant = cleaned.get("variant")
         options = cleaned.get("options", "")
         needs_options = variant in (QuestionVariant.CHOICES, QuestionVariant.CHOICES_DROPDOWN, QuestionVariant.MULTIPLE)
-        if needs_options and len([l for l in (options or "").splitlines() if l.strip()]) < 2:
+        if needs_options and len([line for line in (options or "").splitlines() if line.strip()]) < 2:
             self.add_error("options", _("Choice fields need at least two options, one per line."))
         return cleaned
 
@@ -167,8 +167,6 @@ class TeamMemberApplicationForm(forms.Form):
         if variant == QuestionVariant.PHONE:
             return forms.CharField(widget=forms.TextInput(attrs={"class": "form-control", "type": "tel"}), **common)
         if variant == QuestionVariant.COUNTRY:
-            from django_countries import countries
-
             return forms.ChoiceField(
                 choices=[("", _("— Select country —"))] + list(countries),
                 widget=forms.Select(attrs={"class": "form-control"}),
@@ -256,6 +254,5 @@ __all__ = [
     "TeamRoleForm",
     "TeamApplicationQuestionForm",
     "TeamMemberApplicationForm",
-    "TeamApplicationAnswer",
     "render_answer_for_review",
 ]

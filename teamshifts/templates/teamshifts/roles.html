@@ -33,7 +33,7 @@
                         <tr>
                             <td><strong>{{ role.name }}</strong></td>
                             <td class='text-muted'>{{ role.description|default:"—" }}</td>
-                            <td>{{ role.applications.count }}</td>
+                            <td>{{ role.application_count }}</td>
                             <td class='text-right flip'>
                                 <form action='{% url "plugins:teamshifts:role_delete" organizer=request.organizer.slug event=request.event.slug pk=role.pk %}'
                                       method='post'

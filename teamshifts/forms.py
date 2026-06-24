@@ -177,11 +177,11 @@ class TeamMemberApplicationForm(forms.Form):
         if variant == QuestionVariant.BOOLEAN:
             if required:
                 return forms.BooleanField(**common)
-            return forms.NullBooleanField(
-                widget=forms.Select(
-                    attrs={"class": "form-control"},
-                    choices=[("unknown", _("—")), ("true", _("Yes")), ("false", _("No"))],
-                ),
+            return forms.TypedChoiceField(
+                choices=[("", _("—")), ("true", _("Yes")), ("false", _("No"))],
+                coerce=lambda v: True if v == "true" else (False if v == "false" else None),
+                empty_value=None,
+                widget=forms.Select(attrs={"class": "form-control"}),
                 **common,
             )
         options = [(opt, opt) for opt in question.get_options()]
@@ -203,6 +203,24 @@ class TeamMemberApplicationForm(forms.Form):
 
     def visible_questions(self):
         return [(q, self[self._field_name_for(q)]) for q in self._questions]
+
+    def clean(self):
+        cleaned = super().clean()
+        role = cleaned.get("role")
+        if role is None:
+            return cleaned
+        for question in self._questions:
+            if question.role_id and question.role_id != role.pk:
+                continue
+            if not question.required:
+                continue
+            value = cleaned.get(self._field_name_for(question))
+            if question.variant == QuestionVariant.BOOLEAN:
+                if value is not True:
+                    self.add_error(self._field_name_for(question), _("This field is required."))
+            elif value in (None, "", [], (), {}):
+                self.add_error(self._field_name_for(question), _("This field is required."))
+        return cleaned
 
     def get_question_answers(self):
         return [(q, self._serialize_answer(q, self.cleaned_data.get(self._field_name_for(q)))) for q in self._questions]

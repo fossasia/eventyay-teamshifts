@@ -1,4 +1,5 @@
 from django.contrib import messages
+from django.db.models import Count
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -76,7 +77,8 @@ class CFMSettingsView(EventPermissionRequiredMixin, View):
         cfm = self._get_cfm()
         form = CallForTeamMembersForm(request.POST, instance=cfm, locales=request.event.settings.locales)
         if form.is_valid():
-            form.save()
+            with scope(event=request.event):
+                form.save()
             messages.success(request, _("Settings saved."))
             return redirect("plugins:teamshifts:cfm_settings", organizer=request.organizer.slug, event=request.event.slug)
         return render(request, self.template_name, {"form": form, "cfm": cfm, "questions": self._questions()})
@@ -88,7 +90,7 @@ class TeamRoleListView(EventPermissionRequiredMixin, View):
 
     def get(self, request, *args, **kwargs):
         with scope(event=request.event):
-            roles = list(TeamRole.objects.filter(event=request.event))
+            roles = list(TeamRole.objects.filter(event=request.event).annotate(application_count=Count("applications")))
         return render(request, self.template_name, {"roles": roles, "form": TeamRoleForm()})
 
     def post(self, request, *args, **kwargs):
@@ -96,7 +98,8 @@ class TeamRoleListView(EventPermissionRequiredMixin, View):
         if form.is_valid():
             role = form.save(commit=False)
             role.event = request.event
-            role.save()
+            with scope(event=request.event):
+                role.save()
             messages.success(request, _("Role '%s' created.") % role.name)
             return redirect("plugins:teamshifts:roles", organizer=request.organizer.slug, event=request.event.slug)
         with scope(event=request.event):
@@ -143,7 +146,8 @@ class QuestionEditView(EventPermissionRequiredMixin, View):
         instance = self._get_instance(request, kwargs.get("pk"))
         form = TeamApplicationQuestionForm(request.POST, instance=instance, event=request.event, locales=request.event.settings.locales)
         if form.is_valid():
-            saved = form.save()
+            with scope(event=request.event):
+                saved = form.save()
             if instance is None:
                 messages.success(request, _("Question '%s' added.") % saved.question)
             else:
@@ -231,8 +235,10 @@ class ApplicationListView(EventPermissionRequiredMixin, TemplateView):
 
             if status_filter in ApplicationStatus.values:
                 qs = qs.filter(status=status_filter)
-            if role_filter:
-                qs = qs.filter(role__pk=role_filter)
+            if role_filter and role_filter.isdigit():
+                qs = qs.filter(role_id=int(role_filter))
+            else:
+                role_filter = ""
             if search:
                 qs = qs.filter(user__email__icontains=search)
 

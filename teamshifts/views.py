@@ -1,7 +1,7 @@
 import json
 
 from django.contrib import messages
-from django.db.models import Count
+from django.db.models import Count, Q
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -192,8 +192,6 @@ class QuestionToggleView(EventPermissionRequiredMixin, View):
     permission = "can_change_event_settings"
 
     def post(self, request, *args, **kwargs):
-        import json
-
         event = request.event
         with scope(event=event):
             question = get_object_or_404(TeamApplicationQuestion, pk=kwargs["pk"], event=event)
@@ -240,7 +238,7 @@ class ApplicationListView(EventPermissionRequiredMixin, TemplateView):
             else:
                 role_filter = ""
             if search:
-                qs = qs.filter(user__email__icontains=search)
+                qs = qs.filter(Q(user__email__icontains=search) | Q(user__fullname__icontains=search))
 
             applications = list(qs)
             for app in applications:
@@ -300,20 +298,22 @@ class PublicApplyView(FormView):
         kwargs = self.get_form_kwargs()
         kwargs["event"] = self.event
         kwargs["user"] = self.request.user
+        with scope(event=self.event):
+            kwargs["applied_role_ids"] = list(TeamMemberApplication.objects.filter(event=self.event, user=self.request.user).values_list("role_id", flat=True))
         return TeamMemberApplicationForm(**kwargs)
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx["event"] = self.event
         ctx["cfm"] = self.cfm
-        ctx["cfm_open"] = self.cfm is not None and self.cfm.active
+        ctx["cfm_open"] = self.cfm is not None and self.cfm.is_open
         with scope(event=self.event):
             ctx["existing_applications"] = list(TeamMemberApplication.objects.filter(event=self.event, user=self.request.user).select_related("role"))
         return ctx
 
     def form_valid(self, form):
         event = self.event
-        if self.cfm is None or not self.cfm.active:
+        if self.cfm is None or not self.cfm.is_open:
             messages.error(self.request, _("Applications are not currently open for this event."))
             return self.form_invalid(form)
         role = form.cleaned_data["role"]

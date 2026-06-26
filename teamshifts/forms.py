@@ -119,7 +119,7 @@ class TeamMemberApplicationForm(forms.Form):
 
     QUESTION_FIELD_PREFIX = "question_"
 
-    def __init__(self, *args, event=None, user=None, **kwargs):
+    def __init__(self, *args, event=None, user=None, applied_role_ids=(), **kwargs):
         super().__init__(*args, **kwargs)
         self._event = event
         self._questions = []
@@ -129,7 +129,7 @@ class TeamMemberApplicationForm(forms.Form):
         if event is None:
             return
         with scopes_disabled():
-            self.fields["role"].queryset = TeamRole.objects.filter(event=event)
+            self.fields["role"].queryset = TeamRole.objects.filter(event=event).exclude(pk__in=applied_role_ids)
             self._questions = list(TeamApplicationQuestion.objects.filter(event=event, active=True).order_by("position", "pk"))
         for question in self._questions:
             field = self._build_field_for_question(question)

@@ -1,5 +1,6 @@
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from django_scopes import ScopedManager
 from i18nfield.fields import I18nTextField
@@ -38,6 +39,14 @@ class CallForTeamMembers(models.Model):
     class Meta:
         verbose_name = _("Call for Team Members")
         verbose_name_plural = _("Calls for Team Members")
+
+    @property
+    def is_open(self):
+        if not self.active:
+            return False
+        if self.deadline and timezone.now() > self.deadline:
+            return False
+        return True
 
     def __str__(self):
         return f"{self.title} — {self.event.slug} ({'active' if self.active else 'inactive'})"

@@ -52,7 +52,7 @@ def teamshifts_header_nav_tab(sender, request=None, **kwargs):
         cfm = sender.call_for_team_members
     except CallForTeamMembers.DoesNotExist:
         return ""
-    if not cfm.active:
+    if not cfm.is_open:
         return ""
     apply_url = reverse(
         "plugins:teamshifts:apply",

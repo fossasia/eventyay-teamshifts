@@ -78,7 +78,7 @@
               <tbody>
                 {% for app in recent_applications %}
                   <tr>
-                    <td>{{ app.user.email }}</td>
+                    <td>{{ app.user.fullname|default:app.user.email }}</td>
                     <td>{{ app.role.name }}</td>
                     <td>
                       {% if app.status == 'pending' %}
@@ -124,7 +124,7 @@
               <tbody>
                 {% for app in accepted_members %}
                   <tr>
-                    <td>{{ app.user.email }}</td>
+                    <td>{{ app.user.fullname|default:app.user.email }}</td>
                     <td><span class='label label-info'>{{ app.role.name }}</span></td>
                     <td>
                       {% if app.attendance_confirmed is None %}

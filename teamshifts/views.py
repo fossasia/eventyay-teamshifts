@@ -307,6 +307,7 @@ class PublicApplyView(FormView):
         ctx["event"] = self.event
         ctx["cfm"] = self.cfm
         ctx["cfm_open"] = self.cfm is not None and self.cfm.is_open
+        ctx["cfm_deadline_passed"] = self.cfm is not None and self.cfm.active and self.cfm.deadline is not None and not self.cfm.is_open
         with scope(event=self.event):
             ctx["existing_applications"] = list(TeamMemberApplication.objects.filter(event=self.event, user=self.request.user).select_related("role"))
         return ctx

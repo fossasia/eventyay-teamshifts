@@ -19,8 +19,13 @@
 
     {% if not cfm_open %}
         <div class='alert alert-warning'>
-            <strong>{% trans "Applications are currently closed." %}</strong>
-            {% trans "This event is not accepting team member applications at this time." %}
+            {% if cfm_deadline_passed %}
+                <strong>{% blocktrans with deadline=cfm.deadline %}Applications closed on {{ deadline }}.{% endblocktrans %}</strong>
+                <p class='mb-0'>{% blocktrans with title=cfm.title %}{{ title }} is no longer accepting applications.{% endblocktrans %}</p>
+            {% else %}
+                <strong>{% trans "Applications are currently closed." %}</strong>
+                {% trans "This event is not accepting team member applications at this time." %}
+            {% endif %}
         </div>
     {% else %}
 

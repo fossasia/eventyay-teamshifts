@@ -14,7 +14,7 @@
 
     <form method="get" class="form-inline" style="margin-bottom: 1em;">
         <div class="form-group">
-            <input type="text" name="q" value="{{ search|default:'' }}" class="form-control" placeholder="{% trans 'Search by email' %}">
+            <input type="text" name="q" value="{{ search|default:'' }}" class="form-control" placeholder="{% trans 'Search by name or email' %}">
         </div>
         <div class="form-group">
             <select name="status" class="form-control">
@@ -41,6 +41,7 @@
                 <thead>
                     <tr>
                         <th>{% trans "Applicant" %}</th>
+                        <th>{% trans "Name" %}</th>
                         <th>{% trans "Phone" %}</th>
                         <th>{% trans "Role" %}</th>
                         <th>{% trans "Status" %}</th>
@@ -53,6 +54,7 @@
                     {% for app in applications %}
                         <tr>
                             <td>{{ app.user.email }}</td>
+                            <td>{{ app.user.fullname|default:"—" }}</td>
                             <td>{{ app.phone|default:"—" }}</td>
                             <td><span class="label label-info">{{ app.role.name }}</span></td>
                             <td>
@@ -98,7 +100,7 @@
                         </tr>
                         {% if app.availability_notes or app.rendered_answers %}
                             <tr id="app-details-{{ app.pk }}" class="collapse">
-                                <td colspan="7" class="teamshifts-application-details">
+                                <td colspan="8" class="teamshifts-application-details">
                                     {% if app.availability_notes %}
                                         <p>
                                             <strong>{% trans "Availability notes" %}:</strong>

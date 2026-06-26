@@ -52,16 +52,17 @@ def teamshifts_header_nav_tab(sender, request=None, **kwargs):
         cfm = sender.call_for_team_members
     except CallForTeamMembers.DoesNotExist:
         return ""
-    if not cfm.is_open:
+    if not cfm.active:
         return ""
     apply_url = reverse(
         "plugins:teamshifts:apply",
         kwargs={"organizer": sender.organizer.slug, "event": sender.slug},
     )
     is_active = request is not None and getattr(request, "resolver_match", None) is not None and request.resolver_match.url_name == "apply"
+    tab_title = cfm.title if cfm.is_open else format_html("{} ({})", cfm.title, _("Closed"))
     return format_html(
         '<a href="{}" class="header-tab {}"><i class="fa fa-users"></i> {}</a>',
         apply_url,
         "active" if is_active else "",
-        cfm.title,
+        tab_title,
     )

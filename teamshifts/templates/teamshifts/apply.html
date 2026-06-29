@@ -1,0 +1,109 @@
+{% extends "pretixpresale/event/base.html" %}
+{% load i18n %}
+{% load bootstrap3 %}
+{% load static %}
+{% load eventurl %}
+
+{% block pagetitle %}{% if cfm %}{{ cfm.title }}{% else %}{% trans "Apply to join the team" %}{% endif %}{% endblock %}
+
+{% block testmode_alert %}{% endblock %}
+
+{% block custom_header %}
+    {{ block.super }}
+    <link rel='stylesheet' type='text/css' href='{% static "teamshifts/teamshifts.css" %}'>
+    <script type='module' src='{% static "teamshifts/apply.js" %}'></script>
+{% endblock %}
+
+{% block content %}
+    <h2>{% if cfm %}{{ cfm.title }}{% else %}{% trans "Apply to join the team" %}{% endif %}</h2>
+
+    {% if not cfm_open %}
+        <div class='alert alert-warning'>
+            {% if cfm_deadline_passed %}
+                <strong>{% blocktrans with deadline=cfm.deadline %}Applications closed on {{ deadline }}.{% endblocktrans %}</strong>
+                <p class='mb-0'>{% blocktrans with title=cfm.title %}{{ title }} is no longer accepting applications.{% endblocktrans %}</p>
+            {% else %}
+                <strong>{% trans "Applications are currently closed." %}</strong>
+                {% trans "This event is not accepting team member applications at this time." %}
+            {% endif %}
+        </div>
+    {% else %}
+
+        {% if cfm.description %}
+            <div class='description-text' style='margin-bottom: 1.5em;'>{{ cfm.description }}</div>
+        {% endif %}
+
+        {% if existing_applications %}
+            <div class='panel panel-info' style='margin-bottom: 1.5em;'>
+                <div class='panel-heading'>
+                    <h3 class='panel-title'>{% trans "Your applications" %}</h3>
+                </div>
+                <div class='panel-body'>
+                    <div class='table-responsive'>
+                        <table class='table table-condensed'>
+                            <thead>
+                                <tr>
+                                    <th>{% trans "Role" %}</th>
+                                    <th>{% trans "Status" %}</th>
+                                    <th>{% trans "Applied" %}</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for app in existing_applications %}
+                                    <tr>
+                                        <td>{{ app.role.name }}</td>
+                                        <td>
+                                            {% if app.status == 'pending' %}
+                                                <span class='label label-warning'>{% trans "Pending" %}</span>
+                                            {% elif app.status == 'accepted' %}
+                                                <span class='label label-success'>{% trans "Accepted" %}</span>
+                                            {% else %}
+                                                <span class='label label-danger'>{% trans "Rejected" %}</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>{{ app.created_at|date:"SHORT_DATETIME_FORMAT" }}</td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        {% endif %}
+
+        <div class='panel panel-default'>
+            <div class='panel-heading'>
+                <h3 class='panel-title'>{% trans "New application" %}</h3>
+            </div>
+            <div class='panel-body'>
+                <form action='' method='post' class='form-horizontal' id='teamshifts-apply-form'>
+                    {% csrf_token %}
+                    {% bootstrap_form_errors form %}
+                    {% bootstrap_field form.name layout='control' %}
+                    {% bootstrap_field form.email layout='control' %}
+                    {% bootstrap_field form.phone layout='control' %}
+                    {% bootstrap_field form.role layout='control' %}
+                    {% bootstrap_field form.availability_notes layout='control' %}
+                    {% if form.visible_questions %}
+                        <fieldset id='teamshifts-question-fields'>
+                            <legend>{% trans "Additional questions" %}</legend>
+                            {% for question, field in form.visible_questions %}
+                                <div class='teamshifts-question-row' data-question-role='{{ question.role_id|default_if_none:"" }}'>
+                                    {% bootstrap_field field layout='control' %}
+                                </div>
+                            {% endfor %}
+                        </fieldset>
+                    {% endif %}
+                    <div class='form-group'>
+                        <div class='col-md-9 col-md-offset-3 text-right'>
+                            <button type='submit' class='btn btn-primary btn-lg'>
+                                {% trans "Submit application" %} &raquo;
+                            </button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+    {% endif %}
+{% endblock %}

@@ -1,0 +1,130 @@
+{% extends "teamshifts/base.html" %}
+{% load i18n %}
+
+{% block title %}{% trans "Team Applications" %} :: {{ request.event.name }}{% endblock %}
+
+{% block content %}
+    <nav id="event-nav" class="header-nav">
+        <div class="navigation">
+            <div class="navigation-title">
+                <h1>{% trans "Applications" %}</h1>
+            </div>
+        </div>
+    </nav>
+
+    <form method="get" class="form-inline" style="margin-bottom: 1em;">
+        <div class="form-group">
+            <input type="text" name="q" value="{{ search|default:'' }}" class="form-control" placeholder="{% trans 'Search by name or email' %}">
+        </div>
+        <div class="form-group">
+            <select name="status" class="form-control">
+                <option value="">{% trans "All statuses" %}</option>
+                {% for value, label in status_choices %}
+                    <option value="{{ value }}" {% if value == current_status %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <select name="role" class="form-control">
+                <option value="">{% trans "All roles" %}</option>
+                {% for r in roles %}
+                    <option value="{{ r.pk }}" {% if current_role == r.pk|stringformat:'s' %}selected{% endif %}>{{ r.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <button type="submit" class="btn btn-default">{% trans "Filter" %}</button>
+    </form>
+
+    {% if applications %}
+        <div class="table-responsive">
+            <table class="table table-hover table-quotas">
+                <thead>
+                    <tr>
+                        <th>{% trans "Applicant" %}</th>
+                        <th>{% trans "Name" %}</th>
+                        <th>{% trans "Phone" %}</th>
+                        <th>{% trans "Role" %}</th>
+                        <th>{% trans "Status" %}</th>
+                        <th>{% trans "Attendance" %}</th>
+                        <th>{% trans "Applied" %}</th>
+                        <th class="action-col-2"></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for app in applications %}
+                        <tr>
+                            <td>{{ app.user.email }}</td>
+                            <td>{{ app.user.fullname|default:"—" }}</td>
+                            <td>{{ app.phone|default:"—" }}</td>
+                            <td><span class="label label-info">{{ app.role.name }}</span></td>
+                            <td>
+                                {% if app.status == 'pending' %}
+                                    <span class="label label-warning">{% trans "Pending" %}</span>
+                                {% elif app.status == 'accepted' %}
+                                    <span class="label label-success">{% trans "Accepted" %}</span>
+                                {% else %}
+                                    <span class="label label-danger">{% trans "Rejected" %}</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if app.attendance_confirmed is None %}
+                                    <span class="label label-default">—</span>
+                                {% elif app.attendance_confirmed %}
+                                    <span class="label label-success">{% trans "Confirmed" %}</span>
+                                {% else %}
+                                    <span class="label label-danger">{% trans "Declined" %}</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ app.created_at|date:"SHORT_DATETIME_FORMAT" }}</td>
+                            <td class="text-right flip">
+                                {% if app.availability_notes or app.rendered_answers %}
+                                    <button type="button" class="btn btn-default btn-sm" data-toggle="collapse"
+                                            data-target="#app-details-{{ app.pk }}"
+                                            aria-expanded="false">
+                                        <span class="fa fa-info-circle"></span> {% trans "Details" %}
+                                    </button>
+                                {% endif %}
+                                {% if app.status == 'pending' %}
+                                    <form action="{% url 'plugins:teamshifts:application_status' organizer=request.organizer.slug event=request.event.slug pk=app.pk %}"
+                                          method="post" class="helper-display-inline">
+                                        {% csrf_token %}
+                                        <button type="submit" name="action" value="accept" class="btn btn-success btn-sm">
+                                            <span class="fa fa-check"></span>
+                                        </button>
+                                        <button type="submit" name="action" value="reject" class="btn btn-danger btn-sm">
+                                            <span class="fa fa-times"></span>
+                                        </button>
+                                    </form>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% if app.availability_notes or app.rendered_answers %}
+                            <tr id="app-details-{{ app.pk }}" class="collapse">
+                                <td colspan="8" class="teamshifts-application-details">
+                                    {% if app.availability_notes %}
+                                        <p>
+                                            <strong>{% trans "Availability notes" %}:</strong>
+                                            <span class="teamshifts-answer-text">{{ app.availability_notes }}</span>
+                                        </p>
+                                    {% endif %}
+                                    {% if app.rendered_answers %}
+                                        <dl class="teamshifts-answer-list">
+                                            {% for entry in app.rendered_answers %}
+                                                <dt>{{ entry.question.question }}</dt>
+                                                <dd class="teamshifts-answer-text">{{ entry.value|default:"—" }}</dd>
+                                            {% endfor %}
+                                        </dl>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        {% endif %}
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% else %}
+        <div class="empty-collection">
+            <p>{% trans "No applications yet." %}</p>
+        </div>
+    {% endif %}
+{% endblock %}

@@ -1,0 +1,74 @@
+{% extends "teamshifts/base.html" %}
+{% load i18n %}
+{% load bootstrap3 %}
+
+{% block title %}{% trans "Team Roles" %} :: {{ request.event.name }}{% endblock %}
+
+{% block content %}
+    <nav id='event-nav' class='header-nav'>
+        <div class='navigation'>
+            <div class='navigation-title'>
+                <h1>{% trans "Team Roles" %}</h1>
+            </div>
+        </div>
+    </nav>
+
+    {% if not roles %}
+        <div class='empty-collection'>
+            <p>{% blocktrans trimmed %}No roles have been defined for this event yet.{% endblocktrans %}</p>
+        </div>
+    {% else %}
+        <div class='table-responsive'>
+            <table class='table table-hover table-quotas'>
+                <thead>
+                    <tr>
+                        <th>{% trans "Role name" %}</th>
+                        <th>{% trans "Description" %}</th>
+                        <th>{% trans "Applications" %}</th>
+                        <th class='action-col-1'></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for role in roles %}
+                        <tr>
+                            <td><strong>{{ role.name }}</strong></td>
+                            <td class='text-muted'>{{ role.description|default:"—" }}</td>
+                            <td>{{ role.application_count }}</td>
+                            <td class='text-right flip'>
+                                <form action='{% url "plugins:teamshifts:role_delete" organizer=request.organizer.slug event=request.event.slug pk=role.pk %}'
+                                      method='post'
+                                      class='helper-display-inline'>
+                                    {% csrf_token %}
+                                    <button type='submit'
+                                            class='btn btn-delete btn-danger btn-sm'
+                                            data-confirm='{% blocktrans trimmed with name=role.name %}Delete role "{{ name }}"?{% endblocktrans %}'>
+                                        <span class='fa fa-trash'></span>
+                                    </button>
+                                </form>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% endif %}
+
+    <div class='panel panel-default'>
+        <div class='panel-heading'>
+            <h3 class='panel-title'>{% trans "Add a new role" %}</h3>
+        </div>
+        <div class='panel-body'>
+            <form action='' method='post' class='form-horizontal'>
+                {% csrf_token %}
+                {% bootstrap_form_errors form %}
+                {% bootstrap_field form.name layout="control" %}
+                {% bootstrap_field form.description layout="control" %}
+                <div class='form-group submit-group'>
+                    <button type='submit' class='btn btn-primary btn-save'>
+                        <span class='fa fa-plus'></span> {% trans "Add role" %}
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+{% endblock %}

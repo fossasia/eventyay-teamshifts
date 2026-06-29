@@ -1,7 +1,53 @@
 {% extends "pretixcontrol/base.html" %}
 {% load i18n %}
+{% load static %}
 
-{% block title %}{{ request.event.name }} — {% trans "TeamShifts" %}{% endblock %}
+{% block custom_header %}
+    {{ block.super }}
+    <link rel="stylesheet" type="text/css" href="{% static 'teamshifts/teamshifts.css' %}">
+{% endblock %}
+
+{% block title %}{% trans "TeamShifts" %} :: {{ request.event.name }}{% endblock %}
 
 {% block nav %}
+    <li>
+        <a href="{% url 'plugins:teamshifts:dashboard' organizer=request.organizer.slug event=request.event.slug %}"
+           {% if url_name == 'dashboard' %}class="active"{% endif %}>
+            <span class="fa fa-fw fa-users"></span>
+            <span class="sidebar-text">{% trans "TeamShifts" %}</span>
+        </a>
+    </li>
+    <li>
+        <a href="{% url 'plugins:teamshifts:cfm_settings' organizer=request.organizer.slug event=request.event.slug %}"
+           class="has-children {% if url_name == 'cfm_settings' or url_name == 'question_create' or url_name == 'question_edit' %}active{% endif %}">
+            <span class="fa fa-fw fa-bullhorn"></span>
+            <span class="sidebar-text">{% trans "Call for Team Members" %}</span>
+        </a>
+        <a class="arrow" href="#" data-toggle="collapse" data-target="#collapse-cfm">
+            <span class="fa arrow"></span>
+        </a>
+        <ul class="nav nav-second-level {% if url_name == 'cfm_settings' or url_name == 'question_create' or url_name == 'question_edit' %}in{% endif %}"
+            id="collapse-cfm">
+            <li>
+                <a href="{% url 'plugins:teamshifts:cfm_settings' organizer=request.organizer.slug event=request.event.slug %}"
+                   {% if url_name == 'cfm_settings' or url_name == 'question_create' or url_name == 'question_edit' %}class="active"{% endif %}>
+                    <span class="sidebar-text">{% trans "Settings" %}</span>
+                </a>
+            </li>
+        </ul>
+    </li>
+    <li>
+        <a href="{% url 'plugins:teamshifts:roles' organizer=request.organizer.slug event=request.event.slug %}"
+           {% if url_name == 'roles' %}class="active"{% endif %}>
+            <span class="fa fa-fw fa-id-badge"></span>
+            <span class="sidebar-text">{% trans "Team Roles" %}</span>
+        </a>
+    </li>
+    <li>
+        <a href="{% url 'plugins:teamshifts:applications' organizer=request.organizer.slug event=request.event.slug %}"
+           {% if url_name == 'applications' %}class="active"{% endif %}>
+            <span class="fa fa-fw fa-file-text-o"></span>
+            <span class="sidebar-text">{% trans "Applications" %}</span>
+        </a>
+    </li>
 {% endblock %}

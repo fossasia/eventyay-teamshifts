@@ -1,0 +1,42 @@
+.teamshifts-application-details {
+    background-color: #fafafa;
+    padding: 1em 2em;
+}
+
+.teamshifts-answer-text {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    white-space: pre-wrap;
+    display: block;
+    max-width: 100%;
+}
+
+.teamshifts-answer-list {
+    margin: 0;
+}
+
+.teamshifts-answer-list dt {
+    font-weight: 600;
+    margin-top: 0.5em;
+}
+
+.teamshifts-answer-list dd {
+    margin-left: 0;
+    margin-bottom: 0.75em;
+}
+
+/* Custom-question form: smaller help-text textarea so it doesn't dominate. */
+#id_help_text_0,
+#id_help_text_1,
+textarea[name^="help_text_"] {
+    min-height: 80px;
+}
+
+/* Mirror the control panel's .optional styling on the public apply page.
+   layout='control' renders <span class="optional"> inside <label>, but the
+   presale CSS has no rule for it so it inherits the bold label weight. */
+label .optional {
+    color: #777;
+    font-weight: normal;
+    display: block;
+}

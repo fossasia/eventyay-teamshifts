@@ -1,5 +1,6 @@
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from django_scopes import ScopedManager
 from i18nfield.fields import I18nTextField
@@ -23,7 +24,12 @@ class CallForTeamMembers(models.Model):
         on_delete=models.CASCADE,
         related_name="call_for_team_members",
     )
-    active = models.BooleanField(default=False, verbose_name=_("Active"))
+    active = models.BooleanField(default=False, verbose_name=_("Active"), help_text=_("When enabled, the application form accepts new submissions."))
+    show_on_menu = models.BooleanField(
+        default=True,
+        verbose_name=_("Show in public navigation"),
+        help_text=_("Show a link to the application form in the public event navigation. Only visible when Active is enabled."),
+    )
     deadline = models.DateTimeField(null=True, blank=True, verbose_name=_("Deadline"))
     title = models.CharField(
         max_length=200,
@@ -38,6 +44,14 @@ class CallForTeamMembers(models.Model):
     class Meta:
         verbose_name = _("Call for Team Members")
         verbose_name_plural = _("Calls for Team Members")
+
+    @property
+    def is_open(self):
+        if not self.active:
+            return False
+        if self.deadline and timezone.now() > self.deadline:
+            return False
+        return True
 
     def __str__(self):
         return f"{self.title} — {self.event.slug} ({'active' if self.active else 'inactive'})"
@@ -89,6 +103,18 @@ class TeamMemberApplication(models.Model):
         blank=True,
         verbose_name=_("Availability Notes"),
         help_text=_("Applicant's notes on their availability for shifts."),
+    )
+    phone = models.CharField(
+        max_length=50,
+        blank=True,
+        verbose_name=_("Phone / Mobile"),
+        help_text=_("Optional contact number for shift coordination."),
+    )
+    attendance_confirmed = models.BooleanField(
+        null=True,
+        blank=True,
+        verbose_name=_("Attendance confirmed"),
+        help_text=_("Whether the team member has confirmed they will attend. None = not yet responded, True = confirmed, False = declined."),
     )
     created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Applied At"))
     updated_at = models.DateTimeField(auto_now=True, verbose_name=_("Updated At"))

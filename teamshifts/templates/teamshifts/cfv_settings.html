@@ -1,0 +1,134 @@
+{% extends "teamshifts/base.html" %}
+{% load i18n %}
+{% load bootstrap3 %}
+{% load static %}
+
+{% block custom_header %}
+    {{ block.super }}
+    <link rel="stylesheet" type="text/css" href="{% static 'orga/css/question-toggles.css' %}">
+    <script defer src="{% static 'orga/js/questionToggles.js' %}"></script>
+    <script defer src="{% static 'teamshifts/cfv_settings.js' %}"></script>
+{% endblock %}
+
+{% block title %}{{ cfm.title }} :: {{ request.event.name }}{% endblock %}
+
+{% block content %}
+    <nav id="event-nav" class="header-nav">
+        <div class="navigation">
+            <div class="navigation-title">
+                <h1>{{ cfm.title }}</h1>
+            </div>
+        </div>
+    </nav>
+
+    <form action="" method="post" class="form-horizontal">
+        {% csrf_token %}
+        {% bootstrap_form_errors form %}
+
+        <fieldset>
+            <legend>{% trans "Settings" %}</legend>
+            {% bootstrap_field form.title layout="control" %}
+            {% bootstrap_field form.active layout="control" %}
+            {% bootstrap_field form.show_on_menu layout="control" %}
+            {% bootstrap_field form.deadline layout="control" %}
+            {% bootstrap_field form.description layout="control" %}
+        </fieldset>
+
+        <fieldset>
+            <legend>{% trans "Application questions" %}</legend>
+            <p class="help-block">
+                {% blocktrans trimmed %}
+                    Custom questions you add here are shown to applicants on the public
+                    application form. Each question can apply to every role or only to a
+                    specific role.
+                {% endblocktrans %}
+            </p>
+            {% if questions %}
+                <div class="table-responsive">
+                    <table class="table table-hover table-quotas">
+                        <thead>
+                            <tr>
+                                <th>{% trans "Question" %}</th>
+                                <th>{% trans "Field type" %}</th>
+                                <th>{% trans "Role" %}</th>
+                                <th class="text-center">{% trans "Required" %}</th>
+                                <th class="text-center">{% trans "Active" %}</th>
+                                <th class="action-col-2"></th>
+                            </tr>
+                        </thead>
+                        <tbody data-dnd-url="{% url 'plugins:teamshifts:question_reorder' organizer=request.organizer.slug event=request.event.slug %}">
+                            {% for q in questions %}
+                                <tr data-dnd-id="{{ q.pk }}">
+                                    <td>
+                                        <a href="{% url 'plugins:teamshifts:question_edit' organizer=request.organizer.slug event=request.event.slug pk=q.pk %}">
+                                            <strong>{{ q.question }}</strong>
+                                        </a>
+                                    </td>
+                                    <td>{{ q.get_variant_display }}</td>
+                                    <td>
+                                        {% if q.role %}
+                                            <span class="label label-info">{{ q.role.name }}</span>
+                                        {% else %}
+                                            <span class="text-muted">{% trans "All roles" %}</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="text-center">
+                                        <div class="required-status-wrapper" data-current="{% if q.required %}required{% else %}optional{% endif %}">
+                                            <select class="required-status-dropdown"
+                                                    data-question-id="{{ q.pk }}"
+                                                    data-current="{% if q.required %}required{% else %}optional{% endif %}"
+                                                    aria-label="{% blocktrans with name=q.question %}Required status for {{ name }}{% endblocktrans %}">
+                                                <option value="optional" {% if not q.required %}selected{% endif %} data-color="optional">{% trans "Optional" %}</option>
+                                                <option value="required" {% if q.required %}selected{% endif %} data-color="required">{% trans "Required" %}</option>
+                                            </select>
+                                        </div>
+                                    </td>
+                                    <td class="text-center">
+                                        <label class="toggle-switch"
+                                               data-question-id="{{ q.pk }}"
+                                               data-field="active"
+                                               aria-label="{% blocktrans with name=q.question %}Toggle active state for {{ name }}{% endblocktrans %}">
+                                            <input type="checkbox" {% if q.active %}checked{% endif %}>
+                                            <span class="toggle-slider"></span>
+                                        </label>
+                                    </td>
+                                    <td class="text-right flip dnd-container">
+                                        <a class="btn btn-default btn-sm"
+                                           href="{% url 'plugins:teamshifts:question_edit' organizer=request.organizer.slug event=request.event.slug pk=q.pk %}"
+                                           title="{% trans 'Edit' %}">
+                                            <i class="fa fa-edit"></i>
+                                        </a>
+                                        <button type="submit"
+                                                formaction="{% url 'plugins:teamshifts:question_delete' organizer=request.organizer.slug event=request.event.slug pk=q.pk %}"
+                                                class="btn btn-delete btn-danger btn-sm"
+                                                data-no-loading
+                                                title="{% trans 'Delete' %}"
+                                                data-confirm="{% blocktrans trimmed with name=q.question %}Delete question &quot;{{ name }}&quot;?{% endblocktrans %}">
+                                            <i class="fa fa-trash"></i>
+                                        </button>
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <p class="text-muted">{% trans "No custom questions yet." %}</p>
+            {% endif %}
+            <a href="{% url 'plugins:teamshifts:question_create' organizer=request.organizer.slug event=request.event.slug %}"
+               class="btn btn-default">
+                <span class="fa fa-plus"></span> {% trans "Add a question" %}
+            </a>
+        </fieldset>
+
+        <div class="form-group submit-group">
+            <button type="submit" class="btn btn-primary btn-save">
+                {% trans "Save" %}
+            </button>
+            <a href="{% url 'plugins:teamshifts:dashboard' organizer=request.organizer.slug event=request.event.slug %}"
+               class="btn btn-default btn-lg">
+                {% trans "Cancel" %}
+            </a>
+        </div>
+    </form>
+{% endblock %}

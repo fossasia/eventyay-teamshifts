@@ -7,15 +7,16 @@
     {{ block.super }}
     <link rel="stylesheet" type="text/css" href="{% static 'orga/css/question-toggles.css' %}">
     <script defer src="{% static 'orga/js/questionToggles.js' %}"></script>
+    <script defer src="{% static 'teamshifts/cfv_settings.js' %}"></script>
 {% endblock %}
 
-{% block title %}{% trans "Call for Team Members" %} :: {{ request.event.name }}{% endblock %}
+{% block title %}{{ cfm.title }} :: {{ request.event.name }}{% endblock %}
 
 {% block content %}
     <nav id="event-nav" class="header-nav">
         <div class="navigation">
             <div class="navigation-title">
-                <h1>{% trans "Call for Team Members" %}</h1>
+                <h1>{{ cfm.title }}</h1>
             </div>
         </div>
     </nav>
@@ -23,10 +24,12 @@
     <form action="" method="post" class="form-horizontal">
         {% csrf_token %}
         {% bootstrap_form_errors form %}
+
         <fieldset>
             <legend>{% trans "Settings" %}</legend>
             {% bootstrap_field form.title layout="control" %}
             {% bootstrap_field form.active layout="control" %}
+            {% bootstrap_field form.show_on_menu layout="control" %}
             {% bootstrap_field form.deadline layout="control" %}
             {% bootstrap_field form.description layout="control" %}
         </fieldset>
@@ -90,20 +93,19 @@
                                         </label>
                                     </td>
                                     <td class="text-right flip dnd-container">
-                                        <a href="{% url 'plugins:teamshifts:question_edit' organizer=request.organizer.slug event=request.event.slug pk=q.pk %}"
-                                           class="btn btn-default btn-sm">
-                                            <span class="fa fa-edit"></span>
+                                        <a class="btn btn-default btn-sm"
+                                           href="{% url 'plugins:teamshifts:question_edit' organizer=request.organizer.slug event=request.event.slug pk=q.pk %}"
+                                           title="{% trans 'Edit' %}">
+                                            <i class="fa fa-edit"></i>
                                         </a>
-                                        <form action="{% url 'plugins:teamshifts:question_delete' organizer=request.organizer.slug event=request.event.slug pk=q.pk %}"
-                                              method="post"
-                                              class="helper-display-inline">
-                                            {% csrf_token %}
-                                            <button type="submit"
-                                                    class="btn btn-delete btn-danger btn-sm"
-                                                    data-confirm="{% blocktrans trimmed with name=q.question %}Delete question &quot;{{ name }}&quot;?{% endblocktrans %}">
-                                                <span class="fa fa-trash"></span>
-                                            </button>
-                                        </form>
+                                        <button type="submit"
+                                                formaction="{% url 'plugins:teamshifts:question_delete' organizer=request.organizer.slug event=request.event.slug pk=q.pk %}"
+                                                class="btn btn-delete btn-danger btn-sm"
+                                                data-no-loading
+                                                title="{% trans 'Delete' %}"
+                                                data-confirm="{% blocktrans trimmed with name=q.question %}Delete question &quot;{{ name }}&quot;?{% endblocktrans %}">
+                                            <i class="fa fa-trash"></i>
+                                        </button>
                                     </td>
                                 </tr>
                             {% endfor %}

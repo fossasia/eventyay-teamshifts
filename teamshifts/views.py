@@ -1,6 +1,7 @@
 import json
 
 from django.contrib import messages
+from django.db import IntegrityError
 from django.db.models import Count, Q
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -37,7 +38,6 @@ class TeamShiftsDashboard(EventPermissionRequiredMixin, TemplateView):
         event = self.request.event
         with scope(event=event):
             ctx["role_count"] = TeamRole.objects.filter(event=event).count()
-            ctx["application_count"] = TeamMemberApplication.objects.filter(event=event).count()
             ctx["pending_count"] = TeamMemberApplication.objects.filter(event=event, status=ApplicationStatus.PENDING).count()
             ctx["accepted_count"] = TeamMemberApplication.objects.filter(event=event, status=ApplicationStatus.ACCEPTED).count()
             ctx["shift_count"] = Shift.objects.filter(event=event).count()
@@ -319,24 +319,28 @@ class PublicApplyView(FormView):
             return self.form_invalid(form)
         role = form.cleaned_data["role"]
         name = form.cleaned_data.get("name", "").strip()
-        if name and name != self.request.user.fullname:
-            self.request.user.fullname = name
-            self.request.user.save(update_fields=["fullname"])
         with scope(event=event):
             if TeamMemberApplication.objects.filter(event=event, user=self.request.user, role=role).exists():
                 messages.error(self.request, _("You have already applied for the role '%s'.") % role.name)
                 return self.form_invalid(form)
-            application = TeamMemberApplication.objects.create(
-                event=event,
-                user=self.request.user,
-                role=role,
-                availability_notes=form.cleaned_data.get("availability_notes", ""),
-                phone=form.cleaned_data.get("phone", ""),
-            )
+            try:
+                application = TeamMemberApplication.objects.create(
+                    event=event,
+                    user=self.request.user,
+                    role=role,
+                    availability_notes=form.cleaned_data.get("availability_notes", ""),
+                    phone=form.cleaned_data.get("phone", ""),
+                )
+            except IntegrityError:
+                messages.error(self.request, _("You have already applied for the role '%s'.") % role.name)
+                return self.form_invalid(form)
             for question, answer_text in form.get_question_answers():
                 if question.role_id and question.role_id != role.pk:
                     continue
                 TeamApplicationAnswer.objects.create(application=application, question=question, answer=answer_text)
+        if name and name != self.request.user.fullname:
+            self.request.user.fullname = name
+            self.request.user.save(update_fields=["fullname"])
         messages.success(self.request, _("Your application for '%s' has been submitted.") % role.name)
         return redirect(
             reverse(

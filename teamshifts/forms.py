@@ -14,7 +14,7 @@ from .models import (
 class CallForTeamMembersForm(forms.ModelForm):
     class Meta:
         model = CallForTeamMembers
-        fields = ("title", "active", "deadline", "description")
+        fields = ("title", "active", "show_on_menu", "deadline", "description")
         widgets = {
             "deadline": forms.DateTimeInput(
                 attrs={"class": "form-control datetimepicker"},

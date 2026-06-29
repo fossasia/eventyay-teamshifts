@@ -24,7 +24,12 @@ class CallForTeamMembers(models.Model):
         on_delete=models.CASCADE,
         related_name="call_for_team_members",
     )
-    active = models.BooleanField(default=False, verbose_name=_("Active"))
+    active = models.BooleanField(default=False, verbose_name=_("Active"), help_text=_("When enabled, the application form accepts new submissions."))
+    show_on_menu = models.BooleanField(
+        default=True,
+        verbose_name=_("Show in public navigation"),
+        help_text=_("Show a link to the application form in the public event navigation. Only visible when Active is enabled."),
+    )
     deadline = models.DateTimeField(null=True, blank=True, verbose_name=_("Deadline"))
     title = models.CharField(
         max_length=200,

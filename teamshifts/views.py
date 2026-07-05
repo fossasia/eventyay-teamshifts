@@ -259,6 +259,9 @@ class QuestionReorderView(EventPermissionRequiredMixin, View):
             else:
                 return HttpResponse(status=400)
 
+        if len(set(str(i) for i in normalised)) != len(normalised):
+            return HttpResponse(status=400)
+
         event = request.event
         with scope(event=event):
             for position, item in enumerate(normalised):

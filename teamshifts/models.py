@@ -114,6 +114,8 @@ class CallForTeamMembers(models.Model):
         return True
 
     def get_ask_state(self, field_key: str) -> str:
+        if field_key in CFM_LOCKED_FIELDS:
+            return AskChoices.REQUIRED
         mapping = {
             "full_name": self.ask_full_name,
             "email": self.ask_email,

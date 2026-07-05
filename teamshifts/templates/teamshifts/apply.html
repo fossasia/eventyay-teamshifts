@@ -79,14 +79,13 @@
         <form action="" method="post" class="form-horizontal" id="teamshifts-apply-form">
           {% csrf_token %}
           {% bootstrap_form_errors form %}
-          {% for field in form %}
-            {% if field.field.widget.attrs.data-question-field %}
-              <div class="teamshifts-question-row"
-                   data-question-role="{{ field.field.widget.attrs.data-question-role|default:'' }}">
-                {% bootstrap_field field layout="control" %}
+          {% for item in form.render_items %}
+            {% if item.is_question %}
+              <div class="teamshifts-question-row" data-question-role="{{ item.role_id }}">
+                {% bootstrap_field item.field layout="control" %}
               </div>
             {% else %}
-              {% bootstrap_field field layout="control" %}
+              {% bootstrap_field item.field layout="control" %}
             {% endif %}
           {% endfor %}
           <div class="form-group">

@@ -127,6 +127,12 @@ class TeamMemberApplicationForm(forms.Form):
         else:
             raw_order = list(CFM_BUILTIN_FIELD_KEYS)
 
+        raw_order = [int(i) if isinstance(i, str) and i.isdigit() else i for i in raw_order]
+        present_question_pks = {i for i in raw_order if isinstance(i, int)}
+        for q in self._questions:
+            if q.pk not in present_question_pks:
+                raw_order.append(q.pk)
+
         for item in raw_order:
             if isinstance(item, str):
                 ask_state = cfm.get_ask_state(item) if cfm else AskChoices.OPTIONAL
@@ -188,7 +194,9 @@ class TeamMemberApplicationForm(forms.Form):
                 field = self._build_field_for_question(question)
                 role_pk = str(question.role_id) if question.role_id else ""
                 field.widget.attrs["data-question-role"] = role_pk
+                field.widget.attrs["data_question_role"] = role_pk
                 field.widget.attrs["data-question-field"] = "1"
+                field.widget.attrs["data_question_field"] = "1"
                 if question.role_id:
                     field.required = False
                 self.fields[self._field_name_for(question)] = field
@@ -254,6 +262,22 @@ class TeamMemberApplicationForm(forms.Form):
 
     def visible_questions(self) -> list[tuple[TeamApplicationQuestion, forms.BoundField]]:
         return [(q, self[self._field_name_for(q)]) for q in self._questions]
+
+    def render_items(self):
+        """Yield {field, is_question, role_id} for the template so it can wrap
+        role-scoped custom question fields without needing dashed-attr lookup."""
+        question_map = {q.pk: q for q in self._questions}
+        for name in self.fields:
+            if name.startswith(self.QUESTION_FIELD_PREFIX):
+                try:
+                    pk = int(name[len(self.QUESTION_FIELD_PREFIX) :])
+                except ValueError:
+                    continue
+                question = question_map.get(pk)
+                role_id = str(question.role_id) if question and question.role_id else ""
+                yield {"field": self[name], "is_question": True, "role_id": role_id}
+            else:
+                yield {"field": self[name], "is_question": False, "role_id": ""}
 
     def clean(self):
         cleaned = super().clean()

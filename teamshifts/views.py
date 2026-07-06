@@ -375,6 +375,8 @@ class PublicApplyView(FormView):
     template_name = "teamshifts/apply.html"
 
     def dispatch(self, request, *args, **kwargs):
+        if "teamshifts" not in request.event.get_plugins():
+            raise Http404
         if not request.event.live:
             raise Http404
         if not request.user.is_authenticated:
@@ -450,6 +452,8 @@ class PublicApplyThanksView(TemplateView):
     template_name = "teamshifts/apply_thanks.html"
 
     def dispatch(self, request, *args, **kwargs):
+        if "teamshifts" not in request.event.get_plugins():
+            raise Http404
         if not request.event.live:
             raise Http404
         if not request.user.is_authenticated:

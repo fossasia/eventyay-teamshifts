@@ -3,18 +3,20 @@ from eventyay.common.urls import OrganizerSlugConverter  # noqa: F401
 
 from . import views
 
-urlpatterns = [
+event_patterns = [
     path(
-        "<orgslug:organizer>/<slug:event>/teamshifts/apply/",
+        "teamshifts/apply/",
         views.PublicApplyView.as_view(),
         name="apply",
     ),
     path(
-        "<orgslug:organizer>/<slug:event>/teamshifts/apply/thanks/",
+        "teamshifts/apply/thanks/",
         views.PublicApplyThanksView.as_view(),
         name="apply_thanks",
     ),
-    # Organiser back-office URLs (require can_change_event_settings)
+]
+
+urlpatterns = [
     path(
         "teamshifts/event/<orgslug:organizer>/<slug:event>/",
         views.TeamShiftsDashboard.as_view(),

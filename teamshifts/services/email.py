@@ -78,3 +78,35 @@ def queue_email(
 
 def _dispatch(event_id: int, queue_id: int) -> None:
     transaction.on_commit(lambda: send_queued_email.delay(event_id, queue_id))
+
+
+def queue_lifecycle_email(application, role: str) -> TeamShiftsEmailQueue | None:
+    """Queue a lifecycle email to the applicant for a given role transition."""
+    from ..models import LIFECYCLE_TEMPLATE_DEFAULTS, TeamShiftsEmailTemplate
+
+    if not application.user or not application.user.email:
+        logger.warning("[TeamShifts] Skipping %s email: user has no email", role)
+        return None
+
+    event = application.event
+    with scope(event=event):
+        template = TeamShiftsEmailTemplate.objects.filter(event=event, role=role).first()
+        if template is not None:
+            subject = template.subject
+            body = template.body
+        else:
+            defaults = LIFECYCLE_TEMPLATE_DEFAULTS.get(role)
+            if defaults is None:
+                logger.error("[TeamShifts] Unknown lifecycle role %s", role)
+                return None
+            subject = str(defaults["subject"])
+            body = str(defaults["body"])
+
+    return queue_email(
+        event=event,
+        subject=subject,
+        message=body,
+        recipients=[application.user],
+        role_filter=application.role,
+        status_filter=application.status,
+    )

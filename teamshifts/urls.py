@@ -78,6 +78,16 @@ urlpatterns = [
         name="applications",
     ),
     path(
+        "teamshifts/event/<orgslug:organizer>/<slug:event>/emails/templates/",
+        views.EmailTemplateListView.as_view(),
+        name="email_templates",
+    ),
+    path(
+        "teamshifts/event/<orgslug:organizer>/<slug:event>/emails/templates/<str:role>/edit/",
+        views.EmailTemplateEditView.as_view(),
+        name="email_template_edit",
+    ),
+    path(
         "teamshifts/event/<orgslug:organizer>/<slug:event>/applications/<int:pk>/status/",
         views.ApplicationStatusView.as_view(),
         name="application_status",

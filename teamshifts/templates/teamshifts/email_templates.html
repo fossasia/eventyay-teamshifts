@@ -1,0 +1,52 @@
+{% extends "teamshifts/base.html" %}
+{% load i18n %}
+
+{% block title %}{% trans "Email templates" %} :: {{ request.event.name }}{% endblock %}
+
+{% block content %}
+    <nav id='event-nav' class='header-nav'>
+        <div class='navigation'>
+            <div class='navigation-title'>
+                <h1>{% trans "Email templates" %}</h1>
+            </div>
+        </div>
+    </nav>
+    <p>
+        {% blocktrans trimmed %}
+        These templates are sent automatically when an application is received,
+        accepted, or rejected. Placeholders available: <code>{full_name}</code>,
+        <code>{event_name}</code>, <code>{role_name}</code>.
+        {% endblocktrans %}
+    </p>
+    <table class='table'>
+        <thead>
+            <tr>
+                <th>{% trans "Trigger" %}</th>
+                <th>{% trans "Subject" %}</th>
+                <th></th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in rows %}
+                <tr>
+                    <td>{{ row.label }}</td>
+                    <td>{{ row.subject }}</td>
+                    <td>
+                        {% if row.is_customised %}
+                            <span class='label label-info'>{% trans "Customised" %}</span>
+                        {% else %}
+                            <span class='label label-default'>{% trans "Using default" %}</span>
+                        {% endif %}
+                    </td>
+                    <td class='text-right'>
+                        <a href='{% url "plugins:teamshifts:email_template_edit" organizer=request.organizer.slug event=request.event.slug role=row.role %}'
+                           class='btn btn-default btn-sm'>
+                            <i class='fa fa-edit'></i> {% trans "Edit" %}
+                        </a>
+                    </td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+{% endblock %}

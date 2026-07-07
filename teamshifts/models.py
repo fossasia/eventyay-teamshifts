@@ -456,3 +456,70 @@ class TeamShiftsEmailQueueRecipient(models.Model):
 
     def __str__(self):
         return f"{self.email} ({'sent' if self.sent_at else 'pending'})"
+
+
+class EmailTemplateRoles(models.TextChoices):
+    APPLICATION_RECEIVED = "application.received", _("Application received")
+    APPLICATION_ACCEPTED = "application.accepted", _("Application accepted")
+    APPLICATION_REJECTED = "application.rejected", _("Application rejected")
+
+
+LIFECYCLE_TEMPLATE_DEFAULTS = {
+    EmailTemplateRoles.APPLICATION_RECEIVED: {
+        "subject": _("We received your application"),
+        "body": _(
+            "Hi {full_name},\n\n"
+            "Thanks for applying to join the team for {event_name}. "
+            "We have received your application for the role of {role_name} "
+            "and will get back to you soon.\n\n"
+            "Best regards,\n"
+            "The {event_name} team"
+        ),
+    },
+    EmailTemplateRoles.APPLICATION_ACCEPTED: {
+        "subject": _("Your application was accepted"),
+        "body": _(
+            "Hi {full_name},\n\n"
+            "Great news — your application for the role of {role_name} at "
+            "{event_name} has been accepted. Welcome to the team.\n\n"
+            "You will receive further details about shift scheduling shortly.\n\n"
+            "Best regards,\n"
+            "The {event_name} team"
+        ),
+    },
+    EmailTemplateRoles.APPLICATION_REJECTED: {
+        "subject": _("Update on your application"),
+        "body": _(
+            "Hi {full_name},\n\n"
+            "Thank you for your interest in joining the {event_name} team as "
+            "a {role_name}. Unfortunately, we are unable to accept your "
+            "application at this time.\n\n"
+            "We appreciate your enthusiasm and hope you enjoy the event.\n\n"
+            "Best regards,\n"
+            "The {event_name} team"
+        ),
+    },
+}
+
+
+class TeamShiftsEmailTemplate(models.Model):
+    event = models.ForeignKey(
+        "base.Event",
+        on_delete=models.CASCADE,
+        related_name="teamshifts_email_templates",
+    )
+    role = models.CharField(max_length=40, choices=EmailTemplateRoles.choices)
+    subject = I18nTextField()
+    body = I18nTextField()
+    updated = models.DateTimeField(auto_now=True)
+
+    objects = ScopedManager(event="event")
+
+    class Meta:
+        verbose_name = _("Email template")
+        verbose_name_plural = _("Email templates")
+        unique_together = ("event", "role")
+        ordering = ["role"]
+
+    def __str__(self):
+        return f"{self.event.slug} · {self.get_role_display()}"

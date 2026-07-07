@@ -2,6 +2,8 @@ from django.dispatch import receiver
 from django.urls import reverse
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
+from eventyay.base.email import SimpleFunctionalMailTextPlaceholder
+from eventyay.base.signals import register_mail_placeholders
 from eventyay.control.signals import event_dashboard_components, event_dashboard_widgets
 from eventyay.presale.signals import header_nav_tabs
 
@@ -66,3 +68,15 @@ def teamshifts_header_nav_tab(sender, request=None, **kwargs):
         "active" if is_active else "",
         tab_title,
     )
+
+
+@receiver(register_mail_placeholders, dispatch_uid="teamshifts_mail_placeholders")
+def teamshifts_mail_placeholders(sender, **kwargs):
+    return [
+        SimpleFunctionalMailTextPlaceholder(
+            "full_name",
+            ["user"],
+            lambda user: getattr(user, "fullname", "") or user.email,
+            lambda event: _("Volunteer"),
+        ),
+    ]

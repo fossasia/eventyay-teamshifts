@@ -380,3 +380,79 @@ class TeamApplicationAnswer(models.Model):
 
     def __str__(self):
         return f"{self.application} → {self.question}: {self.answer[:30]}"
+
+
+class TeamShiftsEmailQueue(models.Model):
+    event = models.ForeignKey(
+        "base.Event",
+        on_delete=models.CASCADE,
+        related_name="teamshifts_email_queue",
+    )
+    user = models.ForeignKey(
+        "base.User",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
+    subject = I18nTextField()
+    message = I18nTextField()
+    reply_to = models.CharField(max_length=200, blank=True, default="")
+    bcc = models.TextField(blank=True, default="")
+    locale = models.CharField(max_length=16, blank=True, default="")
+    role_filter = models.ForeignKey(
+        TeamRole,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
+    status_filter = models.CharField(
+        max_length=20,
+        choices=ApplicationStatus.choices,
+        blank=True,
+        default="",
+    )
+    send_after = models.DateTimeField(null=True, blank=True)
+    sent_at = models.DateTimeField(null=True, blank=True)
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+    objects = ScopedManager(event="event")
+
+    class Meta:
+        verbose_name = _("Queued email")
+        verbose_name_plural = _("Queued emails")
+        ordering = ["-created"]
+
+    def __str__(self):
+        state = "sent" if self.sent_at else ("scheduled" if self.send_after else "pending")
+        return f"{self.event.slug} · {state} · {self.subject}"
+
+
+class TeamShiftsEmailQueueRecipient(models.Model):
+    queue = models.ForeignKey(
+        TeamShiftsEmailQueue,
+        on_delete=models.CASCADE,
+        related_name="recipients",
+    )
+    user = models.ForeignKey(
+        "base.User",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
+    email = models.EmailField()
+    sent_at = models.DateTimeField(null=True, blank=True)
+    error = models.TextField(blank=True, default="")
+
+    objects = ScopedManager(event="queue__event")
+
+    class Meta:
+        verbose_name = _("Email recipient")
+        verbose_name_plural = _("Email recipients")
+        unique_together = ("queue", "email")
+
+    def __str__(self):
+        return f"{self.email} ({'sent' if self.sent_at else 'pending'})"

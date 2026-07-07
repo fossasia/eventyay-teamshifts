@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
     dependencies = [
         ("base", "0033_alter_event_private_testmode_default"),
-        ("teamshifts", "0005_teamshifts_email_queue"),
+        ("teamshifts", "0006_teamshifts_email_queue"),
     ]
 
     operations = [

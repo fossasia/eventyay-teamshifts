@@ -505,12 +505,12 @@ class ApplicationStatusView(PluginActiveMixin, EventPermissionRequiredMixin, Vie
                 application.status = ApplicationStatus.ACCEPTED
                 application.save(update_fields=["status", "updated_at"])
                 messages.success(request, _("Application by %s accepted.") % application.user.email)
-                transaction.on_commit(lambda: queue_lifecycle_email(application, EmailTemplateRoles.APPLICATION_ACCEPTED))
+                transaction.on_commit(lambda app=application: queue_lifecycle_email(app, EmailTemplateRoles.APPLICATION_ACCEPTED))
             elif action == "reject":
                 application.status = ApplicationStatus.REJECTED
                 application.save(update_fields=["status", "updated_at"])
                 messages.warning(request, _("Application by %s rejected.") % application.user.email)
-                transaction.on_commit(lambda: queue_lifecycle_email(application, EmailTemplateRoles.APPLICATION_REJECTED))
+                transaction.on_commit(lambda app=application: queue_lifecycle_email(app, EmailTemplateRoles.APPLICATION_REJECTED))
             else:
                 raise Http404
         return redirect("plugins:teamshifts:applications", organizer=request.organizer.slug, event=event.slug)
@@ -582,7 +582,7 @@ class PublicApplyView(FormView):
         if full_name and full_name != self.request.user.fullname:
             self.request.user.fullname = full_name
             self.request.user.save(update_fields=["fullname"])
-        transaction.on_commit(lambda: queue_lifecycle_email(application, EmailTemplateRoles.APPLICATION_RECEIVED))
+        transaction.on_commit(lambda app=application: queue_lifecycle_email(app, EmailTemplateRoles.APPLICATION_RECEIVED))
         messages.success(self.request, _("Your application for '%s' has been submitted.") % role.name)
         return redirect(
             reverse(

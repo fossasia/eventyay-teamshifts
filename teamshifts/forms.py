@@ -2,14 +2,17 @@ from django import forms
 from django.utils.translation import gettext_lazy as _
 from django_countries import countries
 from django_scopes import scopes_disabled
+from i18nfield.forms import I18nFormField, I18nTextarea, I18nTextInput
 
 from .models import (
     CFM_BUILTIN_FIELD_KEYS,
+    ApplicationStatus,
     AskChoices,
     CallForTeamMembers,
     QuestionVariant,
     TeamApplicationQuestion,
     TeamRole,
+    TeamShiftsEmailQueue,
     normalize_field_order,
 )
 
@@ -347,6 +350,81 @@ class EmailTemplateForm(forms.ModelForm):
                 self.fields[field_name].widget.enabled_locales = locales
 
 
+class EmailComposeForm(forms.Form):
+    def __init__(self, *args, event=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._event = event
+        locales = list(event.settings.get("locales") or [event.settings.locale])
+
+        self.fields["subject"] = I18nFormField(
+            label=_("Subject"),
+            widget=I18nTextInput,
+            required=True,
+            locales=locales,
+        )
+        self.fields["message"] = I18nFormField(
+            label=_("Message"),
+            widget=I18nTextarea,
+            required=True,
+            locales=locales,
+            widget_kwargs={"attrs": {"rows": 10}},
+        )
+
+        with scopes_disabled():
+            role_qs = TeamRole.objects.filter(event=event)
+        self.fields["role"] = forms.ModelChoiceField(
+            queryset=role_qs,
+            required=False,
+            empty_label=_("All roles"),
+            label=_("Send to role"),
+            widget=forms.Select(attrs={"class": "form-control"}),
+        )
+
+        self.fields["status"] = forms.ChoiceField(
+            choices=[("", _("All statuses"))] + list(ApplicationStatus.choices),
+            required=False,
+            initial=ApplicationStatus.ACCEPTED,
+            label=_("Send to applications with status"),
+            widget=forms.Select(attrs={"class": "form-control"}),
+        )
+
+        self.fields["send_after"] = forms.DateTimeField(
+            required=False,
+            label=_("Schedule for later"),
+            help_text=_("Leave empty to send immediately. Otherwise the message stays in the outbox until the scheduled time."),
+            widget=forms.DateTimeInput(
+                attrs={"class": "form-control", "type": "datetime-local"},
+                format="%Y-%m-%dT%H:%M",
+            ),
+            input_formats=["%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"],
+        )
+
+
+class EmailQueueEditForm(forms.ModelForm):
+    class Meta:
+        model = TeamShiftsEmailQueue
+        fields = ("subject", "message", "send_after")
+        widgets = {
+            "send_after": forms.DateTimeInput(
+                attrs={"class": "form-control", "type": "datetime-local"},
+                format="%Y-%m-%dT%H:%M",
+            ),
+        }
+
+    def __init__(self, *args, event=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._event = event
+        if event is not None:
+            locales = list(event.settings.get("locales") or [event.settings.locale])
+            for field_name in ("subject", "message"):
+                self.fields[field_name].widget.enabled_locales = locales
+        self.fields["send_after"].input_formats = [
+            "%Y-%m-%dT%H:%M",
+            "%Y-%m-%d %H:%M:%S",
+            "%Y-%m-%d %H:%M",
+        ]
+
+
 __all__ = [
     "CallForTeamMembersSettingsForm",
     "CallForTeamMembersApplicationSettingsForm",
@@ -354,5 +432,7 @@ __all__ = [
     "TeamApplicationQuestionForm",
     "TeamMemberApplicationForm",
     "EmailTemplateForm",
+    "EmailComposeForm",
+    "EmailQueueEditForm",
     "render_answer_for_review",
 ]

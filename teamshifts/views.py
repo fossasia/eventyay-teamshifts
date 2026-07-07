@@ -16,6 +16,8 @@ from eventyay.control.permissions import EventPermissionRequiredMixin
 from .forms import (
     CallForTeamMembersApplicationSettingsForm,
     CallForTeamMembersSettingsForm,
+    EmailComposeForm,
+    EmailQueueEditForm,
     EmailTemplateForm,
     TeamApplicationQuestionForm,
     TeamMemberApplicationForm,
@@ -33,10 +35,12 @@ from .models import (
     TeamApplicationQuestion,
     TeamMemberApplication,
     TeamRole,
+    TeamShiftsEmailQueue,
     TeamShiftsEmailTemplate,
     normalize_field_order,
 )
-from .services.email import queue_lifecycle_email
+from .services.email import get_recipients, queue_email, queue_lifecycle_email
+from .tasks import send_queued_email
 
 
 class PluginActiveMixin:
@@ -609,3 +613,212 @@ class PublicApplyThanksView(TemplateView):
         ctx = super().get_context_data(**kwargs)
         ctx["event"] = self.event
         return ctx
+
+
+class EmailComposeView(PluginActiveMixin, EventPermissionRequiredMixin, FormView):
+    permission = "can_change_event_settings"
+    template_name = "teamshifts/emails/compose.html"
+    form_class = EmailComposeForm
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["event"] = self.request.event
+        return kwargs
+
+    def get_initial(self):
+        initial = super().get_initial()
+        copy_pk = self.request.GET.get("copy")
+        if copy_pk and copy_pk.isdigit():
+            with scope(event=self.request.event):
+                try:
+                    source = TeamShiftsEmailQueue.objects.get(pk=int(copy_pk), event=self.request.event)
+                except TeamShiftsEmailQueue.DoesNotExist:
+                    return initial
+            initial["subject"] = source.subject
+            initial["message"] = source.message
+            initial["role"] = source.role_filter_id or None
+            initial["status"] = source.status_filter or ""
+        return initial
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["preview_recipients"] = getattr(self, "_preview_recipients", None)
+        return ctx
+
+    def form_invalid(self, form):
+        messages.error(self.request, _("Please correct the errors below."))
+        return super().form_invalid(form)
+
+    def form_valid(self, form):
+        event = self.request.event
+        role = form.cleaned_data.get("role")
+        status = form.cleaned_data.get("status") or ""
+        send_after = form.cleaned_data.get("send_after")
+
+        recipients = get_recipients(event, role=role, status=status)
+
+        if self.request.POST.get("action") == "preview":
+            self._preview_recipients = recipients
+            return self.render_to_response(self.get_context_data(form=form))
+
+        if not recipients:
+            messages.error(self.request, _("No recipients match the selected filters."))
+            return self.form_invalid(form)
+
+        queue_email(
+            event=event,
+            subject=form.cleaned_data["subject"],
+            message=form.cleaned_data["message"],
+            recipients=recipients,
+            user=self.request.user,
+            role_filter=role,
+            status_filter=status,
+            send_after=send_after,
+        )
+        if send_after:
+            messages.success(
+                self.request,
+                _("Email scheduled for %(count)d recipient(s). It stays in the outbox until %(when)s.") % {"count": len(recipients), "when": send_after},
+            )
+        else:
+            messages.success(
+                self.request,
+                _("Email queued for %(count)d recipient(s).") % {"count": len(recipients)},
+            )
+        return redirect(
+            "plugins:teamshifts:email_outbox" if send_after else "plugins:teamshifts:email_sent",
+            organizer=self.request.organizer.slug,
+            event=event.slug,
+        )
+
+
+class EmailOutboxView(PluginActiveMixin, EventPermissionRequiredMixin, TemplateView):
+    permission = "can_change_event_settings"
+    template_name = "teamshifts/emails/outbox_list.html"
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        event = self.request.event
+        with scope(event=event):
+            queues = list(
+                TeamShiftsEmailQueue.objects.filter(event=event, sent_at__isnull=True)
+                .select_related("role_filter", "user")
+                .prefetch_related("recipients")
+                .order_by("-created")
+            )
+            for q in queues:
+                q.recipient_count = q.recipients.count()
+        ctx["mails"] = queues
+        return ctx
+
+
+class EmailSentView(PluginActiveMixin, EventPermissionRequiredMixin, TemplateView):
+    permission = "can_change_event_settings"
+    template_name = "teamshifts/emails/sent_list.html"
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        event = self.request.event
+        with scope(event=event):
+            queues = list(
+                TeamShiftsEmailQueue.objects.filter(event=event, sent_at__isnull=False)
+                .select_related("role_filter", "user")
+                .prefetch_related("recipients")
+                .order_by("-sent_at")
+            )
+            for q in queues:
+                q.recipient_count = q.recipients.count()
+        ctx["mails"] = queues
+        return ctx
+
+
+class EmailQueueEditView(PluginActiveMixin, EventPermissionRequiredMixin, View):
+    permission = "can_change_event_settings"
+    template_name = "teamshifts/emails/outbox_form.html"
+
+    def _get_queue(self):
+        with scope(event=self.request.event):
+            queue = get_object_or_404(
+                TeamShiftsEmailQueue.objects.select_related("role_filter"),
+                pk=self.kwargs["pk"],
+                event=self.request.event,
+            )
+        return queue
+
+    def get(self, request, *args, **kwargs):
+        queue = self._get_queue()
+        form = EmailQueueEditForm(instance=queue, event=request.event)
+        return render(request, self.template_name, {"form": form, "queue": queue})
+
+    def post(self, request, *args, **kwargs):
+        queue = self._get_queue()
+        if queue.sent_at:
+            messages.error(request, _("This email has already been sent and cannot be edited."))
+            return redirect(
+                "plugins:teamshifts:email_outbox",
+                organizer=request.organizer.slug,
+                event=request.event.slug,
+            )
+        form = EmailQueueEditForm(request.POST, instance=queue, event=request.event)
+        if form.is_valid():
+            with scope(event=request.event):
+                form.save()
+            messages.success(request, _("Email saved."))
+            return redirect(
+                "plugins:teamshifts:email_outbox",
+                organizer=request.organizer.slug,
+                event=request.event.slug,
+            )
+        return render(request, self.template_name, {"form": form, "queue": queue})
+
+
+class EmailQueueDeleteView(PluginActiveMixin, EventPermissionRequiredMixin, View):
+    permission = "can_change_event_settings"
+    template_name = "teamshifts/emails/delete_confirmation.html"
+
+    def _get_queue(self):
+        with scope(event=self.request.event):
+            return get_object_or_404(
+                TeamShiftsEmailQueue,
+                pk=self.kwargs["pk"],
+                event=self.request.event,
+            )
+
+    def get(self, request, *args, **kwargs):
+        queue = self._get_queue()
+        return render(request, self.template_name, {"queue": queue})
+
+    def post(self, request, *args, **kwargs):
+        queue = self._get_queue()
+        if queue.sent_at:
+            messages.error(request, _("This email has already been sent and cannot be deleted."))
+        else:
+            with scope(event=request.event):
+                queue.delete()
+            messages.success(request, _("Email deleted."))
+        return redirect(
+            "plugins:teamshifts:email_outbox",
+            organizer=request.organizer.slug,
+            event=request.event.slug,
+        )
+
+
+class EmailQueueSendNowView(PluginActiveMixin, EventPermissionRequiredMixin, View):
+    permission = "can_change_event_settings"
+
+    def post(self, request, *args, **kwargs):
+        event = request.event
+        with scope(event=event):
+            queue = get_object_or_404(TeamShiftsEmailQueue, pk=kwargs["pk"], event=event)
+            if queue.sent_at:
+                messages.warning(request, _("This email has already been sent."))
+            else:
+                queue.send_after = None
+                queue.save(update_fields=["send_after"])
+                transaction.on_commit(lambda: send_queued_email.delay(event.pk, queue.pk))
+                messages.success(request, _("Email queued for sending."))
+        return redirect(
+            "plugins:teamshifts:email_outbox",
+            organizer=request.organizer.slug,
+            event=event.slug,
+        )

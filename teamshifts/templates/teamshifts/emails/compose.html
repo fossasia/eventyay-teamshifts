@@ -1,0 +1,76 @@
+{% extends "teamshifts/base.html" %}
+{% load i18n %}
+{% load bootstrap3 %}
+
+{% block title %}{% trans "Compose email" %} :: {{ request.event.name }}{% endblock %}
+
+{% block content %}
+  <nav id='event-nav' class='header-nav'>
+    <div class='navigation'>
+      <div class='navigation-title'>
+        <h1>{% trans "Compose email" %}</h1>
+      </div>
+    </div>
+  </nav>
+
+  <p class='help-block'>
+    {% blocktrans trimmed %}
+      Write a message to your team members. You can filter recipients by role
+      and application status. Send immediately or schedule it for later.
+    {% endblocktrans %}
+  </p>
+
+  <form action='' method='post' class='form-horizontal'>
+    {% csrf_token %}
+    {% bootstrap_form_errors form %}
+
+    <fieldset>
+      <legend>{% trans "Recipients" %}</legend>
+      {% bootstrap_field form.role layout='control' %}
+      {% bootstrap_field form.status layout='control' %}
+    </fieldset>
+
+    <fieldset>
+      <legend>{% trans "Content" %}</legend>
+      {% bootstrap_field form.subject layout='control' %}
+      {% bootstrap_field form.message layout='control' %}
+    </fieldset>
+
+    <fieldset>
+      <legend>{% trans "Delivery" %}</legend>
+      {% bootstrap_field form.send_after layout='control' %}
+    </fieldset>
+
+    {% if preview_recipients is not None %}
+      <fieldset>
+        <legend>{% trans "Preview" %}</legend>
+        <div class='alert alert-info'>
+          {% blocktrans count count=preview_recipients|length trimmed %}
+            {{ count }} recipient matches the selected filters.
+          {% plural %}
+            {{ count }} recipients match the selected filters.
+          {% endblocktrans %}
+        </div>
+        {% if preview_recipients %}
+          <ul>
+            {% for user in preview_recipients|slice:':20' %}
+              <li>{{ user.email }}{% if user.fullname %} ({{ user.fullname }}){% endif %}</li>
+            {% endfor %}
+            {% if preview_recipients|length > 20 %}
+              <li>{% blocktrans with count=preview_recipients|length|add:'-20' %}and {{ count }} more{% endblocktrans %}</li>
+            {% endif %}
+          </ul>
+        {% endif %}
+      </fieldset>
+    {% endif %}
+
+    <div class='form-group submit-group'>
+      <button type='submit' class='btn btn-default btn-save' name='action' value='preview'>
+        {% trans "Preview recipients" %}
+      </button>
+      <button type='submit' class='btn btn-primary btn-save' name='action' value='send'>
+        {% trans "Send" %}
+      </button>
+    </div>
+  </form>
+{% endblock %}

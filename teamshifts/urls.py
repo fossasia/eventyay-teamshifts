@@ -92,4 +92,34 @@ urlpatterns = [
         views.ApplicationStatusView.as_view(),
         name="application_status",
     ),
+    path(
+        "teamshifts/event/<orgslug:organizer>/<slug:event>/emails/compose/",
+        views.EmailComposeView.as_view(),
+        name="email_compose",
+    ),
+    path(
+        "teamshifts/event/<orgslug:organizer>/<slug:event>/emails/outbox/",
+        views.EmailOutboxView.as_view(),
+        name="email_outbox",
+    ),
+    path(
+        "teamshifts/event/<orgslug:organizer>/<slug:event>/emails/sent/",
+        views.EmailSentView.as_view(),
+        name="email_sent",
+    ),
+    path(
+        "teamshifts/event/<orgslug:organizer>/<slug:event>/emails/<int:pk>/edit/",
+        views.EmailQueueEditView.as_view(),
+        name="email_edit",
+    ),
+    path(
+        "teamshifts/event/<orgslug:organizer>/<slug:event>/emails/<int:pk>/delete/",
+        views.EmailQueueDeleteView.as_view(),
+        name="email_delete",
+    ),
+    path(
+        "teamshifts/event/<orgslug:organizer>/<slug:event>/emails/<int:pk>/send/",
+        views.EmailQueueSendNowView.as_view(),
+        name="email_send_now",
+    ),
 ]

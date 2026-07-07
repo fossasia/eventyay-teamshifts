@@ -1,0 +1,78 @@
+{% extends "teamshifts/base.html" %}
+{% load i18n %}
+{% load bootstrap3 %}
+
+{% block title %}{% trans "Edit email" %} :: {{ request.event.name }}{% endblock %}
+
+{% block content %}
+  <nav id='event-nav' class='header-nav'>
+    <div class='navigation'>
+      <div class='navigation-title'>
+        <h1>{% trans "Edit email" %}</h1>
+      </div>
+    </div>
+  </nav>
+
+  {% if queue.sent_at %}
+    <div class='alert alert-info'>
+      {% blocktrans with timestamp=queue.sent_at %}
+        This email was sent on {{ timestamp }} and cannot be edited.
+      {% endblocktrans %}
+    </div>
+  {% endif %}
+
+  <form action='' method='post' class='form-horizontal'>
+    {% csrf_token %}
+    {% bootstrap_form_errors form %}
+    {% bootstrap_field form.subject layout='control' %}
+    {% bootstrap_field form.message layout='control' %}
+    {% bootstrap_field form.send_after layout='control' %}
+
+    <div class='form-group'>
+      <label class='col-md-3 control-label'>{% trans "Recipients" %}</label>
+      <div class='col-md-9'>
+        <ul class='list-unstyled'>
+          {% for recipient in queue.recipients.all|slice:':30' %}
+            <li>
+              {{ recipient.email }}
+              {% if recipient.sent_at %}
+                <span class='label label-success'>{% trans "sent" %}</span>
+              {% elif recipient.error %}
+                <span class='label label-danger'>{% trans "error" %}</span>
+              {% endif %}
+            </li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+
+    {% if not queue.sent_at %}
+      <div class='form-group submit-group'>
+        <div class='col-md-6 text-left'>
+          <a href='{% url "plugins:teamshifts:email_delete" organizer=request.organizer.slug event=request.event.slug pk=queue.pk %}'
+             class='btn btn-danger'>
+            <i class='fa fa-trash'></i> {% trans "Delete" %}
+          </a>
+        </div>
+        <div class='col-md-6 text-right'>
+          <a href='{% url "plugins:teamshifts:email_outbox" organizer=request.organizer.slug event=request.event.slug %}'
+             class='btn btn-default'>
+            {% trans "Cancel" %}
+          </a>
+          <button type='submit' class='btn btn-primary btn-save'>{% trans "Save" %}</button>
+        </div>
+      </div>
+    {% else %}
+      <div class='form-group submit-group'>
+        <a href='{% url "plugins:teamshifts:email_compose" organizer=request.organizer.slug event=request.event.slug %}?copy={{ queue.pk }}'
+           class='btn btn-primary'>
+          <i class='fa fa-copy'></i> {% trans "Copy to new email" %}
+        </a>
+        <a href='{% url "plugins:teamshifts:email_sent" organizer=request.organizer.slug event=request.event.slug %}'
+           class='btn btn-default'>
+          {% trans "Back" %}
+        </a>
+      </div>
+    {% endif %}
+  </form>
+{% endblock %}

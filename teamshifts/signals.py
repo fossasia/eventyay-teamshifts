@@ -85,4 +85,10 @@ def teamshifts_mail_placeholders(sender, **kwargs):
             lambda role: role.name,
             lambda event: _("Volunteer role"),
         ),
+        SimpleFunctionalMailTextPlaceholder(
+            "event_name",
+            ["event"],
+            lambda event: str(event.name),
+            lambda event: str(event.name),
+        ),
     ]

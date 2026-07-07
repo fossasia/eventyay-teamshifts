@@ -1,7 +1,7 @@
 import json
 
 from django.contrib import messages
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.db.models import Count, Q
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -13,6 +13,7 @@ from eventyay.control.permissions import EventPermissionRequiredMixin
 
 from .forms import (
     CallForTeamMembersForm,
+    EmailTemplateForm,
     TeamApplicationQuestionForm,
     TeamMemberApplicationForm,
     TeamRoleForm,
@@ -21,15 +22,19 @@ from .forms import (
 from .models import (
     CFM_BUILTIN_FIELD_KEYS,
     CFM_LOCKED_FIELDS,
+    LIFECYCLE_TEMPLATE_DEFAULTS,
     ApplicationStatus,
     CallForTeamMembers,
+    EmailTemplateRoles,
     Shift,
     TeamApplicationAnswer,
     TeamApplicationQuestion,
     TeamMemberApplication,
     TeamRole,
+    TeamShiftsEmailTemplate,
     normalize_field_order,
 )
+from .services.email import queue_lifecycle_email
 
 
 class PluginActiveMixin:
@@ -186,6 +191,80 @@ class TeamRoleDeleteView(PluginActiveMixin, EventPermissionRequiredMixin, View):
                 role.delete()
                 messages.success(request, _("Role '%s' deleted.") % name)
         return redirect("plugins:teamshifts:roles", organizer=request.organizer.slug, event=event.slug)
+
+
+class EmailTemplateListView(PluginActiveMixin, EventPermissionRequiredMixin, View):
+    permission = "can_change_event_settings"
+    template_name = "teamshifts/email_templates.html"
+
+    def get(self, request, *args, **kwargs):
+        event = request.event
+        with scope(event=event):
+            existing = {t.role: t for t in TeamShiftsEmailTemplate.objects.filter(event=event)}
+        rows = []
+        for role, defaults in LIFECYCLE_TEMPLATE_DEFAULTS.items():
+            template = existing.get(role)
+            rows.append(
+                {
+                    "role": role,
+                    "label": EmailTemplateRoles(role).label,
+                    "subject": template.subject if template else defaults["subject"],
+                    "is_customised": template is not None,
+                }
+            )
+        return render(request, self.template_name, {"rows": rows})
+
+
+class EmailTemplateEditView(PluginActiveMixin, EventPermissionRequiredMixin, View):
+    permission = "can_change_event_settings"
+    template_name = "teamshifts/email_template_edit.html"
+
+    def _get_or_seed(self, request, role):
+        if role not in EmailTemplateRoles.values:
+            raise Http404
+        defaults = LIFECYCLE_TEMPLATE_DEFAULTS[role]
+        with scope(event=request.event):
+            template, _created = TeamShiftsEmailTemplate.objects.get_or_create(
+                event=request.event,
+                role=role,
+                defaults={"subject": defaults["subject"], "body": defaults["body"]},
+            )
+        return template
+
+    def get(self, request, *args, **kwargs):
+        template = self._get_or_seed(request, kwargs["role"])
+        form = EmailTemplateForm(instance=template, locales=request.event.settings.locales)
+        return render(
+            request,
+            self.template_name,
+            {
+                "form": form,
+                "template": template,
+                "role_label": EmailTemplateRoles(template.role).label,
+            },
+        )
+
+    def post(self, request, *args, **kwargs):
+        template = self._get_or_seed(request, kwargs["role"])
+        form = EmailTemplateForm(request.POST, instance=template, locales=request.event.settings.locales)
+        if form.is_valid():
+            with scope(event=request.event):
+                form.save()
+            messages.success(request, _("Template saved."))
+            return redirect(
+                "plugins:teamshifts:email_templates",
+                organizer=request.organizer.slug,
+                event=request.event.slug,
+            )
+        return render(
+            request,
+            self.template_name,
+            {
+                "form": form,
+                "template": template,
+                "role_label": EmailTemplateRoles(template.role).label,
+            },
+        )
 
 
 class QuestionEditView(PluginActiveMixin, EventPermissionRequiredMixin, View):
@@ -362,10 +441,12 @@ class ApplicationStatusView(PluginActiveMixin, EventPermissionRequiredMixin, Vie
                 application.status = ApplicationStatus.ACCEPTED
                 application.save(update_fields=["status", "updated_at"])
                 messages.success(request, _("Application by %s accepted.") % application.user.email)
+                transaction.on_commit(lambda: queue_lifecycle_email(application, EmailTemplateRoles.APPLICATION_ACCEPTED))
             elif action == "reject":
                 application.status = ApplicationStatus.REJECTED
                 application.save(update_fields=["status", "updated_at"])
                 messages.warning(request, _("Application by %s rejected.") % application.user.email)
+                transaction.on_commit(lambda: queue_lifecycle_email(application, EmailTemplateRoles.APPLICATION_REJECTED))
             else:
                 raise Http404
         return redirect("plugins:teamshifts:applications", organizer=request.organizer.slug, event=event.slug)
@@ -437,6 +518,7 @@ class PublicApplyView(FormView):
         if full_name and full_name != self.request.user.fullname:
             self.request.user.fullname = full_name
             self.request.user.save(update_fields=["fullname"])
+        transaction.on_commit(lambda: queue_lifecycle_email(application, EmailTemplateRoles.APPLICATION_RECEIVED))
         messages.success(self.request, _("Your application for '%s' has been submitted.") % role.name)
         return redirect(
             reverse(

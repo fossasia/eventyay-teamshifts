@@ -25,7 +25,6 @@ from .forms import (
 from .models import (
     CFM_BUILTIN_FIELD_KEYS,
     CFM_LOCKED_FIELDS,
-    LIFECYCLE_TEMPLATE_DEFAULTS,
     ApplicationStatus,
     CallForTeamMembers,
     EmailTemplateRoles,
@@ -265,14 +264,17 @@ class EmailTemplateListView(PluginActiveMixin, EventPermissionRequiredMixin, Vie
         event = request.event
         with scope(event=event):
             existing = {t.role: t for t in TeamShiftsEmailTemplate.objects.filter(event=event)}
+        from .mail.default_templates import get_default_template
+
         rows = []
-        for role, defaults in LIFECYCLE_TEMPLATE_DEFAULTS.items():
+        for role in EmailTemplateRoles.values:
             template = existing.get(role)
+            default_subject, _ = get_default_template(role)
             rows.append(
                 {
                     "role": role,
                     "label": EmailTemplateRoles(role).label,
-                    "subject": template.subject if template else defaults["subject"],
+                    "subject": template.subject if template else default_subject,
                     "is_customised": template is not None,
                 }
             )
@@ -286,13 +288,12 @@ class EmailTemplateEditView(PluginActiveMixin, EventPermissionRequiredMixin, Vie
     def _get_or_seed(self, request, role):
         if role not in EmailTemplateRoles.values:
             raise Http404
-        defaults = LIFECYCLE_TEMPLATE_DEFAULTS[role]
         with scope(event=request.event):
-            template, _created = TeamShiftsEmailTemplate.objects.get_or_create(
-                event=request.event,
-                role=role,
-                defaults={"subject": defaults["subject"], "body": defaults["body"]},
-            )
+            try:
+                cfm = request.event.call_for_team_members
+            except CallForTeamMembers.DoesNotExist:
+                raise Http404 from None
+            template = cfm.get_mail_template(role)
         return template
 
     def get(self, request, *args, **kwargs):

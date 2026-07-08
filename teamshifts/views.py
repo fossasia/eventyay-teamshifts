@@ -32,7 +32,14 @@ from .models import (
 )
 
 
-class TeamShiftsDashboard(EventPermissionRequiredMixin, TemplateView):
+class PluginActiveMixin:
+    def dispatch(self, request, *args, **kwargs):
+        if "teamshifts" not in request.event.get_plugins():
+            raise Http404
+        return super().dispatch(request, *args, **kwargs)
+
+
+class TeamShiftsDashboard(PluginActiveMixin, EventPermissionRequiredMixin, TemplateView):
     permission = "can_change_event_settings"
     template_name = "teamshifts/dashboard.html"
 
@@ -55,7 +62,7 @@ class TeamShiftsDashboard(EventPermissionRequiredMixin, TemplateView):
         return ctx
 
 
-class CFMSettingsView(EventPermissionRequiredMixin, View):
+class CFMSettingsView(PluginActiveMixin, EventPermissionRequiredMixin, View):
     permission = "can_change_event_settings"
     template_name = "teamshifts/cfv_settings.html"
 
@@ -140,7 +147,7 @@ class CFMSettingsView(EventPermissionRequiredMixin, View):
         return render(request, self.template_name, self._ctx(cfm, form, questions))
 
 
-class TeamRoleListView(EventPermissionRequiredMixin, View):
+class TeamRoleListView(PluginActiveMixin, EventPermissionRequiredMixin, View):
     permission = "can_change_event_settings"
     template_name = "teamshifts/roles.html"
 
@@ -163,7 +170,7 @@ class TeamRoleListView(EventPermissionRequiredMixin, View):
         return render(request, self.template_name, {"roles": roles, "form": form})
 
 
-class TeamRoleDeleteView(EventPermissionRequiredMixin, View):
+class TeamRoleDeleteView(PluginActiveMixin, EventPermissionRequiredMixin, View):
     permission = "can_change_event_settings"
 
     def post(self, request, *args, **kwargs):
@@ -181,7 +188,7 @@ class TeamRoleDeleteView(EventPermissionRequiredMixin, View):
         return redirect("plugins:teamshifts:roles", organizer=request.organizer.slug, event=event.slug)
 
 
-class QuestionEditView(EventPermissionRequiredMixin, View):
+class QuestionEditView(PluginActiveMixin, EventPermissionRequiredMixin, View):
     permission = "can_change_event_settings"
     template_name = "teamshifts/question_edit.html"
 
@@ -220,7 +227,7 @@ class QuestionEditView(EventPermissionRequiredMixin, View):
         return render(request, self.template_name, {"form": form, "question": instance})
 
 
-class QuestionDeleteView(EventPermissionRequiredMixin, View):
+class QuestionDeleteView(PluginActiveMixin, EventPermissionRequiredMixin, View):
     permission = "can_change_event_settings"
 
     def post(self, request, *args, **kwargs):
@@ -240,7 +247,7 @@ class QuestionDeleteView(EventPermissionRequiredMixin, View):
         return redirect("plugins:teamshifts:cfm_settings", organizer=request.organizer.slug, event=event.slug)
 
 
-class QuestionReorderView(EventPermissionRequiredMixin, View):
+class QuestionReorderView(PluginActiveMixin, EventPermissionRequiredMixin, View):
     permission = "can_change_event_settings"
 
     def post(self, request, *args, **kwargs):
@@ -274,7 +281,7 @@ class QuestionReorderView(EventPermissionRequiredMixin, View):
         return HttpResponse(status=204)
 
 
-class QuestionToggleView(EventPermissionRequiredMixin, View):
+class QuestionToggleView(PluginActiveMixin, EventPermissionRequiredMixin, View):
     permission = "can_change_event_settings"
 
     def post(self, request, *args, **kwargs):
@@ -304,7 +311,7 @@ class QuestionToggleView(EventPermissionRequiredMixin, View):
         return JsonResponse({"success": True, "field": field, "value": value})
 
 
-class ApplicationListView(EventPermissionRequiredMixin, TemplateView):
+class ApplicationListView(PluginActiveMixin, EventPermissionRequiredMixin, TemplateView):
     permission = "can_change_event_settings"
     template_name = "teamshifts/applications.html"
 
@@ -339,7 +346,7 @@ class ApplicationListView(EventPermissionRequiredMixin, TemplateView):
         return ctx
 
 
-class ApplicationStatusView(EventPermissionRequiredMixin, View):
+class ApplicationStatusView(PluginActiveMixin, EventPermissionRequiredMixin, View):
     permission = "can_change_event_settings"
 
     def post(self, request, *args, **kwargs):
@@ -368,6 +375,10 @@ class PublicApplyView(FormView):
     template_name = "teamshifts/apply.html"
 
     def dispatch(self, request, *args, **kwargs):
+        if "teamshifts" not in request.event.get_plugins():
+            raise Http404
+        if not request.event.live:
+            raise Http404
         if not request.user.is_authenticated:
             login_url = reverse("eventyay_common:auth.login")
             return redirect(f"{login_url}?next={request.get_full_path()}")
@@ -441,6 +452,10 @@ class PublicApplyThanksView(TemplateView):
     template_name = "teamshifts/apply_thanks.html"
 
     def dispatch(self, request, *args, **kwargs):
+        if "teamshifts" not in request.event.get_plugins():
+            raise Http404
+        if not request.event.live:
+            raise Http404
         if not request.user.is_authenticated:
             login_url = reverse("eventyay_common:auth.login")
             return redirect(f"{login_url}?next={request.get_full_path()}")

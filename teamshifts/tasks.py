@@ -10,6 +10,8 @@ from eventyay.base.services.tasks import ProfiledEventTask
 from eventyay.celery_app import app
 from i18nfield.strings import LazyI18nString
 
+from .models import TeamShiftsEmailQueue
+
 logger = logging.getLogger(__name__)
 
 
@@ -22,8 +24,6 @@ logger = logging.getLogger(__name__)
     acks_late=True,
 )
 def send_queued_email(self, event_id: int, queue_id: int):
-    from .models import TeamShiftsEmailQueue
-
     if isinstance(event_id, Event):
         event = event_id
         original_event_id = event.pk
@@ -40,7 +40,20 @@ def send_queued_email(self, event_id: int, queue_id: int):
             queue = TeamShiftsEmailQueue.objects.select_related("event").get(pk=queue_id, event=event)
             if queue.sent_at:
                 return
-            recipients = list(queue.recipients.all())
+            if queue.send_after and queue.send_after > now():
+                delay_seconds = max(int((queue.send_after - now()).total_seconds()), 1)
+                logger.info(
+                    "[TeamShifts] Queue %s not yet due (send_after=%s), rescheduling in %d seconds",
+                    queue_id,
+                    queue.send_after,
+                    delay_seconds,
+                )
+                send_queued_email.apply_async(
+                    args=[original_event_id, queue_id],
+                    countdown=delay_seconds,
+                )
+                return
+            recipients = list(queue.recipients.select_related("user").all())
     except TeamShiftsEmailQueue.DoesNotExist:
         logger.error("[TeamShifts] Queue %s not found for event %s", queue_id, event_id)
         return
@@ -56,12 +69,18 @@ def send_queued_email(self, event_id: int, queue_id: int):
     message = LazyI18nString(queue.message)
     locale = queue.locale or event.settings.locale
 
+    partial_send = False
     try:
         for recipient in recipients:
             if recipient.sent_at:
                 continue
             try:
-                context = get_email_context(event=event, user=recipient.user) if recipient.user else get_email_context(event=event)
+                ctx_kwargs = {"event": event}
+                if recipient.user:
+                    ctx_kwargs["user"] = recipient.user
+                if queue.role_filter_id:
+                    ctx_kwargs["role"] = queue.role_filter
+                context = get_email_context(**ctx_kwargs)
                 mail(
                     email=recipient.email,
                     subject=subject,
@@ -86,12 +105,25 @@ def send_queued_email(self, event_id: int, queue_id: int):
                 logger.exception("[TeamShifts] Send failed for %s", recipient.email)
 
         with scope(event=event):
-            all_sent = all(r.sent_at for r in queue.recipients.all())
-            queue.sent_at = now() if all_sent else None
-            queue.save(update_fields=["sent_at"])
+            has_unsent = queue.recipients.filter(sent_at__isnull=True).exists()
+            if not has_unsent:
+                queue.sent_at = now()
+                queue.save(update_fields=["sent_at"])
+            else:
+                partial_send = True
     except Exception as exc:
         logger.exception("[TeamShifts] Unexpected failure for queue %s", queue_id)
         try:
             self.retry(exc=exc, args=[original_event_id, queue_id])
         except MaxRetriesExceededError:
             logger.error("[TeamShifts] Max retries exceeded for queue %s", queue_id)
+        return
+
+    if partial_send:
+        try:
+            self.retry(
+                exc=SendMailException("Partial send: some recipients failed"),
+                args=[original_event_id, queue_id],
+            )
+        except MaxRetriesExceededError:
+            logger.error("[TeamShifts] Max retries exceeded for queue %s (partial send)", queue_id)

@@ -12,6 +12,7 @@ from ..models import (
     TeamShiftsEmailQueue,
     TeamShiftsEmailQueueRecipient,
 )
+from ..tasks import send_queued_email
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +29,7 @@ def get_recipients(
             qs = qs.filter(status=status)
         if role is not None:
             qs = qs.filter(role=role)
-        user_ids = qs.values_list("user_id", flat=True).distinct()
+        user_ids = list(qs.values_list("user_id", flat=True).distinct())
     return list(User.objects.filter(pk__in=user_ids))
 
 
@@ -76,6 +77,4 @@ def queue_email(
 
 
 def _dispatch(event_id: int, queue_id: int) -> None:
-    from ..tasks import send_queued_email
-
     transaction.on_commit(lambda: send_queued_email.delay(event_id, queue_id))

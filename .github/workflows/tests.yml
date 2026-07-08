@@ -2,34 +2,75 @@ name: Tests
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [main, master, dev]
     paths-ignore:
-      - 'teamshifts/locale/**'
+      - "teamshifts/locale/**"
   pull_request:
-    branches: [ main, master ]
+    branches: [main, master, dev]
     paths-ignore:
-      - 'teamshifts/locale/**'
+      - "teamshifts/locale/**"
 
 jobs:
   test:
     runs-on: ubuntu-latest
-    name: Tests
+    name: TeamShifts Plugin Tests
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: eventyay-db
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
     steps:
-      - uses: actions/checkout@v7
+      - name: Checkout eventyay_teamshifts plugin
+        uses: actions/checkout@v7
 
-      - name: Set up Python 3.12
+      - name: Clone eventyay
+        run: |
+          git clone https://github.com/fossasia/eventyay.git ../eventyay
+
+      - name: Set up Python
         uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
 
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y gettext
+        run: sudo apt-get update && sudo apt-get install -y gettext libjpeg-dev zlib1g-dev libpq-dev
 
-      - name: Install dependencies
-        run: uv sync --all-extras --all-groups
+      - name: Set up eventyay environment
+        run: |
+          cd ../eventyay/app
+          uv sync --all-extras --all-groups
+          uv pip install -e ../../eventyay-teamshifts
 
       - name: Run tests
-        run: uv run pytest tests
+        env:
+          EVY_RUNNING_ENVIRONMENT: testing
+          EVY_POSTGRES_HOST: localhost
+          EVY_POSTGRES_PORT: 5432
+          EVY_POSTGRES_USER: postgres
+          EVY_POSTGRES_PASSWORD: postgres
+          EVY_POSTGRES_DB: eventyay-db
+        run: |
+          . ../eventyay/app/.venv/bin/activate
+          pytest tests --reruns 3

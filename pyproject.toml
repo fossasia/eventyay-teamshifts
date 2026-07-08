@@ -17,21 +17,16 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = [
-    "ruff",
-]
 test = [
-    "pytest",
-    "pytest-django",
+    "pytest>=9.1.1",
+    "pytest-django>=4.12.0",
+    "pytest-env>=1.6.0",
+    "pytest-rerunfailures>=16.4",
 ]
 
 [dependency-groups]
 dev = [
     "ruff",
-]
-test = [
-    "pytest",
-    "pytest-django",
 ]
 
 [project.entry-points."pretix.plugin"]
@@ -62,6 +57,18 @@ version = {attr = "teamshifts.__version__"}
 [tool.setuptools.packages.find]
 include = ["teamshifts*"]
 namespaces = false
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "eventyay.config.settings"
+testpaths = ["tests"]
+
+[tool.pytest_env]
+EVY_RUNNING_ENVIRONMENT = "testing"
+EVY_POSTGRES_HOST = "localhost"
+EVY_POSTGRES_PORT = "5432"
+EVY_POSTGRES_USER = "postgres"
+EVY_POSTGRES_PASSWORD = "postgres"
+EVY_POSTGRES_DB = "eventyay-db"
 
 [tool.ruff]
 line-length = 160

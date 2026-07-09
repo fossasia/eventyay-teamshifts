@@ -37,7 +37,7 @@ def send_queued_email(self, event_id: int, queue_id: int):
 
     try:
         with scope(event=event):
-            queue = TeamShiftsEmailQueue.objects.select_related("event").get(pk=queue_id, event=event)
+            queue = TeamShiftsEmailQueue.objects.select_related("event", "role_filter").get(pk=queue_id, event=event)
             if queue.sent_at:
                 return
             if queue.send_after and queue.send_after > now():
@@ -71,40 +71,38 @@ def send_queued_email(self, event_id: int, queue_id: int):
 
     partial_send = False
     try:
-        for recipient in recipients:
-            if recipient.sent_at:
-                continue
-            try:
-                ctx_kwargs = {"event": event}
-                if recipient.user:
-                    ctx_kwargs["user"] = recipient.user
-                if queue.role_filter_id:
-                    ctx_kwargs["role"] = queue.role_filter
-                context = get_email_context(**ctx_kwargs)
-                mail(
-                    email=recipient.email,
-                    subject=subject,
-                    template=message,
-                    context=context,
-                    event=event,
-                    locale=locale,
-                    event_bcc=queue.bcc or None,
-                    event_reply_to=queue.reply_to or None,
-                    user=recipient.user,
-                    auto_email=False,
-                    sync_send=True,
-                )
-                with scope(event=event):
+        with scope(event=event):
+            for recipient in recipients:
+                if recipient.sent_at:
+                    continue
+                try:
+                    ctx_kwargs = {"event": event}
+                    if recipient.user:
+                        ctx_kwargs["user"] = recipient.user
+                    if queue.role_filter_id:
+                        ctx_kwargs["role"] = queue.role_filter
+                    context = get_email_context(**ctx_kwargs)
+                    mail(
+                        email=recipient.email,
+                        subject=subject,
+                        template=message,
+                        context=context,
+                        event=event,
+                        locale=locale,
+                        event_bcc=queue.bcc or None,
+                        event_reply_to=queue.reply_to or None,
+                        user=recipient.user,
+                        auto_email=False,
+                        sync_send=True,
+                    )
                     recipient.sent_at = now()
                     recipient.error = ""
                     recipient.save(update_fields=["sent_at", "error"])
-            except SendMailException as exc:
-                with scope(event=event):
+                except SendMailException as exc:
                     recipient.error = str(exc)
                     recipient.save(update_fields=["error"])
-                logger.exception("[TeamShifts] Send failed for %s", recipient.email)
+                    logger.exception("[TeamShifts] Send failed for %s", recipient.email)
 
-        with scope(event=event):
             has_unsent = queue.recipients.filter(sent_at__isnull=True).exists()
             if not has_unsent:
                 queue.sent_at = now()

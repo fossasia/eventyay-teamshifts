@@ -1,0 +1,291 @@
+{% extends "teamshifts/base.html" %}
+{% load i18n %}
+{% load bootstrap3 %}
+
+{% block content %}
+    <h1>{% trans "Create Shift(s)" %}</h1>
+    
+    {% if not has_locations %}
+        <div class="alert alert-warning">
+            {% trans "No locations defined yet, add locations first." %}
+            <br>
+            <a href="{% url 'plugins:teamshifts:location_create' organizer=request.event.organizer.slug event=request.event.slug %}" class="btn btn-warning" style="margin-top: 10px;">
+                {% trans "Add Location" %}
+            </a>
+        </div>
+    {% endif %}
+    
+    <form method="post" action="" class="form-horizontal">
+        {% csrf_token %}
+        
+        <div class="panel panel-default">
+            <div class="panel-heading">
+                <h3 class="panel-title">{% trans "Shift Details" %}</h3>
+            </div>
+            <div class="panel-body">
+                {% bootstrap_field form.name layout="horizontal" %}
+                {% bootstrap_field form.location layout="horizontal" %}
+                {% bootstrap_field form.start_time layout="horizontal" %}
+                {% bootstrap_field form.end_time layout="horizontal" %}
+                {% bootstrap_field form.description layout="horizontal" %}
+            </div>
+        </div>
+
+        <div class="panel panel-default">
+            <div class="panel-heading">
+                <h3 class="panel-title">{% trans "Mode" %}</h3>
+            </div>
+            <div class="panel-body">
+                {% bootstrap_field form.mode layout="horizontal" %}
+                
+                <div id="repeat-options" style="display: none;">
+                    {% bootstrap_field form.shift_length_minutes layout="horizontal" %}
+                    
+                    <div class="form-group">
+                        <div class="col-md-9 col-md-offset-3">
+                            <button type="button" class="btn btn-default" id="preview-occurrences-btn">
+                                {% trans "Preview occurrences" %}
+                            </button>
+                            <div id="occurrences-preview" style="margin-top: 10px; display: none;" class="well"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="panel panel-default">
+            <div class="panel-heading">
+                <h3 class="panel-title">{% trans "Roles Needed" %}</h3>
+            </div>
+            <div class="panel-body">
+                {{ formset.management_form }}
+                {% if formset.non_form_errors %}
+                    <div class="alert alert-danger">
+                        {{ formset.non_form_errors }}
+                    </div>
+                {% endif %}
+                <table class="table table-striped" id="roles-table">
+                    <thead>
+                        <tr>
+                            <th>{% trans "Role" %}</th>
+                            <th>{% trans "Capacity" %}</th>
+                            <th>{% trans "Remove" %}</th>
+                        </tr>
+                    </thead>
+                    <tbody id="roles-body">
+                        {% for form in formset %}
+                            <tr class="role-form-row">
+                                <td class="{% if form.role.errors %}has-error{% endif %}">
+                                    {{ form.id }}
+                                    {{ form.role }}
+                                    {% if form.role.errors %}
+                                        <div class="help-block">{{ form.role.errors|striptags }}</div>
+                                    {% endif %}
+                                </td>
+                                <td class="{% if form.capacity.errors %}has-error{% endif %}">
+                                    {{ form.capacity }}
+                                    {% if form.capacity.errors %}
+                                        <div class="help-block">{{ form.capacity.errors|striptags }}</div>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if form.instance.pk %}
+                                        {{ form.DELETE }}
+                                    {% else %}
+                                        <button type="button" class="btn btn-danger btn-sm remove-role-btn"><i class="fa fa-trash"></i></button>
+                                        <span class="delete-checkbox hidden">{{ form.DELETE }}</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                <button type="button" class="btn btn-default" id="add-role-btn">
+                    <i class="fa fa-plus"></i> {% trans "Add another role" %}
+                </button>
+            </div>
+        </div>
+
+        <div class="form-group submit-group">
+            <button type="submit" class="btn btn-primary btn-save" {% if not has_locations %}disabled{% endif %}>
+                {% trans "Save" %}
+            </button>
+            <a href="{% url 'plugins:teamshifts:dashboard' request.organizer.slug request.event.slug %}" class="btn btn-default">
+                {% trans "Cancel" %}
+            </a>
+        </div>
+    </form>
+
+    <script type="text/javascript">
+        document.addEventListener('DOMContentLoaded', function() {
+            // Mode Options Toggle
+            const modeRadios = document.querySelectorAll('input[name="mode"]');
+            const repeatOptionsDiv = document.getElementById('repeat-options');
+            
+            function toggleRepeatOptions() {
+                let isRepeating = false;
+                modeRadios.forEach(radio => {
+                    if (radio.checked && radio.value === 'repeating') {
+                        isRepeating = true;
+                    }
+                });
+                if (isRepeating) {
+                    repeatOptionsDiv.style.display = 'block';
+                } else {
+                    repeatOptionsDiv.style.display = 'none';
+                }
+            }
+            
+            if (modeRadios.length > 0) {
+                modeRadios.forEach(radio => radio.addEventListener('change', toggleRepeatOptions));
+                toggleRepeatOptions(); // initial state
+            }
+            
+            // Preview Occurrences Logic
+            const previewBtn = document.getElementById('preview-occurrences-btn');
+            const previewDiv = document.getElementById('occurrences-preview');
+            const startTimeInput = document.getElementById('id_start_time');
+            const endTimeInput = document.getElementById('id_end_time');
+            const lengthInput = document.getElementById('id_shift_length_minutes');
+            
+            if (previewBtn) {
+                previewBtn.addEventListener('click', function() {
+                    const startStr = startTimeInput.value;
+                    const endStr = endTimeInput.value;
+                    const lengthStr = lengthInput.value;
+                    
+                    if (!startStr || !endStr || !lengthStr) {
+                        previewDiv.innerHTML = '<p class="text-danger">{% trans "Please fill in Start Time, End Time, and Shift Length." %}</p>';
+                        previewDiv.style.display = 'block';
+                        return;
+                    }
+                    
+                    const startDate = new Date(startStr);
+                    const endDate = new Date(endStr);
+                    const lengthMins = parseInt(lengthStr, 10);
+                    
+                    if (endDate <= startDate) {
+                        previewDiv.innerHTML = '<p class="text-danger">{% trans "End Time must be after Start Time." %}</p>';
+                        previewDiv.style.display = 'block';
+                        return;
+                    }
+                    
+                    if (lengthMins <= 0) {
+                        previewDiv.innerHTML = '<p class="text-danger">{% trans "Shift Length must be greater than 0." %}</p>';
+                        previewDiv.style.display = 'block';
+                        return;
+                    }
+                    
+                    const durationMins = (endDate - startDate) / (1000 * 60);
+                    if (durationMins % lengthMins !== 0) {
+                        previewDiv.innerHTML = '<p class="text-warning">{% trans "Warning: The shift length does not divide evenly into the total duration." %}</p>';
+                    } else {
+                        previewDiv.innerHTML = '';
+                    }
+                    
+                    let curr = new Date(startDate);
+                    let occurrences = [];
+                    let safetyCounter = 0;
+                    
+                    while (curr < endDate && safetyCounter < 100) {
+                        let next = new Date(curr.getTime() + lengthMins * 60000);
+                        if (next > endDate) {
+                            break;
+                        }
+                        
+                        // format to string YYYY-MM-DD HH:MM
+                        const formatDt = (dt) => {
+                            const year = dt.getFullYear();
+                            const month = String(dt.getMonth() + 1).padStart(2, '0');
+                            const day = String(dt.getDate()).padStart(2, '0');
+                            const hrs = String(dt.getHours()).padStart(2, '0');
+                            const mins = String(dt.getMinutes()).padStart(2, '0');
+                            return `${year}-${month}-${day} ${hrs}:${mins}`;
+                        };
+                        
+                        occurrences.push(`${formatDt(curr)} – ${formatDt(next)}`);
+                        curr = next;
+                        safetyCounter++;
+                    }
+                    
+                    if (safetyCounter >= 100) {
+                        previewDiv.innerHTML += '<p class="text-warning">{% trans "Too many occurrences (limited to 100 for preview)." %}</p>';
+                    } else {
+                        previewDiv.innerHTML += `<strong>{% trans "Will create" %} ${occurrences.length} {% trans "shifts:" %}</strong><br/>` + occurrences.join('<br/>');
+                    }
+                    previewDiv.style.display = 'block';
+                });
+            }
+            
+            // Dynamic Formset Logic
+            const addRoleBtn = document.getElementById('add-role-btn');
+            const rolesBody = document.getElementById('roles-body');
+            const totalFormsInput = document.getElementById('id_roles-TOTAL_FORMS');
+            
+            if (addRoleBtn && rolesBody && totalFormsInput) {
+                addRoleBtn.addEventListener('click', function() {
+                    const formCount = parseInt(totalFormsInput.value);
+                    const rows = rolesBody.querySelectorAll('.role-form-row');
+                    if (rows.length === 0) return;
+                    
+                    // Clone the last row
+                    const lastRow = rows[rows.length - 1];
+                    const newRow = lastRow.cloneNode(true);
+                    
+                    // Update the prefix/index in the cloned row
+                    const regex = new RegExp(`roles-(\\d+)-`, 'g');
+                    newRow.innerHTML = newRow.innerHTML.replace(regex, `roles-${formCount}-`);
+                    
+                    // Clear values in cloned inputs
+                    const inputs = newRow.querySelectorAll('input, select');
+                    inputs.forEach(input => {
+                        if (input.type === 'checkbox') {
+                            input.checked = false;
+                        } else if (input.tagName === 'SELECT') {
+                            input.selectedIndex = 0;
+                        } else if (input.type !== 'hidden' || input.name.endsWith('-id')) {
+                            if (input.name.endsWith('-capacity')) {
+                                input.value = "1";
+                            } else {
+                                input.value = '';
+                            }
+                        }
+                    });
+                    
+                    // Remove error texts from clone
+                    const errors = newRow.querySelectorAll('.help-block');
+                    errors.forEach(err => err.remove());
+                    const errorCells = newRow.querySelectorAll('.has-error');
+                    errorCells.forEach(cell => cell.classList.remove('has-error'));
+                    
+                    rolesBody.appendChild(newRow);
+                    totalFormsInput.value = formCount + 1;
+                    
+                    bindRemoveButtons();
+                });
+            }
+            
+            function bindRemoveButtons() {
+                const removeBtns = document.querySelectorAll('.remove-role-btn');
+                removeBtns.forEach(btn => {
+                    // remove old listeners
+                    const newBtn = btn.cloneNode(true);
+                    btn.parentNode.replaceChild(newBtn, btn);
+                    
+                    newBtn.addEventListener('click', function() {
+                        const row = this.closest('tr');
+                        const deleteCheckbox = row.querySelector('.delete-checkbox input');
+                        if (deleteCheckbox) {
+                            deleteCheckbox.checked = true;
+                            row.style.display = 'none';
+                        } else {
+                            row.remove();
+                        }
+                    });
+                });
+            }
+            
+            bindRemoveButtons();
+        });
+    </script>
+{% endblock %}

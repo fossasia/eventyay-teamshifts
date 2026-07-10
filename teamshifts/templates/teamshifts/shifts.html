@@ -1,0 +1,40 @@
+{% extends "teamshifts/base.html" %}
+{% load i18n %}
+
+{% block title %}{% trans "Shifts" %} :: {{ request.event.name }}{% endblock %}
+
+{% block content %}
+    <h1>
+        {% trans "Shifts" %}
+        <a href="{% url 'plugins:teamshifts:shift_create' organizer=request.event.organizer.slug event=request.event.slug %}" class="btn btn-primary pull-right">
+            <i class="fa fa-plus"></i> {% trans "Create Shift" %}
+        </a>
+    </h1>
+
+    <div class="table-responsive">
+        <table class="table table-hover table-striped">
+            <thead>
+            <tr>
+                <th>{% trans "Name" %}</th>
+                <th>{% trans "Location" %}</th>
+                <th>{% trans "Start" %}</th>
+                <th>{% trans "End" %}</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for shift in shifts %}
+                <tr>
+                    <td>{{ shift.name }}</td>
+                    <td>{{ shift.location.name }}</td>
+                    <td>{{ shift.start_time|date:"SHORT_DATETIME_FORMAT" }}</td>
+                    <td>{{ shift.end_time|date:"SHORT_DATETIME_FORMAT" }}</td>
+                </tr>
+            {% empty %}
+                <tr>
+                    <td colspan="4" class="text-center">{% trans "No shifts created yet." %}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+{% endblock %}

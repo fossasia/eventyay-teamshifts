@@ -82,7 +82,8 @@ class CFMSettingsView(PluginActiveMixin, EventPermissionRequiredMixin, View):
         if not isinstance(description, dict):
             description = dict.fromkeys(self.request.event.settings.locales, description or "")
 
-        description_previews = [(locale, rich_text(description.get(locale, ""))) for locale in self.request.event.settings.locales]
+        event_locales = set(request.event.settings.locales)
+        description_previews = [(code, rich_text(description.get(code, ""))) for code, _name in django_settings.LANGUAGES if code in event_locales]
 
         return render(request, self.template_name, {"form": form, "cfm": cfm, "description_previews": description_previews})
 
@@ -99,7 +100,8 @@ class CFMSettingsView(PluginActiveMixin, EventPermissionRequiredMixin, View):
         if not isinstance(description, dict):
             description = dict.fromkeys(request.event.settings.locales, description or "")
 
-        description_previews = [(locale, rich_text(description.get(locale, ""))) for locale in request.event.settings.locales]
+        event_locales = set(request.event.settings.locales)
+        description_previews = [(code, rich_text(description.get(code, ""))) for code, _name in django_settings.LANGUAGES if code in event_locales]
         return render(request, self.template_name, {"form": form, "cfm": cfm, "description_previews": description_previews})
 
 
@@ -194,16 +196,16 @@ class CFMDescriptionPreviewView(PluginActiveMixin, EventPermissionRequiredMixin,
     permission = "can_change_event_settings"
 
     def post(self, request, *args, **kwargs):
-        widget = CallForTeamMembersSettingsForm(locales=request.event.settings.locales).fields["description"].widget
-        # The i18n widget returns values as a list indexed by global LANGUAGES order.
-        values = widget.value_from_datadict(request.POST, request.FILES, "description")
-        if not isinstance(values, (list, tuple)):
-            values = [values]
         event_locales = set(request.event.settings.locales)
+        widget = CallForTeamMembersSettingsForm(locales=list(event_locales)).fields["description"].widget
+        raw_values = widget.value_from_datadict(request.POST, request.FILES, "description")
+        if not isinstance(raw_values, (list, tuple)):
+            raw_values = [raw_values]
+
         msgs = {}
         for index, (code, _name) in enumerate(django_settings.LANGUAGES):
-            if code in event_locales and index < len(values):
-                text = values[index]
+            if code in event_locales and index < len(raw_values):
+                text = raw_values[index]
                 msgs[code] = str(rich_text(text)) if text else ""
 
         return JsonResponse({"msgs": msgs})

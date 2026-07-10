@@ -6,8 +6,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("base", "0042_remove_order_order_code_trgm_and_more"),
-        ("teamshifts", "0007_teamshifts_email_template"),
+        ("teamshifts", "0008_alter_callforteammembers_active_and_more"),
     ]
 
     operations = [

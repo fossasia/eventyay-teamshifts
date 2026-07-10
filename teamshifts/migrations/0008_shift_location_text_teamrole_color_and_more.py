@@ -5,52 +5,76 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('base', '0042_remove_order_order_code_trgm_and_more'),
-        ('teamshifts', '0007_teamshifts_email_template'),
+        ("base", "0042_remove_order_order_code_trgm_and_more"),
+        ("teamshifts", "0007_teamshifts_email_template"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='shift',
-            name='location_text',
-            field=models.CharField(blank=True, max_length=190, verbose_name='Location Text'),
+            model_name="shift",
+            name="location_text",
+            field=models.CharField(blank=True, max_length=190, verbose_name="Location Text"),
         ),
         migrations.AddField(
-            model_name='teamrole',
-            name='color',
-            field=models.CharField(blank=True, max_length=7, verbose_name='Color'),
+            model_name="teamrole",
+            name="color",
+            field=models.CharField(blank=True, max_length=7, verbose_name="Color"),
         ),
         migrations.AlterField(
-            model_name='callforteammembers',
-            name='active',
-            field=models.BooleanField(default=False, help_text='When enabled, the application form accepts new submissions.', verbose_name='Active'),
+            model_name="callforteammembers",
+            name="active",
+            field=models.BooleanField(default=False, help_text="When enabled, the application form accepts new submissions.", verbose_name="Active"),
         ),
         migrations.AlterField(
-            model_name='teamapplicationquestion',
-            name='variant',
-            field=models.CharField(choices=[('string', 'Text (one line)'), ('text', 'Multi-line text'), ('number', 'Number'), ('boolean', 'Confirmation (checkbox)'), ('date', 'Date'), ('datetime', 'Date and time'), ('url', 'URL'), ('choices', 'Radio button (choose one option)'), ('choices_dropdown', 'Dropdown (choose one option)'), ('multiple_choice', 'Checkbox (choose one or more options)'), ('country', 'Country'), ('phone', 'Phone number')], default='string', max_length=20, verbose_name='Field type'),
+            model_name="teamapplicationquestion",
+            name="variant",
+            field=models.CharField(
+                choices=[
+                    ("string", "Text (one line)"),
+                    ("text", "Multi-line text"),
+                    ("number", "Number"),
+                    ("boolean", "Confirmation (checkbox)"),
+                    ("date", "Date"),
+                    ("datetime", "Date and time"),
+                    ("url", "URL"),
+                    ("choices", "Radio button (choose one option)"),
+                    ("choices_dropdown", "Dropdown (choose one option)"),
+                    ("multiple_choice", "Checkbox (choose one or more options)"),
+                    ("country", "Country"),
+                    ("phone", "Phone number"),
+                ],
+                default="string",
+                max_length=20,
+                verbose_name="Field type",
+            ),
         ),
         migrations.CreateModel(
-            name='ShiftLocation',
+            name="ShiftLocation",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('name', models.CharField(max_length=190, verbose_name='Location Name')),
-                ('description', models.TextField(blank=True, verbose_name='Description')),
-                ('position', models.IntegerField(default=0)),
-                ('event', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='shift_locations', to='base.event')),
+                ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                ("name", models.CharField(max_length=190, verbose_name="Location Name")),
+                ("description", models.TextField(blank=True, verbose_name="Description")),
+                ("position", models.IntegerField(default=0)),
+                ("event", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name="shift_locations", to="base.event")),
             ],
             options={
-                'verbose_name': 'Shift Location',
-                'verbose_name_plural': 'Shift Locations',
-                'ordering': ['position', 'name'],
-                'unique_together': {('event', 'name')},
+                "verbose_name": "Shift Location",
+                "verbose_name_plural": "Shift Locations",
+                "ordering": ["position", "name"],
+                "unique_together": {("event", "name")},
             },
         ),
         migrations.AlterField(
-            model_name='shift',
-            name='location',
-            field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='shifts', to='teamshifts.shiftlocation', verbose_name='Location'),
+            model_name="shift",
+            name="location",
+            field=models.ForeignKey(
+                blank=True,
+                null=True,
+                on_delete=django.db.models.deletion.SET_NULL,
+                related_name="shifts",
+                to="teamshifts.shiftlocation",
+                verbose_name="Location",
+            ),
         ),
     ]

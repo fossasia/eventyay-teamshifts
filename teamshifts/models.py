@@ -268,14 +268,7 @@ class Shift(models.Model):
     )
     name = models.CharField(max_length=190, blank=True, verbose_name=_("Shift Name"))
     location_text = models.CharField(max_length=190, blank=True, verbose_name=_("Location Text"))
-    location = models.ForeignKey(
-        ShiftLocation,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="shifts",
-        verbose_name=_("Location")
-    )
+    location = models.ForeignKey(ShiftLocation, on_delete=models.SET_NULL, null=True, blank=True, related_name="shifts", verbose_name=_("Location"))
     start_time = models.DateTimeField(verbose_name=_("Start Time"))
     end_time = models.DateTimeField(verbose_name=_("End Time"))
     capacity = models.PositiveIntegerField(default=1, verbose_name=_("Capacity"))

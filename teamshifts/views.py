@@ -19,9 +19,10 @@ from .forms import (
     EmailComposeForm,
     EmailQueueEditForm,
     EmailTemplateForm,
+    ShiftLocationForm,
     TeamApplicationQuestionForm,
     TeamMemberApplicationForm,
-    TeamRoleForm, ShiftLocationForm,
+    TeamRoleForm,
     render_answer_for_review,
 )
 from .models import (
@@ -31,10 +32,11 @@ from .models import (
     CallForTeamMembers,
     EmailTemplateRoles,
     Shift,
+    ShiftLocation,
     TeamApplicationAnswer,
     TeamApplicationQuestion,
     TeamMemberApplication,
-    TeamRole, ShiftLocation,
+    TeamRole,
     TeamShiftsEmailQueue,
     TeamShiftsEmailTemplate,
     normalize_field_order,
@@ -825,6 +827,7 @@ class EmailQueueSendNowView(PluginActiveMixin, EventPermissionRequiredMixin, Vie
             event=event.slug,
         )
 
+
 class ShiftLocationListView(PluginActiveMixin, EventPermissionRequiredMixin, View):
     permission = "can_change_event_settings"
     template_name = "teamshifts/locations.html"
@@ -888,7 +891,7 @@ class ShiftLocationDeleteView(PluginActiveMixin, EventPermissionRequiredMixin, V
     def post(self, request, *args, **kwargs):
         with scope(event=request.event):
             location = get_object_or_404(ShiftLocation, pk=kwargs["pk"], event=request.event)
-            if getattr(location, 'shifts', None) and location.shifts.exists():
+            if getattr(location, "shifts", None) and location.shifts.exists():
                 messages.error(request, _("Cannot delete '%s': it is used by existing shifts.") % location.name)
             else:
                 name = location.name

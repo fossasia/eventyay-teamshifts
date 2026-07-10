@@ -438,6 +438,7 @@ __all__ = [
     "ShiftLocationForm",
 ]
 
+
 class ShiftLocationForm(forms.ModelForm):
     class Meta:
         from .models import ShiftLocation
@@ -448,4 +449,3 @@ class ShiftLocationForm(forms.ModelForm):
             "name": forms.TextInput(attrs={"class": "form-control"}),
             "description": forms.Textarea(attrs={"class": "form-control", "rows": 3}),
         }
-

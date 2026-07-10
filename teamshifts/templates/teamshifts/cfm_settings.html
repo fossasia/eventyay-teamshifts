@@ -4,7 +4,6 @@
 {% load static %}
 {% block custom_header %}
     {{ block.super }}
-    <link rel="stylesheet" type="text/css" href="{% static 'teamshifts/teamshifts.css' %}">
     <script defer src="{% static 'teamshifts/cfv_settings.js' %}"></script>
 {% endblock %}
 {% block title %}{{ cfm.title }} :: {{ request.event.name }}{% endblock %}

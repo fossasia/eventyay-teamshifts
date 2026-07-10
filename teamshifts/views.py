@@ -94,7 +94,13 @@ class CFMSettingsView(PluginActiveMixin, EventPermissionRequiredMixin, View):
                 form.save()
             messages.success(request, _("Settings saved."))
             return redirect("plugins:teamshifts:cfm_settings", organizer=request.organizer.slug, event=request.event.slug)
-        return render(request, self.template_name, {"form": form, "cfm": cfm})
+
+        description = cfm.description.data if cfm.description else {}
+        if not isinstance(description, dict):
+            description = dict.fromkeys(request.event.settings.locales, description or "")
+
+        description_previews = [(locale, rich_text(description.get(locale, ""))) for locale in request.event.settings.locales]
+        return render(request, self.template_name, {"form": form, "cfm": cfm, "description_previews": description_previews})
 
 
 class CFMApplicationFormView(PluginActiveMixin, EventPermissionRequiredMixin, View):
@@ -182,7 +188,7 @@ class CFMApplicationFormView(PluginActiveMixin, EventPermissionRequiredMixin, Vi
         return render(request, self.template_name, self._ctx(cfm, form, questions))
 
 
-class CFMDescriptionPreviewView(EventPermissionRequiredMixin, View):
+class CFMDescriptionPreviewView(PluginActiveMixin, EventPermissionRequiredMixin, View):
     """Render draft description text with the same Markdown conversion as the public call page."""
 
     permission = "can_change_event_settings"

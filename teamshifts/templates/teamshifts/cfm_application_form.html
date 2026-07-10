@@ -14,21 +14,14 @@
     <nav id="event-nav" class="header-nav">
         <div class="navigation">
             <div class="navigation-title">
-                <h1>{{ cfm.title }}</h1>
+                <h1>{% trans "Call for Team Members" %}</h1>
             </div>
         </div>
     </nav>
+
     <form action="" method="post" class="form-horizontal">
         {% csrf_token %}
         {% bootstrap_form_errors form %}
-        <fieldset>
-            <legend>{% trans "Settings" %}</legend>
-            {% bootstrap_field form.title layout="control" %}
-            {% bootstrap_field form.active layout="control" %}
-            {% bootstrap_field form.show_on_menu layout="control" %}
-            {% bootstrap_field form.deadline layout="control" %}
-            {% bootstrap_field form.description layout="control" %}
-        </fieldset>
         <fieldset>
             <legend>{% trans "Application fields" %}</legend>
             <div class="table-responsive-sm">

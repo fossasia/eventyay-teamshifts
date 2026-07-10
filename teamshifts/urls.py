@@ -28,6 +28,16 @@ urlpatterns = [
         name="cfm_settings",
     ),
     path(
+        "teamshifts/event/<orgslug:organizer>/<slug:event>/settings/preview/",
+        views.CFMDescriptionPreviewView.as_view(),
+        name="cfm_description_preview",
+    ),
+    path(
+        "teamshifts/event/<orgslug:organizer>/<slug:event>/settings/application-form/",
+        views.CFMApplicationFormView.as_view(),
+        name="cfm_application_form",
+    ),
+    path(
         "teamshifts/event/<orgslug:organizer>/<slug:event>/roles/",
         views.TeamRoleListView.as_view(),
         name="roles",

@@ -1,5 +1,6 @@
 import json
 
+from django.conf import settings as django_settings
 from django.contrib import messages
 from django.db import IntegrityError, transaction
 from django.db.models import Count, Q
@@ -9,10 +10,12 @@ from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 from django.views.generic import FormView, TemplateView, View
 from django_scopes import scope
+from eventyay.base.templatetags.rich_text import rich_text
 from eventyay.control.permissions import EventPermissionRequiredMixin
 
 from .forms import (
-    CallForTeamMembersForm,
+    CallForTeamMembersApplicationSettingsForm,
+    CallForTeamMembersSettingsForm,
     EmailComposeForm,
     EmailQueueEditForm,
     EmailTemplateForm,
@@ -72,7 +75,45 @@ class TeamShiftsDashboard(PluginActiveMixin, EventPermissionRequiredMixin, Templ
 
 class CFMSettingsView(PluginActiveMixin, EventPermissionRequiredMixin, View):
     permission = "can_change_event_settings"
-    template_name = "teamshifts/cfv_settings.html"
+    template_name = "teamshifts/cfm_settings.html"
+
+    def _get_cfm(self):
+        with scope(event=self.request.event):
+            obj, _created = CallForTeamMembers.objects.get_or_create(event=self.request.event)
+        return obj
+
+    def get(self, request, *args, **kwargs):
+        cfm = self._get_cfm()
+        form = CallForTeamMembersSettingsForm(instance=cfm, locales=request.event.settings.locales)
+
+        description = cfm.description.data if cfm.description else {}
+        if not isinstance(description, dict):
+            description = dict.fromkeys(self.request.event.settings.locales, description or "")
+
+        description_previews = [(locale, rich_text(description.get(locale, ""))) for locale in self.request.event.settings.locales]
+
+        return render(request, self.template_name, {"form": form, "cfm": cfm, "description_previews": description_previews})
+
+    def post(self, request, *args, **kwargs):
+        cfm = self._get_cfm()
+        form = CallForTeamMembersSettingsForm(request.POST, instance=cfm, locales=request.event.settings.locales)
+        if form.is_valid():
+            with scope(event=request.event):
+                form.save()
+            messages.success(request, _("Settings saved."))
+            return redirect("plugins:teamshifts:cfm_settings", organizer=request.organizer.slug, event=request.event.slug)
+
+        description = cfm.description.data if cfm.description else {}
+        if not isinstance(description, dict):
+            description = dict.fromkeys(request.event.settings.locales, description or "")
+
+        description_previews = [(locale, rich_text(description.get(locale, ""))) for locale in request.event.settings.locales]
+        return render(request, self.template_name, {"form": form, "cfm": cfm, "description_previews": description_previews})
+
+
+class CFMApplicationFormView(PluginActiveMixin, EventPermissionRequiredMixin, View):
+    permission = "can_change_event_settings"
+    template_name = "teamshifts/cfm_application_form.html"
 
     def _get_cfm(self):
         with scope(event=self.request.event):
@@ -140,19 +181,40 @@ class CFMSettingsView(PluginActiveMixin, EventPermissionRequiredMixin, View):
     def get(self, request, *args, **kwargs):
         cfm = self._get_cfm()
         questions = self._questions()
-        form = CallForTeamMembersForm(instance=cfm, locales=request.event.settings.locales)
+        form = CallForTeamMembersApplicationSettingsForm(instance=cfm)
         return render(request, self.template_name, self._ctx(cfm, form, questions))
 
     def post(self, request, *args, **kwargs):
         cfm = self._get_cfm()
         questions = self._questions()
-        form = CallForTeamMembersForm(request.POST, instance=cfm, locales=request.event.settings.locales)
+        form = CallForTeamMembersApplicationSettingsForm(request.POST, instance=cfm)
         if form.is_valid():
             with scope(event=request.event):
                 form.save()
             messages.success(request, _("Settings saved."))
-            return redirect("plugins:teamshifts:cfm_settings", organizer=request.organizer.slug, event=request.event.slug)
+            return redirect("plugins:teamshifts:cfm_application_form", organizer=request.organizer.slug, event=request.event.slug)
         return render(request, self.template_name, self._ctx(cfm, form, questions))
+
+
+class CFMDescriptionPreviewView(PluginActiveMixin, EventPermissionRequiredMixin, View):
+    """Render draft description text with the same Markdown conversion as the public call page."""
+
+    permission = "can_change_event_settings"
+
+    def post(self, request, *args, **kwargs):
+        widget = CallForTeamMembersSettingsForm(locales=request.event.settings.locales).fields["description"].widget
+        # The i18n widget returns values as a list indexed by global LANGUAGES order.
+        values = widget.value_from_datadict(request.POST, request.FILES, "description")
+        if not isinstance(values, (list, tuple)):
+            values = [values]
+        event_locales = set(request.event.settings.locales)
+        msgs = {}
+        for index, (code, _name) in enumerate(django_settings.LANGUAGES):
+            if code in event_locales and index < len(values):
+                text = values[index]
+                msgs[code] = str(rich_text(text)) if text else ""
+
+        return JsonResponse({"msgs": msgs})
 
 
 class TeamRoleListView(PluginActiveMixin, EventPermissionRequiredMixin, View):
@@ -463,6 +525,8 @@ class PublicApplyView(FormView):
     def dispatch(self, request, *args, **kwargs):
         if not request.event.live:
             raise Http404
+        if "teamshifts" not in request.event.get_plugins():
+            raise Http404
         if not request.user.is_authenticated:
             login_url = reverse("eventyay_common:auth.login")
             return redirect(f"{login_url}?next={request.get_full_path()}")
@@ -538,6 +602,8 @@ class PublicApplyThanksView(TemplateView):
 
     def dispatch(self, request, *args, **kwargs):
         if not request.event.live:
+            raise Http404
+        if "teamshifts" not in request.event.get_plugins():
             raise Http404
         if not request.user.is_authenticated:
             login_url = reverse("eventyay_common:auth.login")

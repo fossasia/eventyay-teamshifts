@@ -17,7 +17,7 @@ from .models import (
 )
 
 
-class CallForTeamMembersForm(forms.ModelForm):
+class CallForTeamMembersSettingsForm(forms.ModelForm):
     class Meta:
         model = CallForTeamMembers
         fields = (
@@ -26,9 +26,6 @@ class CallForTeamMembersForm(forms.ModelForm):
             "show_on_menu",
             "deadline",
             "description",
-            "ask_full_name",
-            "ask_phone",
-            "ask_availability",
         )
         widgets = {
             "deadline": forms.DateTimeInput(
@@ -42,6 +39,16 @@ class CallForTeamMembersForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         if locales:
             self.fields["description"].widget.enabled_locales = locales
+
+
+class CallForTeamMembersApplicationSettingsForm(forms.ModelForm):
+    class Meta:
+        model = CallForTeamMembers
+        fields = (
+            "ask_full_name",
+            "ask_phone",
+            "ask_availability",
+        )
 
 
 class TeamRoleForm(forms.ModelForm):
@@ -419,7 +426,8 @@ class EmailQueueEditForm(forms.ModelForm):
 
 
 __all__ = [
-    "CallForTeamMembersForm",
+    "CallForTeamMembersSettingsForm",
+    "CallForTeamMembersApplicationSettingsForm",
     "TeamRoleForm",
     "TeamApplicationQuestionForm",
     "TeamMemberApplicationForm",

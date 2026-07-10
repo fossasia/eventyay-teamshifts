@@ -2,11 +2,11 @@ name: Tests
 
 on:
   push:
-    branches: [main, master, dev]
+    branches: [main, master]
     paths-ignore:
       - "teamshifts/locale/**"
   pull_request:
-    branches: [main, master, dev]
+    branches: [main, master]
     paths-ignore:
       - "teamshifts/locale/**"
 

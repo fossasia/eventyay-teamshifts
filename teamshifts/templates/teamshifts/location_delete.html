@@ -1,0 +1,49 @@
+{% extends "teamshifts/base.html" %}
+{% load i18n %}
+{% load bootstrap3 %}
+
+{% block title %}{% trans "Delete Location" %}{% endblock %}
+
+{% block content %}
+    <nav id='event-nav' class='header-nav'>
+        <div class='navigation'>
+            <div class='navigation-title'>
+                <h1>{% trans "Delete Location" %}</h1>
+            </div>
+            <div class='navigation-action'>
+                <a href='{% url "plugins:teamshifts:locations" organizer=request.organizer.slug event=request.event.slug %}' class='btn btn-default'>
+                    {% trans "Cancel" %}
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <form action="" method="post" class="form-horizontal">
+        {% csrf_token %}
+        <div class="panel panel-danger">
+            <div class="panel-heading">
+                <h3 class="panel-title">{% trans "Delete Location" %}</h3>
+            </div>
+            <div class="panel-body">
+                <p>
+                    {% blocktrans trimmed with name=location.name %}
+                        Are you sure you want to delete the location "<strong>{{ name }}</strong>"?
+                    {% endblocktrans %}
+                </p>
+                <p>
+                    <em>{% trans "This action cannot be undone." %}</em>
+                </p>
+            </div>
+            <div class="panel-footer">
+                <div class="form-group submit-group">
+                    <a href='{% url "plugins:teamshifts:locations" organizer=request.organizer.slug event=request.event.slug %}' class="btn btn-default">
+                        {% trans "Cancel" %}
+                    </a>
+                    <button type="submit" class="btn btn-danger btn-save">
+                        <span class="fa fa-trash"></span> {% trans "Delete" %}
+                    </button>
+                </div>
+            </div>
+        </div>
+    </form>
+{% endblock %}

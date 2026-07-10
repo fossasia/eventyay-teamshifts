@@ -1,0 +1,54 @@
+{% extends "teamshifts/base.html" %}
+{% load i18n %}
+{% load bootstrap3 %}
+
+{% block title %}{% trans "Locations" %} :: {{ request.event.name }}{% endblock %}
+
+{% block content %}
+    <nav id='event-nav' class='header-nav'>
+        <div class='navigation'>
+            <div class='navigation-title'>
+                <h1>{% trans "Locations" %}</h1>
+            </div>
+            <div class='navigation-action'>
+                <a href='{% url "plugins:teamshifts:location_create" organizer=request.organizer.slug event=request.event.slug %}' class='btn btn-primary'>
+                    <span class='fa fa-plus'></span> {% trans "Add location" %}
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    {% if not locations %}
+        <div class='empty-collection'>
+            <p>{% blocktrans trimmed %}No locations have been defined for this event yet.{% endblocktrans %}</p>
+        </div>
+    {% else %}
+        <div class='table-responsive'>
+            <table class='table table-hover table-quotas'>
+                <thead>
+                    <tr>
+                        <th>{% trans "Name" %}</th>
+                        <th>{% trans "Description" %}</th>
+                        <th class='text-right'>{% trans "Actions" %}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for location in locations %}
+                        <tr>
+                            <td><strong>{{ location.name }}</strong></td>
+                            <td class='text-muted'>{{ location.description|default:"—" }}</td>
+                            <td class='text-right flip'>
+                                <a href='{% url "plugins:teamshifts:location_edit" organizer=request.organizer.slug event=request.event.slug pk=location.pk %}' class='btn btn-default btn-sm'>
+                                    <span class='fa fa-edit'></span> {% trans "Edit" %}
+                                </a>
+                                <a href='{% url "plugins:teamshifts:location_delete" organizer=request.organizer.slug event=request.event.slug pk=location.pk %}' class='btn btn-danger btn-sm'>
+                                    <span class='fa fa-trash'></span> {% trans "Delete" %}
+                                </a>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% endif %}
+{% endblock %}

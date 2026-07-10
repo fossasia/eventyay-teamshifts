@@ -436,4 +436,17 @@ __all__ = [
     "EmailComposeForm",
     "EmailQueueEditForm",
     "render_answer_for_review",
+    "ShiftLocationForm",
 ]
+
+class ShiftLocationForm(forms.ModelForm):
+    class Meta:
+        from .models import ShiftLocation
+
+        model = ShiftLocation
+        fields = ("name", "description")
+        widgets = {
+            "name": forms.TextInput(attrs={"class": "form-control"}),
+            "description": forms.Textarea(attrs={"class": "form-control", "rows": 3}),
+        }
+

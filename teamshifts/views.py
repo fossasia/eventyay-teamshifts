@@ -701,7 +701,7 @@ class EmailOutboxView(PluginActiveMixin, EventPermissionRequiredMixin, TemplateV
         event = self.request.event
         with scope(event=event):
             queues = list(
-                TeamShiftsEmailQueue.objects.filter(event=event, sent_at__isnull=True)
+                TeamShiftsEmailQueue.objects.filter(event=event, sent_at__isnull=True, user__isnull=False)
                 .select_related("role_filter", "user")
                 .prefetch_related("recipients")
                 .order_by("-created")
@@ -721,7 +721,7 @@ class EmailSentView(PluginActiveMixin, EventPermissionRequiredMixin, TemplateVie
         event = self.request.event
         with scope(event=event):
             queues = list(
-                TeamShiftsEmailQueue.objects.filter(event=event, sent_at__isnull=False)
+                TeamShiftsEmailQueue.objects.filter(event=event, sent_at__isnull=False, user__isnull=False)
                 .select_related("role_filter", "user")
                 .prefetch_related("recipients")
                 .order_by("-sent_at")

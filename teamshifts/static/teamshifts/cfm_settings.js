@@ -48,8 +48,16 @@ function initDescriptionPreview() {
       })
       .then(function (data) {
         var msgs = data.msgs || {};
+        var parser = new DOMParser();
         blocks.forEach(function (block) {
-          block.innerHTML = msgs[block.getAttribute('lang')] || '';
+          var html = msgs[block.getAttribute('lang')] || '';
+          var doc = parser.parseFromString(html, 'text/html');
+          while (block.firstChild) {
+            block.removeChild(block.firstChild);
+          }
+          Array.prototype.forEach.call(doc.body.childNodes, function (node) {
+            block.appendChild(document.adoptNode(node));
+          });
         });
       })
       .catch(function () {

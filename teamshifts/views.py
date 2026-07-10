@@ -248,10 +248,10 @@ class TeamRoleDeleteView(PluginActiveMixin, EventPermissionRequiredMixin, View):
     def post(self, request, *args, **kwargs):
         event = request.event
         with scope(event=event):
-            role = get_object_or_404(TeamRole, ShiftLocation, pk=kwargs["pk"], event=event)
+            role = get_object_or_404(TeamRole, pk=kwargs["pk"], event=event)
             if role.applications.exists():
                 messages.error(request, _("Cannot delete '%s': it has existing applications.") % role.name)
-            elif role.shifts.exists():
+            elif role.shift_assignments.exists():
                 messages.error(request, _("Cannot delete '%s': it is used by existing shifts.") % role.name)
             else:
                 name = role.name
@@ -898,3 +898,102 @@ class ShiftLocationDeleteView(PluginActiveMixin, EventPermissionRequiredMixin, V
                 location.delete()
                 messages.success(request, _("Location '%s' deleted.") % name)
         return redirect("plugins:teamshifts:locations", organizer=request.organizer.slug, event=request.event.slug)
+
+
+from datetime import timedelta
+
+from django.forms import inlineformset_factory
+
+from .forms import BaseShiftRoleFormSet, ShiftForm, ShiftRoleAssignmentForm
+from .models import ShiftRoleAssignment
+
+ShiftRoleFormSet = inlineformset_factory(Shift, ShiftRoleAssignment, form=ShiftRoleAssignmentForm, formset=BaseShiftRoleFormSet, extra=1, can_delete=True)
+
+
+class ShiftListView(PluginActiveMixin, EventPermissionRequiredMixin, TemplateView):
+    permission = "can_change_event_settings"
+    template_name = "teamshifts/shifts.html"
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        event = self.request.event
+        with scope(event=event):
+            ctx["shifts"] = list(Shift.objects.filter(event=event).select_related("location").order_by("start_time"))
+        return ctx
+
+
+class ShiftCreateView(PluginActiveMixin, EventPermissionRequiredMixin, TemplateView):
+    permission = "can_change_event_settings"
+    template_name = "teamshifts/shift_create.html"
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        with scope(event=self.request.event):
+            ctx["has_locations"] = ShiftLocation.objects.filter(event=self.request.event).exists()
+
+        if self.request.method == "POST":
+            ctx["form"] = ShiftForm(self.request.POST, event=self.request.event)
+            ctx["formset"] = ShiftRoleFormSet(self.request.POST, prefix="roles", form_kwargs={"event": self.request.event})
+        else:
+            ctx["form"] = ShiftForm(event=self.request.event)
+            ctx["formset"] = ShiftRoleFormSet(prefix="roles", form_kwargs={"event": self.request.event})
+        return ctx
+
+    def post(self, request, *args, **kwargs):
+        ctx = self.get_context_data(**kwargs)
+        form = ctx["form"]
+        formset = ctx["formset"]
+
+        if form.is_valid() and formset.is_valid():
+            with transaction.atomic():
+                mode = form.cleaned_data.get("mode")
+                shifts_to_create = []
+
+                if mode == "repeating":
+                    shift_length = form.cleaned_data["shift_length_minutes"]
+                    curr_start = form.cleaned_data["start_time"]
+                    end_time = form.cleaned_data["end_time"]
+
+                    while curr_start < end_time:
+                        curr_end = curr_start + timedelta(minutes=shift_length)
+                        if curr_end > end_time:
+                            break
+
+                        shift = Shift(
+                            event=self.request.event,
+                            name=form.cleaned_data.get("name", ""),
+                            location=form.cleaned_data["location"],
+                            start_time=curr_start,
+                            end_time=curr_end,
+                            description=form.cleaned_data.get("description", ""),
+                        )
+                        shift.save()
+                        shifts_to_create.append(shift)
+                        curr_start = curr_end
+
+                else:
+                    shift = form.save(commit=False)
+                    shift.event = self.request.event
+                    shift.save()
+                    shifts_to_create.append(shift)
+
+                for shift in shifts_to_create:
+                    for role_form in formset:
+                        if role_form.cleaned_data and not role_form.cleaned_data.get("DELETE", False):
+                            role = role_form.cleaned_data.get("role")
+                            capacity = role_form.cleaned_data.get("capacity", 1)
+                            if role:
+                                ShiftRoleAssignment.objects.create(shift=shift, role=role, capacity=capacity)
+
+            if mode == "repeating":
+                messages.success(request, _("%(count)d shifts created successfully.") % {"count": len(shifts_to_create)})
+                return render(request, "teamshifts/shift_create_success.html", {"shifts": shifts_to_create})
+            else:
+                messages.success(request, _("Shift created successfully."))
+                return redirect(
+                    "plugins:teamshifts:shifts",
+                    organizer=request.event.organizer.slug,
+                    event=request.event.slug,
+                )
+
+        return self.render_to_response(ctx)

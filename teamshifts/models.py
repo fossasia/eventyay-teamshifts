@@ -261,17 +261,11 @@ class Shift(models.Model):
         on_delete=models.CASCADE,
         related_name="shifts",
     )
-    role = models.ForeignKey(
-        TeamRole,
-        on_delete=models.CASCADE,
-        related_name="shifts",
-    )
     name = models.CharField(max_length=190, blank=True, verbose_name=_("Shift Name"))
     location_text = models.CharField(max_length=190, blank=True, verbose_name=_("Location Text"))
     location = models.ForeignKey(ShiftLocation, on_delete=models.SET_NULL, null=True, blank=True, related_name="shifts", verbose_name=_("Location"))
     start_time = models.DateTimeField(verbose_name=_("Start Time"))
     end_time = models.DateTimeField(verbose_name=_("End Time"))
-    capacity = models.PositiveIntegerField(default=1, verbose_name=_("Capacity"))
     description = models.TextField(blank=True, verbose_name=_("Description"))
 
     objects = ScopedManager(event="event")
@@ -282,22 +276,30 @@ class Shift(models.Model):
         ordering = ["start_time"]
 
     def clean(self):
-        if self.role_id and self.event_id and self.role.event_id != self.event_id:
-            raise ValidationError({"role": _("The selected role does not belong to this event.")})
         if self.start_time and self.end_time and self.end_time <= self.start_time:
             raise ValidationError({"end_time": _("End time must be after start time.")})
 
     def __str__(self):
-        label = self.name or self.role.name
+        label = self.name or "Shift"
         return f"{label} ({self.start_time:%Y-%m-%d %H:%M} – {self.end_time:%H:%M})"
 
     @property
     def filled_count(self):
         return self.assignments.count()
 
-    @property
-    def is_full(self):
-        return self.filled_count >= self.capacity
+
+class ShiftRoleAssignment(models.Model):
+    shift = models.ForeignKey(Shift, on_delete=models.CASCADE, related_name="role_assignments")
+    role = models.ForeignKey(TeamRole, on_delete=models.CASCADE, related_name="shift_assignments")
+    capacity = models.PositiveIntegerField(default=1, verbose_name=_("Capacity"))
+
+    class Meta:
+        verbose_name = _("Shift Role Assignment")
+        verbose_name_plural = _("Shift Role Assignments")
+        unique_together = ("shift", "role")
+
+    def __str__(self):
+        return f"{self.role.name} ({self.capacity}) - {self.shift}"
 
 
 class ShiftAssignment(models.Model):

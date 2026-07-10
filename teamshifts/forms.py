@@ -2,6 +2,7 @@ from django import forms
 from django.utils.translation import gettext_lazy as _
 from django_countries import countries
 from django_scopes import scopes_disabled
+from django_scopes.forms import SafeModelChoiceField
 from i18nfield.forms import I18nFormField, I18nTextarea, I18nTextInput
 
 from .models import (
@@ -436,6 +437,9 @@ __all__ = [
     "EmailQueueEditForm",
     "render_answer_for_review",
     "ShiftLocationForm",
+    "ShiftForm",
+    "ShiftRoleAssignmentForm",
+    "BaseShiftRoleFormSet",
 ]
 
 
@@ -449,3 +453,110 @@ class ShiftLocationForm(forms.ModelForm):
             "name": forms.TextInput(attrs={"class": "form-control"}),
             "description": forms.Textarea(attrs={"class": "form-control", "rows": 3}),
         }
+
+
+class ShiftForm(forms.ModelForm):
+    mode = forms.ChoiceField(
+        choices=[("single", _("Single shift")), ("repeating", _("Repeating shifts"))],
+        initial="single",
+        widget=forms.RadioSelect,
+    )
+    shift_length_minutes = forms.IntegerField(
+        required=False,
+        min_value=1,
+        label=_("Length (minutes)"),
+        widget=forms.NumberInput(attrs={"class": "form-control", "min": "1"}),
+    )
+
+    class Meta:
+        from .models import Shift
+
+        model = Shift
+        fields = ("name", "location", "start_time", "end_time", "description")
+        field_classes = {
+            "location": SafeModelChoiceField,
+        }
+        widgets = {
+            "start_time": forms.DateTimeInput(attrs={"type": "datetime-local", "class": "form-control"}),
+            "end_time": forms.DateTimeInput(attrs={"type": "datetime-local", "class": "form-control"}),
+            "name": forms.TextInput(attrs={"class": "form-control"}),
+            "location": forms.Select(attrs={"class": "form-control"}),
+            "description": forms.Textarea(attrs={"class": "form-control", "rows": 3}),
+        }
+
+    def __init__(self, *args, event=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if event is not None:
+            from django_scopes import scopes_disabled
+
+            from .models import ShiftLocation
+
+            with scopes_disabled():
+                self.fields["location"].queryset = ShiftLocation.objects.filter(event=event)
+
+    def clean(self):
+        cleaned_data = super().clean()
+        start_time = cleaned_data.get("start_time")
+        end_time = cleaned_data.get("end_time")
+
+        if start_time and end_time and end_time <= start_time:
+            self.add_error("end_time", _("End time must be after the start time."))
+
+        mode = cleaned_data.get("mode")
+        if mode == "repeating":
+            shift_length = cleaned_data.get("shift_length_minutes")
+
+            if not shift_length:
+                self.add_error("shift_length_minutes", _("Please provide a shift length."))
+            elif start_time and end_time and end_time > start_time:
+                duration_minutes = (end_time - start_time).total_seconds() / 60
+                if duration_minutes % shift_length != 0:
+                    self.add_error("shift_length_minutes", _("The shift length must divide evenly into the total duration between start and end time."))
+        return cleaned_data
+
+
+class BaseShiftRoleFormSet(forms.BaseInlineFormSet):
+    def clean(self):
+        super().clean()
+        if any(self.errors):
+            return
+
+        roles = set()
+        has_role = False
+        for form in self.forms:
+            if self.can_delete and self._should_delete_form(form):
+                continue
+            role = form.cleaned_data.get("role")
+            if role:
+                has_role = True
+                if role in roles:
+                    raise forms.ValidationError(_("The same role cannot be added twice on the same shift."))
+                roles.add(role)
+
+        if not has_role:
+            raise forms.ValidationError(_("At least one role must be added to the shift."))
+
+
+class ShiftRoleAssignmentForm(forms.ModelForm):
+    class Meta:
+        from .models import ShiftRoleAssignment
+
+        model = ShiftRoleAssignment
+        fields = ("role", "capacity")
+        field_classes = {
+            "role": SafeModelChoiceField,
+        }
+        widgets = {
+            "role": forms.Select(attrs={"class": "form-control"}),
+            "capacity": forms.NumberInput(attrs={"class": "form-control", "min": "1"}),
+        }
+
+    def __init__(self, *args, event=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if event is not None:
+            from django_scopes import scopes_disabled
+
+            from .models import TeamRole
+
+            with scopes_disabled():
+                self.fields["role"].queryset = TeamRole.objects.filter(event=event)

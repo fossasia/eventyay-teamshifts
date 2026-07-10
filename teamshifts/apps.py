@@ -23,3 +23,4 @@ class TeamShiftsApp(PluginConfig):
 
     def ready(self):
         from . import signals  # NOQA
+        from . import tasks  # NOQA

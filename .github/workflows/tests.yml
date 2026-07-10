@@ -63,6 +63,7 @@ jobs:
           cd ../eventyay/app
           uv sync --all-extras --all-groups
           uv pip install -e ../../eventyay-teamshifts
+          echo 'DATABASES["default"]["TEST"] = {"NAME": "evy_test"}' >> eventyay/config/settings.py
 
       - name: Run tests
         env:

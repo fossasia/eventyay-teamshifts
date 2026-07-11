@@ -65,18 +65,18 @@
                             </td>
                             <td>{{ app.created_at|date:"SHORT_DATETIME_FORMAT" }}</td>
                             <td class="text-right flip">
-                                <a href="{% url 'plugins:teamshifts:application_detail' organizer=request.organizer.slug event=request.event.slug pk=app.pk %}" class="btn btn-default btn-sm" title="{% trans 'View details' %}">
-                                    <span class="fa fa-eye"></span>
+                                <a href="{% url 'plugins:teamshifts:application_detail' organizer=request.organizer.slug event=request.event.slug pk=app.pk %}" class="btn btn-default btn-sm" title="{% trans 'View details' %}" aria-label="{% trans 'View details' %}">
+                                    <span class="fa fa-eye" aria-hidden="true"></span>
                                 </a>
                                 {% if app.status == 'pending' %}
                                     <form action="{% url 'plugins:teamshifts:application_status' organizer=request.organizer.slug event=request.event.slug pk=app.pk %}"
                                           method="post" class="helper-display-inline">
                                         {% csrf_token %}
-                                        <button type="submit" name="action" value="accept" class="btn btn-success btn-sm" title="{% trans 'Accept' %}">
-                                            <span class="fa fa-check"></span>
+                                        <button type="submit" name="action" value="accept" class="btn btn-success btn-sm" title="{% trans 'Accept' %}" aria-label="{% trans 'Accept' %}">
+                                            <span class="fa fa-check" aria-hidden="true"></span>
                                         </button>
-                                        <button type="submit" name="action" value="reject" class="btn btn-danger btn-sm" title="{% trans 'Reject' %}">
-                                            <span class="fa fa-times"></span>
+                                        <button type="submit" name="action" value="reject" class="btn btn-danger btn-sm" title="{% trans 'Reject' %}" aria-label="{% trans 'Reject' %}">
+                                            <span class="fa fa-times" aria-hidden="true"></span>
                                         </button>
                                     </form>
                                 {% endif %}

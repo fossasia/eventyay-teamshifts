@@ -401,12 +401,24 @@ class ApplicationListView(PluginActiveMixin, EventPermissionRequiredMixin, Templ
                 cfm = event.call_for_team_members
                 field_order = normalize_field_order(list(cfm.field_order))
             except CallForTeamMembers.DoesNotExist:
+                cfm = None
                 field_order = list(CFM_BUILTIN_FIELD_KEYS)
 
-            dynamic_keys = [k for k in field_order if k != "role"][:4]
+            custom_questions = {str(q.pk): q.question for q in TeamApplicationQuestion.objects.filter(event=event, active=True)}
 
+            active_keys = []
+            for k in field_order:
+                if k == "role":
+                    continue
+                if k in CFM_BUILTIN_FIELD_KEYS:
+                    if cfm and getattr(cfm, f"ask_{k}", "optional") == "do_not_ask":
+                        continue
+                    active_keys.append(k)
+                elif str(k) in custom_questions:
+                    active_keys.append(k)
+
+            dynamic_keys = active_keys[:4]
             columns = []
-            custom_questions = {str(q.pk): q.question for q in TeamApplicationQuestion.objects.filter(event=event)}
 
             for raw_key in dynamic_keys:
                 key = str(raw_key)
@@ -440,7 +452,6 @@ class ApplicationListView(PluginActiveMixin, EventPermissionRequiredMixin, Templ
                         app_dynamic_values.append(answers_dict.get(key, ""))
 
                 app.dynamic_values = app_dynamic_values
-                app.rendered_answers = [{"question": a.question, "value": render_answer_for_review(a.question, a.answer)} for a in app.answers.all()]
 
             ctx["applications"] = applications
             ctx["columns"] = columns

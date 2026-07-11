@@ -82,4 +82,9 @@ urlpatterns = [
         views.ApplicationStatusView.as_view(),
         name="application_status",
     ),
+    path(
+        "teamshifts/event/<orgslug:organizer>/<slug:event>/applications/<int:pk>/",
+        views.ApplicationDetailView.as_view(),
+        name="application_detail",
+    ),
 ]

@@ -424,7 +424,7 @@ class ApplicationListView(PluginActiveMixin, EventPermissionRequiredMixin, Templ
             for app in applications:
                 app_dynamic_values = []
                 answers_dict = {str(a.question_id): render_answer_for_review(a.question, a.answer) for a in app.answers.all()}
-                
+
                 for col in columns:
                     key = col["key"]
                     if key == "full_name":
@@ -437,7 +437,7 @@ class ApplicationListView(PluginActiveMixin, EventPermissionRequiredMixin, Templ
                         app_dynamic_values.append(app.availability_notes)
                     else:
                         app_dynamic_values.append(answers_dict.get(key, ""))
-                
+
                 app.dynamic_values = app_dynamic_values
                 app.rendered_answers = [{"question": a.question, "value": render_answer_for_review(a.question, a.answer)} for a in app.answers.all()]
 

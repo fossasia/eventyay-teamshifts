@@ -408,7 +408,8 @@ class ApplicationListView(PluginActiveMixin, EventPermissionRequiredMixin, Templ
             columns = []
             custom_questions = {str(q.pk): q.question for q in TeamApplicationQuestion.objects.filter(event=event)}
 
-            for key in dynamic_keys:
+            for raw_key in dynamic_keys:
+                key = str(raw_key)
                 if key == "full_name":
                     columns.append({"key": key, "label": _("Name")})
                 elif key == "email":

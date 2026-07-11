@@ -40,3 +40,29 @@ label .optional {
     font-weight: normal;
     display: block;
 }
+
+/* Call text: Edit/Preview tabs */
+.description-preview {
+    min-height: 120px;
+    padding: 12px 15px;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    background: #fff;
+}
+
+.description-preview > :first-child {
+    margin-top: 0;
+}
+
+.description-preview > :last-child {
+    margin-bottom: 0;
+}
+
+.description-preview-group .description-preview + .description-preview {
+    margin-top: -1px;
+}
+
+.description-preview-note {
+    margin-top: 12px;
+    margin-bottom: 0;
+}

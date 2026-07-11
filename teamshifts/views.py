@@ -1,5 +1,6 @@
 import json
 
+from django.conf import settings as django_settings
 from django.contrib import messages
 from django.db import IntegrityError
 from django.db.models import Count, Q
@@ -9,10 +10,12 @@ from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 from django.views.generic import FormView, TemplateView, View
 from django_scopes import scope
+from eventyay.base.templatetags.rich_text import rich_text
 from eventyay.control.permissions import EventPermissionRequiredMixin
 
 from .forms import (
-    CallForTeamMembersForm,
+    CallForTeamMembersApplicationSettingsForm,
+    CallForTeamMembersSettingsForm,
     TeamApplicationQuestionForm,
     TeamMemberApplicationForm,
     TeamRoleForm,
@@ -64,7 +67,47 @@ class TeamShiftsDashboard(PluginActiveMixin, EventPermissionRequiredMixin, Templ
 
 class CFMSettingsView(PluginActiveMixin, EventPermissionRequiredMixin, View):
     permission = "can_change_event_settings"
-    template_name = "teamshifts/cfv_settings.html"
+    template_name = "teamshifts/cfm_settings.html"
+
+    def _get_cfm(self):
+        with scope(event=self.request.event):
+            obj, _created = CallForTeamMembers.objects.get_or_create(event=self.request.event)
+        return obj
+
+    def get(self, request, *args, **kwargs):
+        cfm = self._get_cfm()
+        form = CallForTeamMembersSettingsForm(instance=cfm, locales=request.event.settings.locales)
+
+        description = cfm.description.data if cfm.description else {}
+        if not isinstance(description, dict):
+            description = dict.fromkeys(self.request.event.settings.locales, description or "")
+
+        event_locales = set(request.event.settings.locales)
+        description_previews = [(code, rich_text(description.get(code, ""))) for code, _name in django_settings.LANGUAGES if code in event_locales]
+
+        return render(request, self.template_name, {"form": form, "cfm": cfm, "description_previews": description_previews})
+
+    def post(self, request, *args, **kwargs):
+        cfm = self._get_cfm()
+        form = CallForTeamMembersSettingsForm(request.POST, instance=cfm, locales=request.event.settings.locales)
+        if form.is_valid():
+            with scope(event=request.event):
+                form.save()
+            messages.success(request, _("Settings saved."))
+            return redirect("plugins:teamshifts:cfm_settings", organizer=request.organizer.slug, event=request.event.slug)
+
+        description = cfm.description.data if cfm.description else {}
+        if not isinstance(description, dict):
+            description = dict.fromkeys(request.event.settings.locales, description or "")
+
+        event_locales = set(request.event.settings.locales)
+        description_previews = [(code, rich_text(description.get(code, ""))) for code, _name in django_settings.LANGUAGES if code in event_locales]
+        return render(request, self.template_name, {"form": form, "cfm": cfm, "description_previews": description_previews})
+
+
+class CFMApplicationFormView(PluginActiveMixin, EventPermissionRequiredMixin, View):
+    permission = "can_change_event_settings"
+    template_name = "teamshifts/cfm_application_form.html"
 
     def _get_cfm(self):
         with scope(event=self.request.event):
@@ -132,19 +175,40 @@ class CFMSettingsView(PluginActiveMixin, EventPermissionRequiredMixin, View):
     def get(self, request, *args, **kwargs):
         cfm = self._get_cfm()
         questions = self._questions()
-        form = CallForTeamMembersForm(instance=cfm, locales=request.event.settings.locales)
+        form = CallForTeamMembersApplicationSettingsForm(instance=cfm)
         return render(request, self.template_name, self._ctx(cfm, form, questions))
 
     def post(self, request, *args, **kwargs):
         cfm = self._get_cfm()
         questions = self._questions()
-        form = CallForTeamMembersForm(request.POST, instance=cfm, locales=request.event.settings.locales)
+        form = CallForTeamMembersApplicationSettingsForm(request.POST, instance=cfm)
         if form.is_valid():
             with scope(event=request.event):
                 form.save()
             messages.success(request, _("Settings saved."))
-            return redirect("plugins:teamshifts:cfm_settings", organizer=request.organizer.slug, event=request.event.slug)
+            return redirect("plugins:teamshifts:cfm_application_form", organizer=request.organizer.slug, event=request.event.slug)
         return render(request, self.template_name, self._ctx(cfm, form, questions))
+
+
+class CFMDescriptionPreviewView(PluginActiveMixin, EventPermissionRequiredMixin, View):
+    """Render draft description text with the same Markdown conversion as the public call page."""
+
+    permission = "can_change_event_settings"
+
+    def post(self, request, *args, **kwargs):
+        event_locales = set(request.event.settings.locales)
+        widget = CallForTeamMembersSettingsForm(locales=list(event_locales)).fields["description"].widget
+        raw_values = widget.value_from_datadict(request.POST, request.FILES, "description")
+        if not isinstance(raw_values, (list, tuple)):
+            raw_values = [raw_values]
+
+        msgs = {}
+        for index, (code, _name) in enumerate(django_settings.LANGUAGES):
+            if code in event_locales and index < len(raw_values):
+                text = raw_values[index]
+                msgs[code] = str(rich_text(text)) if text else ""
+
+        return JsonResponse({"msgs": msgs})
 
 
 class TeamRoleListView(PluginActiveMixin, EventPermissionRequiredMixin, View):

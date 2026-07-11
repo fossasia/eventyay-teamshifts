@@ -3,6 +3,7 @@
 {% load bootstrap3 %}
 {% load static %}
 {% load eventurl %}
+{% load rich_text %}
 
 {% block pagetitle %}{% if cfm %}{{ cfm.title }}{% else %}{% trans "Apply to join the team" %}{% endif %}{% endblock %}
 
@@ -30,7 +31,7 @@
   {% else %}
 
     {% if cfm.description %}
-      <div class="description-text" style="margin-bottom:1.5em;">{{ cfm.description }}</div>
+      <div class="description-text" style="margin-bottom:1.5em;">{{ cfm.description|rich_text }}</div>
     {% endif %}
 
     {% if existing_applications %}

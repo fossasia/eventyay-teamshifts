@@ -1,0 +1,74 @@
+{% extends "teamshifts/base.html" %}
+{% load i18n %}
+{% load bootstrap3 %}
+{% load static %}
+{% block custom_header %}
+    {{ block.super }}
+    <script defer src="{% static 'teamshifts/cfm_settings.js' %}"></script>
+{% endblock %}
+{% block title %}{{ cfm.title }} :: {{ request.event.name }}{% endblock %}
+{% block content %}
+    <nav id="event-nav" class="header-nav">
+        <div class="navigation">
+            <div class="navigation-title">
+                <h1>{% trans "Call for Team Members" %}</h1>
+            </div>
+        </div>
+    </nav>
+
+    <form action="" method="post" class="form-horizontal">
+        {% csrf_token %}
+        {% bootstrap_form_errors form %}
+        <fieldset>
+            <legend>{% trans "Call announcement" %}</legend>
+            {% bootstrap_field form.title layout="control" %}
+            {% bootstrap_field form.active layout="control" %}
+            {% bootstrap_field form.show_on_menu layout="control" %}
+            {% bootstrap_field form.deadline layout="control" %}
+            <div id="description_panel" class="form-group description-group">
+                <label class="col-md-3 control-label" for="{{ form.description.id_for_label }}">
+                    <span class="label-text">{{ form.description.label }}</span>
+                    <br><span class="optional">{% trans "Optional" %}</span>
+                    <br><span class="optional">{% trans "Supports Markdown" %}</span>
+                </label>
+                <div class="col-md-9">
+                    <ul class="nav nav-tabs" role="tablist">
+                        <li role="presentation" class="active">
+                            <a data-toggle="tab" href="#description_edit"><i class="fa fa-pencil-square-o fa-fw"></i> {% trans "Edit" %}</a>
+                        </li>
+                        <li role="presentation">
+                            <a data-toggle="tab" href="#description_preview" data-description-preview-tab><i class="fa fa-tv fa-fw"></i> {% trans "Preview" %}</a>
+                        </li>
+                    </ul>
+                    <div class="tab-content">
+                        <div id="description_edit" class="tab-pane fade in active">
+                            {% bootstrap_field form.description show_label=False form_group_class="" %}
+                        </div>
+                        <div id="description_preview" class="tab-pane description-preview-group"
+                             data-preview-url="{% url 'plugins:teamshifts:cfm_description_preview' organizer=request.organizer.slug event=request.event.slug %}">
+                            {% for locale, html in description_previews %}
+                                <div lang="{{ locale }}" class="description-preview">{{ html }}</div>
+                            {% endfor %}
+                            <div class="alert alert-info description-preview-note">
+                                {% trans "This panel renders unsaved draft text using the same styling as the live public call page." %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </fieldset>
+        <div class="form-group submit-group">
+            <button type="submit" class="btn btn-primary btn-save">{% trans "Save" %}</button>
+            {% if cfm.active %}
+                <a href="{% url 'plugins:teamshifts:apply' organizer=request.organizer.slug event=request.event.slug %}"
+                   class="btn btn-default" target="_blank" rel="noopener">
+                    <span class="fa fa-external-link"></span> {% trans "View call page" %}
+                </a>
+            {% endif %}
+            <a href="{% url 'plugins:teamshifts:dashboard' organizer=request.organizer.slug event=request.event.slug %}"
+               class="btn btn-default btn-lg">
+                {% trans "Cancel" %}
+            </a>
+        </div>
+    </form>
+{% endblock %}

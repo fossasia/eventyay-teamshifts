@@ -538,8 +538,8 @@ class ApplicationListView(PluginActiveMixin, EventPermissionRequiredMixin, Templ
                         app_dynamic_values.append(app.availability_notes)
                     else:
                         app_dynamic_values.append(answers_dict.get(key, ""))
-
                 app.dynamic_values = app_dynamic_values
+                app.rendered_answers = [{"question": a.question, "value": render_answer_for_review(a.question, a.answer)} for a in app.answers.all()]
 
             ctx["applications"] = applications
             ctx["columns"] = columns

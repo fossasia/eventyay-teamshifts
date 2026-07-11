@@ -7,6 +7,7 @@ from eventyay.base.models import Event, User
 
 from ..models import (
     ApplicationStatus,
+    CallForTeamMembers,
     TeamMemberApplication,
     TeamRole,
     TeamShiftsEmailQueue,
@@ -86,9 +87,10 @@ def queue_lifecycle_email(application, role: str) -> TeamShiftsEmailQueue | None
         return None
 
     event = application.event
+
     try:
         cfm = event.call_for_team_members
-    except Exception:
+    except CallForTeamMembers.DoesNotExist:
         logger.warning("[TeamShifts] No CFM found for event %s, skipping %s email", event.slug, role)
         return None
 

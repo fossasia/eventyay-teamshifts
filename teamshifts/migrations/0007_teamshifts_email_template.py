@@ -18,9 +18,9 @@ class Migration(migrations.Migration):
                     "role",
                     models.CharField(
                         choices=[
-                            ("application.received", "Application received"),
-                            ("application.accepted", "Application accepted"),
-                            ("application.rejected", "Application rejected"),
+                            ("teamshifts.application.received", "Application received"),
+                            ("teamshifts.application.accepted", "Application accepted"),
+                            ("teamshifts.application.rejected", "Application rejected"),
                         ],
                         max_length=40,
                     ),

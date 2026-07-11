@@ -485,9 +485,9 @@ class TeamShiftsEmailQueueRecipient(models.Model):
 
 
 class EmailTemplateRoles(models.TextChoices):
-    APPLICATION_RECEIVED = "application.received", _("Application received")
-    APPLICATION_ACCEPTED = "application.accepted", _("Application accepted")
-    APPLICATION_REJECTED = "application.rejected", _("Application rejected")
+    APPLICATION_RECEIVED = "teamshifts.application.received", _("Application received")
+    APPLICATION_ACCEPTED = "teamshifts.application.accepted", _("Application accepted")
+    APPLICATION_REJECTED = "teamshifts.application.rejected", _("Application rejected")
 
 
 class TeamShiftsEmailTemplate(models.Model):
@@ -507,7 +507,6 @@ class TeamShiftsEmailTemplate(models.Model):
         verbose_name = _("Email template")
         verbose_name_plural = _("Email templates")
         unique_together = ("event", "role")
-        ordering = ["role"]
         ordering = ["role"]
 
     def __str__(self):

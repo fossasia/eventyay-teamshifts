@@ -62,12 +62,19 @@ def test_apply_view_queues_received_email(mock_queue, client, event, call_for_te
         "accept_terms": True,
     }
     tc = TestCase()
-    with tc.captureOnCommitCallbacks(execute=True):
+    with tc.captureOnCommitCallbacks(execute=False) as callbacks:
         response = client.post(url, data)
     assert response.status_code in (200, 302)
 
     with scope(event=event):
         assert TeamMemberApplication.objects.filter(user=applicant).exists()
+
+        found = False
+        for cb in callbacks:
+            if "queue_lifecycle_email" in cb.__code__.co_names:
+                cb()
+                found = True
+        assert found, "queue_lifecycle_email callback not registered"
         mock_queue.assert_called_once()
 
 

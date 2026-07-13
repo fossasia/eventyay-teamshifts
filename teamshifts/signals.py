@@ -1,18 +1,21 @@
+from django.db.models.signals import post_delete
 from django.dispatch import receiver
 from django.urls import reverse
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
 from eventyay.base.email import SimpleFunctionalMailTextPlaceholder
+from eventyay.base.models.organizer import Team
 from eventyay.base.signals import register_mail_placeholders
 from eventyay.control.signals import event_dashboard_components, event_dashboard_widgets
 from eventyay.presale.signals import header_nav_tabs
 
-from .models import CallForTeamMembers
+from .models import CallForTeamMembers, TeamRole
+from .permissions import has_any_teamshifts_permission
 
 
 @receiver(event_dashboard_widgets, dispatch_uid="teamshifts_dashboard_widget")
 def teamshifts_dashboard_widget(sender, subevent=None, lazy=False, request=None, **kwargs):
-    if request is None or not request.user.has_event_permission(request.organizer, sender, "can_change_event_settings", request=request):
+    if request is None or not has_any_teamshifts_permission(request.user, request.organizer, sender, request=request):
         return []
     return [
         {
@@ -29,7 +32,7 @@ def teamshifts_dashboard_widget(sender, subevent=None, lazy=False, request=None,
 
 @receiver(event_dashboard_components, dispatch_uid="teamshifts_dashboard_component")
 def teamshifts_dashboard_component(sender, request=None, **kwargs):
-    if request is None or not request.user.has_event_permission(request.organizer, sender, "can_change_event_settings", request=request):
+    if request is None or not has_any_teamshifts_permission(request.user, request.organizer, sender, request=request):
         return ""
     url = reverse(
         "plugins:teamshifts:dashboard",
@@ -80,3 +83,12 @@ def teamshifts_mail_placeholders(sender, **kwargs):
             lambda event: _("Volunteer"),
         ),
     ]
+
+
+@receiver(post_delete, sender=TeamRole)
+def team_role_post_delete(sender, instance, **kwargs):
+    teams = Team.objects.filter(organizer=instance.event.organizer)
+    for team in teams:
+        if isinstance(team.limit_teamshifts_roles, list) and instance.pk in team.limit_teamshifts_roles:
+            team.limit_teamshifts_roles.remove(instance.pk)
+            team.save(update_fields=['limit_teamshifts_roles'])

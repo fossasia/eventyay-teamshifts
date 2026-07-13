@@ -11,7 +11,6 @@ from django.utils.translation import gettext_lazy as _
 from django.views.generic import FormView, TemplateView, View
 from django_scopes import scope
 from eventyay.base.templatetags.rich_text import rich_text
-from eventyay.control.permissions import EventPermissionRequiredMixin
 
 from .forms import (
     CallForTeamMembersApplicationSettingsForm,
@@ -33,6 +32,7 @@ from .models import (
     TeamRole,
     normalize_field_order,
 )
+from .permissions import TeamShiftsPermissionRequiredMixin
 
 
 class PluginActiveMixin:
@@ -42,8 +42,8 @@ class PluginActiveMixin:
         return super().dispatch(request, *args, **kwargs)
 
 
-class TeamShiftsDashboard(PluginActiveMixin, EventPermissionRequiredMixin, TemplateView):
-    permission = "can_change_event_settings"
+class TeamShiftsDashboard(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, TemplateView):
+    permission = None
     template_name = "teamshifts/dashboard.html"
 
     def get_context_data(self, **kwargs):
@@ -65,7 +65,7 @@ class TeamShiftsDashboard(PluginActiveMixin, EventPermissionRequiredMixin, Templ
         return ctx
 
 
-class CFMSettingsView(PluginActiveMixin, EventPermissionRequiredMixin, View):
+class CFMSettingsView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):
     permission = "can_change_event_settings"
     template_name = "teamshifts/cfm_settings.html"
 
@@ -105,7 +105,7 @@ class CFMSettingsView(PluginActiveMixin, EventPermissionRequiredMixin, View):
         return render(request, self.template_name, {"form": form, "cfm": cfm, "description_previews": description_previews})
 
 
-class CFMApplicationFormView(PluginActiveMixin, EventPermissionRequiredMixin, View):
+class CFMApplicationFormView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):
     permission = "can_change_event_settings"
     template_name = "teamshifts/cfm_application_form.html"
 
@@ -190,7 +190,7 @@ class CFMApplicationFormView(PluginActiveMixin, EventPermissionRequiredMixin, Vi
         return render(request, self.template_name, self._ctx(cfm, form, questions))
 
 
-class CFMDescriptionPreviewView(PluginActiveMixin, EventPermissionRequiredMixin, View):
+class CFMDescriptionPreviewView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):
     """Render draft description text with the same Markdown conversion as the public call page."""
 
     permission = "can_change_event_settings"
@@ -211,8 +211,8 @@ class CFMDescriptionPreviewView(PluginActiveMixin, EventPermissionRequiredMixin,
         return JsonResponse({"msgs": msgs})
 
 
-class TeamRoleListView(PluginActiveMixin, EventPermissionRequiredMixin, View):
-    permission = "can_change_event_settings"
+class TeamRoleListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):
+    permission = "can_teamshifts_create_roles"
     template_name = "teamshifts/roles.html"
 
     def get(self, request, *args, **kwargs):
@@ -234,8 +234,8 @@ class TeamRoleListView(PluginActiveMixin, EventPermissionRequiredMixin, View):
         return render(request, self.template_name, {"roles": roles, "form": form})
 
 
-class TeamRoleDeleteView(PluginActiveMixin, EventPermissionRequiredMixin, View):
-    permission = "can_change_event_settings"
+class TeamRoleDeleteView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):
+    permission = "can_teamshifts_create_roles"
 
     def post(self, request, *args, **kwargs):
         event = request.event
@@ -252,7 +252,7 @@ class TeamRoleDeleteView(PluginActiveMixin, EventPermissionRequiredMixin, View):
         return redirect("plugins:teamshifts:roles", organizer=request.organizer.slug, event=event.slug)
 
 
-class QuestionEditView(PluginActiveMixin, EventPermissionRequiredMixin, View):
+class QuestionEditView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):
     permission = "can_change_event_settings"
     template_name = "teamshifts/question_edit.html"
 
@@ -291,7 +291,7 @@ class QuestionEditView(PluginActiveMixin, EventPermissionRequiredMixin, View):
         return render(request, self.template_name, {"form": form, "question": instance})
 
 
-class QuestionDeleteView(PluginActiveMixin, EventPermissionRequiredMixin, View):
+class QuestionDeleteView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):
     permission = "can_change_event_settings"
 
     def post(self, request, *args, **kwargs):
@@ -311,7 +311,7 @@ class QuestionDeleteView(PluginActiveMixin, EventPermissionRequiredMixin, View):
         return redirect("plugins:teamshifts:cfm_settings", organizer=request.organizer.slug, event=event.slug)
 
 
-class QuestionReorderView(PluginActiveMixin, EventPermissionRequiredMixin, View):
+class QuestionReorderView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):
     permission = "can_change_event_settings"
 
     def post(self, request, *args, **kwargs):
@@ -345,7 +345,7 @@ class QuestionReorderView(PluginActiveMixin, EventPermissionRequiredMixin, View)
         return HttpResponse(status=204)
 
 
-class QuestionToggleView(PluginActiveMixin, EventPermissionRequiredMixin, View):
+class QuestionToggleView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):
     permission = "can_change_event_settings"
 
     def post(self, request, *args, **kwargs):
@@ -375,8 +375,8 @@ class QuestionToggleView(PluginActiveMixin, EventPermissionRequiredMixin, View):
         return JsonResponse({"success": True, "field": field, "value": value})
 
 
-class ApplicationListView(PluginActiveMixin, EventPermissionRequiredMixin, TemplateView):
-    permission = "can_change_event_settings"
+class ApplicationListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, TemplateView):
+    permission = "can_teamshifts_manage_applicants"
     template_name = "teamshifts/applications.html"
 
     def get_context_data(self, **kwargs):
@@ -410,8 +410,8 @@ class ApplicationListView(PluginActiveMixin, EventPermissionRequiredMixin, Templ
         return ctx
 
 
-class ApplicationStatusView(PluginActiveMixin, EventPermissionRequiredMixin, View):
-    permission = "can_change_event_settings"
+class ApplicationStatusView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):
+    permission = "can_teamshifts_manage_applicants"
 
     def post(self, request, *args, **kwargs):
         event = request.event

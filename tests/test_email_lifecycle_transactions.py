@@ -1,8 +1,8 @@
 import pytest
 from django.urls import reverse
 from django_scopes import scope
-
 from eventyay.base.models import User
+
 from teamshifts.models import (
     ApplicationStatus,
     CallForTeamMembers,
@@ -38,7 +38,7 @@ def applicant(django_user_model):
 def test_apply_view_queues_received_email(client, event, call_for_team_members, team_role, applicant):
     client.force_login(applicant)
     url = reverse("plugins:teamshifts:apply", kwargs={"organizer": event.organizer.slug, "event": event.slug})
-    
+
     data = {
         "role": team_role.pk,
         "full_name": "Applicant Name",
@@ -48,7 +48,7 @@ def test_apply_view_queues_received_email(client, event, call_for_team_members, 
     }
     response = client.post(url, data)
     assert response.status_code in (200, 302)
-    
+
     with scope(event=event):
         assert TeamMemberApplication.objects.filter(user=applicant).exists()
         assert TeamShiftsEmailQueue.objects.filter(event=event, role_filter=team_role).exists()
@@ -70,14 +70,14 @@ def test_application_status_view_queues_accepted_email(client, event, team_role,
     user.is_staff = True
     user.save()
     client.force_login(user)
-    
+
     url = reverse(
         "plugins:teamshifts:application_status",
         kwargs={"organizer": event.organizer.slug, "event": event.slug, "pk": pending_application.pk},
     )
     response = client.post(url, {"action": "accept"})
     assert response.status_code in (200, 302)
-    
+
     with scope(event=event):
         pending_application.refresh_from_db()
         assert pending_application.status == ApplicationStatus.ACCEPTED
@@ -89,14 +89,14 @@ def test_application_status_view_queues_rejected_email(client, event, team_role,
     user.is_staff = True
     user.save()
     client.force_login(user)
-    
+
     url = reverse(
         "plugins:teamshifts:application_status",
         kwargs={"organizer": event.organizer.slug, "event": event.slug, "pk": pending_application.pk},
     )
     response = client.post(url, {"action": "reject"})
     assert response.status_code in (200, 302)
-    
+
     with scope(event=event):
         pending_application.refresh_from_db()
         assert pending_application.status == ApplicationStatus.REJECTED

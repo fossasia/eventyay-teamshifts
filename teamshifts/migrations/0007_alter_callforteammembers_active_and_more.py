@@ -18,6 +18,6 @@ class Migration(migrations.Migration):
         migrations.AlterField(
             model_name='teamapplicationquestion',
             name='variant',
-            field=models.CharField(choices=[('string', 'Text (one line)'), ('text', 'Multi-line text'), ('number', 'Number'), ('boolean', 'Confirmation (checkbox)'), ('date', 'Date'), ('datetime', 'Date and time'), ('url', 'URL'), ('choices', 'Radio button (choose one option)'), ('choices_dropdown', 'Dropdown (choose one option)'), ('multiple_choice', 'Checkbox (choose one or more options)'), ('country', 'Country'), ('phone', 'Phone number')], default='string', max_length=20, verbose_name='Field type'),
+            field=models.CharField(choices=[('string', 'Text (one line)'), ('text', 'Multi-line text'), ('number', 'Number'), ('boolean', 'Confirmation (checkbox)'), ('date', 'Date'), ('datetime', 'Date and time'), ('url', 'URL'), ('choices', 'Radio button (choose one option)'), ('choices_dropdown', 'Dropdown (choose one option)'), ('multiple_choice', 'Checkbox (choose one or more options)'), ('country', 'Country'), ('phone', 'Phone number')], default='string', max_length=20, verbose_name='Field type'),  # noqa: E501
         ),
     ]

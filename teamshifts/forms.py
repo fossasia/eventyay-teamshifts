@@ -2,6 +2,7 @@ from django import forms
 from django.utils.translation import gettext_lazy as _
 from django_countries import countries
 from django_scopes import scopes_disabled
+from eventyay.control.forms import SplitDateTimeField, SplitDateTimePickerWidget
 
 from .models import (
     CFM_BUILTIN_FIELD_KEYS,
@@ -12,8 +13,6 @@ from .models import (
     TeamRole,
     normalize_field_order,
 )
-
-from eventyay.control.forms import SplitDateTimeField, SplitDateTimePickerWidget
 
 
 class CallForTeamMembersSettingsForm(forms.ModelForm):

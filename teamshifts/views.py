@@ -599,7 +599,7 @@ class BulkApplicationStatusView(PluginActiveMixin, EventPermissionRequiredMixin,
                     event=event,
                     pk__in=app_ids,
                     status=ApplicationStatus.PENDING,
-                ).select_related("user")
+                ).select_related("user", "role")
             )
 
             if not apps:

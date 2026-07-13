@@ -18,7 +18,6 @@ def call_for_team_members(event):
     with scope(event=event):
         return CallForTeamMembers.objects.create(
             event=event,
-            organizer=event.organizer,
             active=True,
         )
 
@@ -36,6 +35,8 @@ def applicant(django_user_model):
 
 @pytest.fixture
 def orga_user(event, user):
+    user.is_staff = True
+    user.save()
     with scope(event=event):
         team = Team.objects.create(organizer=event.organizer, can_change_event_settings=True, can_change_teams=True)
         team.members.add(user)
@@ -87,7 +88,10 @@ def test_application_status_view_queues_accepted_email(client, event, team_role,
     tc = TestCase()
     with tc.captureOnCommitCallbacks(execute=True):
         response = client.post(url, {"action": "accept"})
+
+    expected_url = reverse("plugins:teamshifts:applications", kwargs={"organizer": event.organizer.slug, "event": event.slug})
     assert response.status_code == 302
+    assert response.url == expected_url, f"Expected redirect to {expected_url}, but got {response.url}"
 
     with scope(event=event):
         pending_application.refresh_from_db()
@@ -106,7 +110,10 @@ def test_application_status_view_queues_rejected_email(client, event, team_role,
     tc = TestCase()
     with tc.captureOnCommitCallbacks(execute=True):
         response = client.post(url, {"action": "reject"})
+
+    expected_url = reverse("plugins:teamshifts:applications", kwargs={"organizer": event.organizer.slug, "event": event.slug})
     assert response.status_code == 302
+    assert response.url == expected_url, f"Expected redirect to {expected_url}, but got {response.url}"
 
     with scope(event=event):
         pending_application.refresh_from_db()

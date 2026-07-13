@@ -13,6 +13,8 @@ from .models import (
     normalize_field_order,
 )
 
+from eventyay.control.forms import SplitDateTimeField, SplitDateTimePickerWidget
+
 
 class CallForTeamMembersSettingsForm(forms.ModelForm):
     class Meta:
@@ -24,11 +26,11 @@ class CallForTeamMembersSettingsForm(forms.ModelForm):
             "deadline",
             "description",
         )
+        field_classes = {
+            "deadline": SplitDateTimeField,
+        }
         widgets = {
-            "deadline": forms.DateTimeInput(
-                attrs={"class": "form-control datetimepicker"},
-                format="%Y-%m-%d %H:%M:%S",
-            ),
+            "deadline": SplitDateTimePickerWidget(),
             "title": forms.TextInput(attrs={"class": "form-control"}),
         }
 

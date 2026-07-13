@@ -123,6 +123,11 @@ urlpatterns = [
         name="email_send_now",
     ),
     path(
+        "teamshifts/event/<orgslug:organizer>/<slug:event>/applications/bulk-action/",
+        views.BulkApplicationStatusView.as_view(),
+        name="application_bulk_action",
+    ),
+    path(
         "teamshifts/event/<orgslug:organizer>/<slug:event>/applications/<int:pk>/",
         views.ApplicationDetailView.as_view(),
         name="application_detail",

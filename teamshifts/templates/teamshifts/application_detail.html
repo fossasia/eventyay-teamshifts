@@ -1,0 +1,100 @@
+{% extends "teamshifts/base.html" %}
+{% load i18n %}
+
+{% block title %}{% trans "Application Details" %} :: {{ request.event.name }}{% endblock %}
+
+{% block content %}
+    <nav id="event-nav" class="header-nav">
+        <div class="navigation">
+            <div class="navigation-title">
+                <h1>{% trans "Application Details" %}</h1>
+            </div>
+        </div>
+    </nav>
+    
+    <div style="margin-bottom: 20px;">
+        <a href="{% url 'plugins:teamshifts:applications' organizer=request.organizer.slug event=request.event.slug %}" class="btn btn-default">
+            <span class="fa fa-arrow-left"></span> {% trans "Back to applications list" %}
+        </a>
+        
+        {% if application.status == 'pending' %}
+        <form action="{% url 'plugins:teamshifts:application_status' organizer=request.organizer.slug event=request.event.slug pk=application.pk %}"
+              method="post" class="helper-display-inline" style="float: right;">
+            {% csrf_token %}
+            <button type="submit" name="action" value="accept" class="btn btn-success">
+                <span class="fa fa-check"></span> {% trans "Accept" %}
+            </button>
+            <button type="submit" name="action" value="reject" class="btn btn-danger">
+                <span class="fa fa-times"></span> {% trans "Reject" %}
+            </button>
+        </form>
+        {% endif %}
+    </div>
+
+    <div class="panel panel-default">
+        <div class="panel-heading">
+            <h3 class="panel-title">{% trans "Applicant Information" %}</h3>
+        </div>
+        <table class="table">
+            <tbody>
+                <tr>
+                    <th>{% trans "Email" %}</th>
+                    <td>{{ application.user.email }}</td>
+                </tr>
+                <tr>
+                    <th>{% trans "Name" %}</th>
+                    <td>{{ application.user.fullname|default:"—" }}</td>
+                </tr>
+                <tr>
+                    <th>{% trans "Phone" %}</th>
+                    <td>{{ application.phone|default:"—" }}</td>
+                </tr>
+                <tr>
+                    <th>{% trans "Role" %}</th>
+                    <td><span class="label label-info">{{ application.role.name }}</span></td>
+                </tr>
+                <tr>
+                    <th>{% trans "Status" %}</th>
+                    <td>
+                        {% if application.status == 'pending' %}
+                            <span class="label label-warning">{% trans "Pending" %}</span>
+                        {% elif application.status == 'accepted' %}
+                            <span class="label label-success">{% trans "Accepted" %}</span>
+                        {% else %}
+                            <span class="label label-danger">{% trans "Rejected" %}</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                <tr>
+                    <th>{% trans "Applied on" %}</th>
+                    <td>{{ application.created_at|date:"SHORT_DATETIME_FORMAT" }}</td>
+                </tr>
+                {% if application.availability_notes %}
+                <tr>
+                    <th>{% trans "Availability notes" %}</th>
+                    <td>{{ application.availability_notes|linebreaksbr }}</td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+
+    {% if application.rendered_answers %}
+    <div class="panel panel-default">
+        <div class="panel-heading">
+            <h3 class="panel-title">{% trans "Form Answers" %}</h3>
+        </div>
+        <table class="table">
+            <tbody>
+                {% for entry in application.rendered_answers %}
+                <tr>
+                    <th style="width: 40%">{{ entry.question.question }}</th>
+                    <td>{{ entry.value|default:"—" }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+
+{% endblock %}

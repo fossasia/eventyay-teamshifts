@@ -40,12 +40,10 @@
             <table class="table table-hover table-quotas">
                 <thead>
                     <tr>
-                        <th>{% trans "Applicant" %}</th>
-                        <th>{% trans "Name" %}</th>
-                        <th>{% trans "Phone" %}</th>
-                        <th>{% trans "Role" %}</th>
+                        {% for col in columns %}
+                            <th>{{ col.label }}</th>
+                        {% endfor %}
                         <th>{% trans "Status" %}</th>
-                        <th>{% trans "Attendance" %}</th>
                         <th>{% trans "Applied" %}</th>
                         <th class="action-col-2"></th>
                     </tr>
@@ -53,10 +51,9 @@
                 <tbody>
                     {% for app in applications %}
                         <tr>
-                            <td>{{ app.user.email }}</td>
-                            <td>{{ app.user.fullname|default:"—" }}</td>
-                            <td>{{ app.phone|default:"—" }}</td>
-                            <td><span class="label label-info">{{ app.role.name }}</span></td>
+                            {% for val in app.dynamic_values %}
+                                <td>{{ val|default:"—" }}</td>
+                            {% endfor %}
                             <td>
                                 {% if app.status == 'pending' %}
                                     <span class="label label-warning">{% trans "Pending" %}</span>
@@ -66,58 +63,25 @@
                                     <span class="label label-danger">{% trans "Rejected" %}</span>
                                 {% endif %}
                             </td>
-                            <td>
-                                {% if app.attendance_confirmed is None %}
-                                    <span class="label label-default">—</span>
-                                {% elif app.attendance_confirmed %}
-                                    <span class="label label-success">{% trans "Confirmed" %}</span>
-                                {% else %}
-                                    <span class="label label-danger">{% trans "Declined" %}</span>
-                                {% endif %}
-                            </td>
                             <td>{{ app.created_at|date:"SHORT_DATETIME_FORMAT" }}</td>
                             <td class="text-right flip">
-                                {% if app.availability_notes or app.rendered_answers %}
-                                    <button type="button" class="btn btn-default btn-sm" data-toggle="collapse"
-                                            data-target="#app-details-{{ app.pk }}"
-                                            aria-expanded="false">
-                                        <span class="fa fa-info-circle"></span> {% trans "Details" %}
-                                    </button>
-                                {% endif %}
+                                <a href="{% url 'plugins:teamshifts:application_detail' organizer=request.organizer.slug event=request.event.slug pk=app.pk %}" class="btn btn-default btn-sm" title="{% trans 'View details' %}" aria-label="{% trans 'View details' %}">
+                                    <span class="fa fa-eye" aria-hidden="true"></span>
+                                </a>
                                 {% if app.status == 'pending' %}
                                     <form action="{% url 'plugins:teamshifts:application_status' organizer=request.organizer.slug event=request.event.slug pk=app.pk %}"
                                           method="post" class="helper-display-inline">
                                         {% csrf_token %}
-                                        <button type="submit" name="action" value="accept" class="btn btn-success btn-sm">
-                                            <span class="fa fa-check"></span>
+                                        <button type="submit" name="action" value="accept" class="btn btn-success btn-sm" title="{% trans 'Accept' %}" aria-label="{% trans 'Accept' %}">
+                                            <span class="fa fa-check" aria-hidden="true"></span>
                                         </button>
-                                        <button type="submit" name="action" value="reject" class="btn btn-danger btn-sm">
-                                            <span class="fa fa-times"></span>
+                                        <button type="submit" name="action" value="reject" class="btn btn-danger btn-sm" title="{% trans 'Reject' %}" aria-label="{% trans 'Reject' %}">
+                                            <span class="fa fa-times" aria-hidden="true"></span>
                                         </button>
                                     </form>
                                 {% endif %}
                             </td>
                         </tr>
-                        {% if app.availability_notes or app.rendered_answers %}
-                            <tr id="app-details-{{ app.pk }}" class="collapse">
-                                <td colspan="8" class="teamshifts-application-details">
-                                    {% if app.availability_notes %}
-                                        <p>
-                                            <strong>{% trans "Availability notes" %}:</strong>
-                                            <span class="teamshifts-answer-text">{{ app.availability_notes }}</span>
-                                        </p>
-                                    {% endif %}
-                                    {% if app.rendered_answers %}
-                                        <dl class="teamshifts-answer-list">
-                                            {% for entry in app.rendered_answers %}
-                                                <dt>{{ entry.question.question }}</dt>
-                                                <dd class="teamshifts-answer-text">{{ entry.value|default:"—" }}</dd>
-                                            {% endfor %}
-                                        </dl>
-                                    {% endif %}
-                                </td>
-                            </tr>
-                        {% endif %}
                     {% endfor %}
                 </tbody>
             </table>

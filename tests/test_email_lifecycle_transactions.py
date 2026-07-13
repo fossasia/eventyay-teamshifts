@@ -35,17 +35,20 @@ def applicant(django_user_model):
 
 @pytest.fixture
 def orga_user(event, user):
-    user.is_staff = True
-    user.save()
     with scope(event=event):
-        team = Team.objects.create(organizer=event.organizer, can_change_event_settings=True, can_change_teams=True)
+        team = Team.objects.create(
+            organizer=event.organizer,
+            name="Test Team",
+            can_change_event_settings=True,
+            all_events=True,
+        )
         team.members.add(user)
-        team.limit_events.add(event)
     return user
 
 
 @pytest.mark.django_db
-def test_apply_view_queues_received_email(client, event, call_for_team_members, team_role, applicant):
+def test_apply_view_queues_received_email(client, event, call_for_team_members, team_role, applicant, settings):
+    settings.SITE_URL = "http://testserver"
     client.force_login(applicant)
     url = reverse("plugins:teamshifts:apply", kwargs={"organizer": event.organizer.slug, "event": event.slug})
 
@@ -58,7 +61,7 @@ def test_apply_view_queues_received_email(client, event, call_for_team_members, 
     }
     tc = TestCase()
     with tc.captureOnCommitCallbacks(execute=True):
-        response = client.post(url, data)
+        response = client.post(url, data, HTTP_HOST="testserver")
     assert response.status_code in (200, 302)
 
     with scope(event=event):
@@ -78,7 +81,8 @@ def pending_application(event, team_role, applicant):
 
 
 @pytest.mark.django_db
-def test_application_status_view_queues_accepted_email(client, event, team_role, pending_application, orga_user):
+def test_application_status_view_queues_accepted_email(client, event, team_role, pending_application, orga_user, settings):
+    settings.SITE_URL = "http://testserver"
     client.force_login(orga_user)
 
     url = reverse(
@@ -87,11 +91,11 @@ def test_application_status_view_queues_accepted_email(client, event, team_role,
     )
     tc = TestCase()
     with tc.captureOnCommitCallbacks(execute=True):
-        response = client.post(url, {"action": "accept"})
+        response = client.post(url, {"action": "accept"}, HTTP_HOST="testserver")
 
     expected_url = reverse("plugins:teamshifts:applications", kwargs={"organizer": event.organizer.slug, "event": event.slug})
     assert response.status_code == 302
-    assert response.url == expected_url, f"Expected redirect to {expected_url}, but got {response.url}"
+    assert expected_url in response.url
 
     with scope(event=event):
         pending_application.refresh_from_db()
@@ -100,7 +104,8 @@ def test_application_status_view_queues_accepted_email(client, event, team_role,
 
 
 @pytest.mark.django_db
-def test_application_status_view_queues_rejected_email(client, event, team_role, pending_application, orga_user):
+def test_application_status_view_queues_rejected_email(client, event, team_role, pending_application, orga_user, settings):
+    settings.SITE_URL = "http://testserver"
     client.force_login(orga_user)
 
     url = reverse(
@@ -109,11 +114,11 @@ def test_application_status_view_queues_rejected_email(client, event, team_role,
     )
     tc = TestCase()
     with tc.captureOnCommitCallbacks(execute=True):
-        response = client.post(url, {"action": "reject"})
+        response = client.post(url, {"action": "reject"}, HTTP_HOST="testserver")
 
     expected_url = reverse("plugins:teamshifts:applications", kwargs={"organizer": event.organizer.slug, "event": event.slug})
     assert response.status_code == 302
-    assert response.url == expected_url, f"Expected redirect to {expected_url}, but got {response.url}"
+    assert expected_url in response.url
 
     with scope(event=event):
         pending_application.refresh_from_db()

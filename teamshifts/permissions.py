@@ -32,7 +32,7 @@ def teamshifts_permission_required(permission):
                 if has_any_teamshifts_permission(request.user, request.organizer, request.event, request=request):
                     return function(request, *args, **kw)
 
-            raise PermissionDenied(_('You do not have permission to view this content.'))
+            raise PermissionDenied(_("You do not have permission to view this content."))
 
         return wrapper
 

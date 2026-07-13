@@ -91,4 +91,4 @@ def team_role_post_delete(sender, instance, **kwargs):
     for team in teams:
         if isinstance(team.limit_teamshifts_roles, list) and instance.pk in team.limit_teamshifts_roles:
             team.limit_teamshifts_roles.remove(instance.pk)
-            team.save(update_fields=['limit_teamshifts_roles'])
+            team.save(update_fields=["limit_teamshifts_roles"])

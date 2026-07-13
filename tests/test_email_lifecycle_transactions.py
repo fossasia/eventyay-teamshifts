@@ -2,7 +2,7 @@ import pytest
 from django.test import TestCase
 from django.urls import reverse
 from django_scopes import scope
-from eventyay.base.models import User
+from eventyay.base.models import Team
 
 from teamshifts.models import (
     ApplicationStatus,
@@ -19,7 +19,6 @@ def call_for_team_members(event):
         return CallForTeamMembers.objects.create(
             event=event,
             organizer=event.organizer,
-            is_open=True,
             active=True,
         )
 
@@ -33,6 +32,15 @@ def team_role(event):
 @pytest.fixture
 def applicant(django_user_model):
     return django_user_model.objects.create_user(email="applicant@example.com", password="x")
+
+
+@pytest.fixture
+def orga_user(event, user):
+    with scope(event=event):
+        team = Team.objects.create(organizer=event.organizer, can_change_event_settings=True, can_change_teams=True)
+        team.members.add(user)
+        team.limit_events.add(event)
+    return user
 
 
 @pytest.mark.django_db
@@ -69,10 +77,8 @@ def pending_application(event, team_role, applicant):
 
 
 @pytest.mark.django_db
-def test_application_status_view_queues_accepted_email(client, event, team_role, pending_application, user):
-    user.is_staff = True
-    user.save()
-    client.force_login(user)
+def test_application_status_view_queues_accepted_email(client, event, team_role, pending_application, orga_user):
+    client.force_login(orga_user)
 
     url = reverse(
         "plugins:teamshifts:application_status",
@@ -81,7 +87,7 @@ def test_application_status_view_queues_accepted_email(client, event, team_role,
     tc = TestCase()
     with tc.captureOnCommitCallbacks(execute=True):
         response = client.post(url, {"action": "accept"})
-    assert response.status_code in (200, 302)
+    assert response.status_code == 302
 
     with scope(event=event):
         pending_application.refresh_from_db()
@@ -90,10 +96,8 @@ def test_application_status_view_queues_accepted_email(client, event, team_role,
 
 
 @pytest.mark.django_db
-def test_application_status_view_queues_rejected_email(client, event, team_role, pending_application, user):
-    user.is_staff = True
-    user.save()
-    client.force_login(user)
+def test_application_status_view_queues_rejected_email(client, event, team_role, pending_application, orga_user):
+    client.force_login(orga_user)
 
     url = reverse(
         "plugins:teamshifts:application_status",
@@ -102,7 +106,7 @@ def test_application_status_view_queues_rejected_email(client, event, team_role,
     tc = TestCase()
     with tc.captureOnCommitCallbacks(execute=True):
         response = client.post(url, {"action": "reject"})
-    assert response.status_code in (200, 302)
+    assert response.status_code == 302
 
     with scope(event=event):
         pending_application.refresh_from_db()

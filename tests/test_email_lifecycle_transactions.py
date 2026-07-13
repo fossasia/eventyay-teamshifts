@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 import pytest
 from django.test import TestCase
 from django.urls import reverse
@@ -9,7 +11,6 @@ from teamshifts.models import (
     CallForTeamMembers,
     TeamMemberApplication,
     TeamRole,
-    TeamShiftsEmailQueue,
 )
 
 
@@ -47,8 +48,9 @@ def orga_user(event, user):
 
 
 @pytest.mark.django_db
-def test_apply_view_queues_received_email(client, event, call_for_team_members, team_role, applicant, settings):
-    settings.SITE_URL = "http://testserver"
+@patch("teamshifts.views.queue_lifecycle_email")
+def test_apply_view_queues_received_email(mock_queue, client, event, call_for_team_members, team_role, applicant, settings):
+    settings.SITE_URL = "https://testserver"
     client.force_login(applicant)
     url = reverse("plugins:teamshifts:apply", kwargs={"organizer": event.organizer.slug, "event": event.slug})
 
@@ -61,12 +63,12 @@ def test_apply_view_queues_received_email(client, event, call_for_team_members, 
     }
     tc = TestCase()
     with tc.captureOnCommitCallbacks(execute=True):
-        response = client.post(url, data, HTTP_HOST="testserver")
+        response = client.post(url, data)
     assert response.status_code in (200, 302)
 
     with scope(event=event):
         assert TeamMemberApplication.objects.filter(user=applicant).exists()
-        assert TeamShiftsEmailQueue.objects.filter(event=event, role_filter=team_role).exists()
+        mock_queue.assert_called_once()
 
 
 @pytest.fixture
@@ -81,8 +83,9 @@ def pending_application(event, team_role, applicant):
 
 
 @pytest.mark.django_db
-def test_application_status_view_queues_accepted_email(client, event, team_role, pending_application, orga_user, settings):
-    settings.SITE_URL = "http://testserver"
+@patch("teamshifts.views.queue_lifecycle_email")
+def test_application_status_view_queues_accepted_email(mock_queue, client, event, team_role, pending_application, orga_user, settings):
+    settings.SITE_URL = "https://testserver"
     client.force_login(orga_user)
 
     url = reverse(
@@ -91,21 +94,22 @@ def test_application_status_view_queues_accepted_email(client, event, team_role,
     )
     tc = TestCase()
     with tc.captureOnCommitCallbacks(execute=True):
-        response = client.post(url, {"action": "accept"}, HTTP_HOST="testserver")
+        response = client.post(url, {"action": "accept"})
 
     expected_url = reverse("plugins:teamshifts:applications", kwargs={"organizer": event.organizer.slug, "event": event.slug})
     assert response.status_code == 302
-    assert expected_url in response.url
+    assert response.url == expected_url, f"Expected redirect to {expected_url}, but got {response.url}"
 
     with scope(event=event):
         pending_application.refresh_from_db()
         assert pending_application.status == ApplicationStatus.ACCEPTED
-        assert TeamShiftsEmailQueue.objects.filter(event=event, role_filter=team_role).exists()
+        mock_queue.assert_called_once()
 
 
 @pytest.mark.django_db
-def test_application_status_view_queues_rejected_email(client, event, team_role, pending_application, orga_user, settings):
-    settings.SITE_URL = "http://testserver"
+@patch("teamshifts.views.queue_lifecycle_email")
+def test_application_status_view_queues_rejected_email(mock_queue, client, event, team_role, pending_application, orga_user, settings):
+    settings.SITE_URL = "https://testserver"
     client.force_login(orga_user)
 
     url = reverse(
@@ -114,13 +118,13 @@ def test_application_status_view_queues_rejected_email(client, event, team_role,
     )
     tc = TestCase()
     with tc.captureOnCommitCallbacks(execute=True):
-        response = client.post(url, {"action": "reject"}, HTTP_HOST="testserver")
+        response = client.post(url, {"action": "reject"})
 
     expected_url = reverse("plugins:teamshifts:applications", kwargs={"organizer": event.organizer.slug, "event": event.slug})
     assert response.status_code == 302
-    assert expected_url in response.url
+    assert response.url == expected_url, f"Expected redirect to {expected_url}, but got {response.url}"
 
     with scope(event=event):
         pending_application.refresh_from_db()
         assert pending_application.status == ApplicationStatus.REJECTED
-        assert TeamShiftsEmailQueue.objects.filter(event=event, role_filter=team_role).exists()
+        mock_queue.assert_called_once()

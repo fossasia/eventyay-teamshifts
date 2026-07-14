@@ -1,13 +1,22 @@
+import logging
+
+from django.db import transaction
 from django.dispatch import receiver
 from django.urls import reverse
 from django.utils.html import format_html
+from django.utils.timezone import now
 from django.utils.translation import gettext_lazy as _
+from django_scopes import scopes_disabled
 from eventyay.base.email import SimpleFunctionalMailTextPlaceholder
 from eventyay.base.signals import register_mail_placeholders
+from eventyay.common.signals import periodic_task
 from eventyay.control.signals import event_dashboard_components, event_dashboard_widgets
 from eventyay.presale.signals import header_nav_tabs
 
-from .models import CallForTeamMembers
+from .models import CallForTeamMembers, TeamShiftsEmailQueue
+from .tasks import send_queued_email
+
+logger = logging.getLogger(__name__)
 
 
 @receiver(event_dashboard_widgets, dispatch_uid="teamshifts_dashboard_widget")
@@ -92,3 +101,21 @@ def teamshifts_mail_placeholders(sender, **kwargs):
             lambda event: str(event.name),
         ),
     ]
+
+
+@receiver(periodic_task, dispatch_uid="teamshifts_dispatch_scheduled_emails")
+@scopes_disabled()
+def dispatch_scheduled_emails(sender, **kwargs):
+    MAIL_SEND_BATCH_SIZE = 50
+    for _ in range(MAIL_SEND_BATCH_SIZE):
+        with transaction.atomic():
+            queue = (
+                TeamShiftsEmailQueue.objects.filter(send_after__isnull=False, send_after__lte=now(), sent_at__isnull=True)
+                .select_for_update(skip_locked=True, of=("self",))
+                .order_by("pk")
+                .first()
+            )
+            if queue is None:
+                break
+            send_queued_email(queue.event_id, queue.pk)
+            logger.info("[TeamShifts] Dispatched missed scheduled email queue %s", queue.pk)

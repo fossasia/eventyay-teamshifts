@@ -1,6 +1,7 @@
 import logging
 
 from celery.exceptions import MaxRetriesExceededError
+from django.db import transaction
 from django.utils.timezone import now
 from django_scopes import scope
 from eventyay.base.email import get_email_context
@@ -36,8 +37,16 @@ def send_queued_email(self, event_id: int, queue_id: int):
             return
 
     try:
-        with scope(event=event):
-            queue = TeamShiftsEmailQueue.objects.select_related("event", "role_filter").get(pk=queue_id, event=event)
+        with scope(event=event), transaction.atomic():
+            queue = (
+                TeamShiftsEmailQueue.objects.select_related("event", "role_filter")
+                .select_for_update(skip_locked=True, of=("self",))
+                .filter(pk=queue_id, event=event)
+                .first()
+            )
+            if queue is None:
+                logger.debug("[TeamShifts] Queue %s not found or locked", queue_id)
+                return
             if queue.sent_at:
                 return
             if queue.send_after and queue.send_after > now():
@@ -54,24 +63,18 @@ def send_queued_email(self, event_id: int, queue_id: int):
                 )
                 return
             recipients = list(queue.recipients.select_related("user").all())
-    except TeamShiftsEmailQueue.DoesNotExist:
-        logger.error("[TeamShifts] Queue %s not found for event %s", queue_id, event_id)
-        return
 
-    if not recipients:
-        logger.warning("[TeamShifts] Queue %s has no recipients", queue_id)
-        with scope(event=event):
-            queue.sent_at = now()
-            queue.save(update_fields=["sent_at"])
-        return
+            if not recipients:
+                logger.warning("[TeamShifts] Queue %s has no recipients", queue_id)
+                queue.sent_at = now()
+                queue.save(update_fields=["sent_at"])
+                return
 
-    subject = LazyI18nString(queue.subject)
-    message = LazyI18nString(queue.message)
-    locale = queue.locale or event.settings.locale
+            subject = LazyI18nString(queue.subject)
+            message = LazyI18nString(queue.message)
+            locale = queue.locale or event.settings.locale
 
-    partial_send = False
-    try:
-        with scope(event=event):
+            partial_send = False
             for recipient in recipients:
                 if recipient.sent_at:
                     continue
@@ -102,6 +105,7 @@ def send_queued_email(self, event_id: int, queue_id: int):
                     recipient.error = str(exc)
                     recipient.save(update_fields=["error"])
                     logger.exception("[TeamShifts] Send failed for %s", recipient.email)
+                    partial_send = True
 
             has_unsent = queue.recipients.filter(sent_at__isnull=True).exists()
             if not has_unsent:

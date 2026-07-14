@@ -73,13 +73,16 @@ def queue_email(
         if rows:
             TeamShiftsEmailQueueRecipient.objects.bulk_create(rows)
 
-    if send_after is None and dispatch:
-        _dispatch(event.pk, queue.pk)
+    if dispatch:
+        _dispatch(event.pk, queue.pk, eta=send_after)
     return queue
 
 
-def _dispatch(event_id: int, queue_id: int) -> None:
-    transaction.on_commit(lambda: send_queued_email.delay(event_id, queue_id))
+def _dispatch(event_id: int, queue_id: int, eta=None) -> None:
+    if eta:
+        transaction.on_commit(lambda: send_queued_email.apply_async(args=[event_id, queue_id], eta=eta))
+    else:
+        transaction.on_commit(lambda: send_queued_email.delay(event_id, queue_id))
 
 
 def queue_lifecycle_email(application, role: str) -> TeamShiftsEmailQueue | None:

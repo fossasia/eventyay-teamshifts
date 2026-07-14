@@ -2,6 +2,7 @@ from django import forms
 from django.utils.translation import gettext_lazy as _
 from django_countries import countries
 from django_scopes import scopes_disabled
+from eventyay.control.forms import SplitDateTimeField, SplitDateTimePickerWidget
 
 from .models import (
     CFM_BUILTIN_FIELD_KEYS,
@@ -24,11 +25,11 @@ class CallForTeamMembersSettingsForm(forms.ModelForm):
             "deadline",
             "description",
         )
+        field_classes = {
+            "deadline": SplitDateTimeField,
+        }
         widgets = {
-            "deadline": forms.DateTimeInput(
-                attrs={"class": "form-control datetimepicker"},
-                format="%Y-%m-%d %H:%M:%S",
-            ),
+            "deadline": SplitDateTimePickerWidget(),
             "title": forms.TextInput(attrs={"class": "form-control"}),
         }
 

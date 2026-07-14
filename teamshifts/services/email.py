@@ -7,6 +7,7 @@ from eventyay.base.models import Event, User
 
 from ..models import (
     ApplicationStatus,
+    CallForTeamMembers,
     TeamMemberApplication,
     TeamRole,
     TeamShiftsEmailQueue,
@@ -78,3 +79,28 @@ def queue_email(
 
 def _dispatch(event_id: int, queue_id: int) -> None:
     transaction.on_commit(lambda: send_queued_email.delay(event_id, queue_id))
+
+
+def queue_lifecycle_email(application, role: str) -> TeamShiftsEmailQueue | None:
+    if not application.user or not application.user.email:
+        logger.warning("[TeamShifts] Skipping %s email: user has no email", role)
+        return None
+
+    event = application.event
+
+    try:
+        cfm = event.call_for_team_members
+    except CallForTeamMembers.DoesNotExist:
+        logger.warning("[TeamShifts] No CFM found for event %s, skipping %s email", event.slug, role)
+        return None
+
+    template = cfm.get_mail_template(role)
+
+    return queue_email(
+        event=event,
+        subject=template.subject,
+        message=template.body,
+        recipients=[application.user],
+        role_filter=application.role,
+        status_filter=application.status,
+    )

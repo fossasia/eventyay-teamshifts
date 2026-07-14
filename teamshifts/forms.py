@@ -334,11 +334,26 @@ def render_answer_for_review(question: TeamApplicationQuestion, answer_text: str
     return answer_text
 
 
+class EmailTemplateForm(forms.ModelForm):
+    class Meta:
+        from .models import TeamShiftsEmailTemplate
+
+        model = TeamShiftsEmailTemplate
+        fields = ("subject", "body")
+
+    def __init__(self, *args, locales=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if locales:
+            for field_name in ("subject", "body"):
+                self.fields[field_name].widget.enabled_locales = locales
+
+
 __all__ = [
     "CallForTeamMembersSettingsForm",
     "CallForTeamMembersApplicationSettingsForm",
     "TeamRoleForm",
     "TeamApplicationQuestionForm",
     "TeamMemberApplicationForm",
+    "EmailTemplateForm",
     "render_answer_for_review",
 ]

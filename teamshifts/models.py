@@ -2,7 +2,7 @@ from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
-from django_scopes import ScopedManager
+from django_scopes import ScopedManager, scope
 from i18nfield.fields import I18nTextField
 
 CFM_BUILTIN_FIELD_KEYS = ("full_name", "email", "phone", "role", "availability")
@@ -124,6 +124,32 @@ class CallForTeamMembers(models.Model):
             "availability": self.ask_availability,
         }
         return mapping.get(field_key, AskChoices.DO_NOT_ASK)
+
+    def get_mail_template(self, role: str) -> "TeamShiftsEmailTemplate":
+        from i18nfield.strings import LazyI18nString
+
+        from .mail.default_templates import get_default_template
+
+        try:
+            with scope(event=self.event):
+                return self.event.teamshifts_email_templates.get(role=role)
+        except TeamShiftsEmailTemplate.DoesNotExist:
+            default_subject, default_text = get_default_template(role)
+            subject_data = {}
+            body_data = {}
+            for locale in self.event.locales:
+                if locale:
+                    subject_data[locale] = str(default_subject.localize(locale))
+                    body_data[locale] = str(default_text.localize(locale))
+            subject = LazyI18nString(subject_data) if subject_data else default_subject
+            body = LazyI18nString(body_data) if body_data else default_text
+            with scope(event=self.event):
+                template, _ = TeamShiftsEmailTemplate.objects.get_or_create(
+                    event=self.event,
+                    role=role,
+                    defaults={"subject": subject, "body": body},
+                )
+            return template
 
     def __str__(self):
         return f"{self.title} — {self.event.slug} ({'active' if self.active else 'inactive'})"
@@ -456,3 +482,32 @@ class TeamShiftsEmailQueueRecipient(models.Model):
 
     def __str__(self):
         return f"{self.email} ({'sent' if self.sent_at else 'pending'})"
+
+
+class EmailTemplateRoles(models.TextChoices):
+    APPLICATION_RECEIVED = "teamshifts.application.received", _("Application received")
+    APPLICATION_ACCEPTED = "teamshifts.application.accepted", _("Application accepted")
+    APPLICATION_REJECTED = "teamshifts.application.rejected", _("Application rejected")
+
+
+class TeamShiftsEmailTemplate(models.Model):
+    event = models.ForeignKey(
+        "base.Event",
+        on_delete=models.CASCADE,
+        related_name="teamshifts_email_templates",
+    )
+    role = models.CharField(max_length=40, choices=EmailTemplateRoles.choices)
+    subject = I18nTextField()
+    body = I18nTextField()
+    updated = models.DateTimeField(auto_now=True)
+
+    objects = ScopedManager(event="event")
+
+    class Meta:
+        verbose_name = _("Email template")
+        verbose_name_plural = _("Email templates")
+        unique_together = ("event", "role")
+        ordering = ["role"]
+
+    def __str__(self):
+        return f"{self.event.slug} · {self.get_role_display()}"

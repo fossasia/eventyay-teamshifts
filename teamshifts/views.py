@@ -658,7 +658,8 @@ class EmailComposeView(PluginActiveMixin, EventPermissionRequiredMixin, FormView
 
         recipients = get_recipients(event, role=role, status=status)
 
-        if self.request.POST.get("action") == "preview":
+        action = self.request.POST.get("action")
+        if action == "preview":
             self._preview_recipients = recipients
             return self.render_to_response(self.get_context_data(form=form))
 
@@ -675,6 +676,7 @@ class EmailComposeView(PluginActiveMixin, EventPermissionRequiredMixin, FormView
             role_filter=role,
             status_filter=status,
             send_after=send_after,
+            dispatch=(action != "draft"),
         )
         if send_after:
             messages.success(
@@ -688,6 +690,16 @@ class EmailComposeView(PluginActiveMixin, EventPermissionRequiredMixin, FormView
                     "count": len(recipients),
                     "when": date_format(send_after, "SHORT_DATETIME_FORMAT"),
                 },
+            )
+        elif action == "draft":
+            messages.success(
+                self.request,
+                ngettext(
+                    "Email saved to outbox for %(count)d recipient.",
+                    "Email saved to outbox for %(count)d recipients.",
+                    len(recipients),
+                )
+                % {"count": len(recipients)},
             )
         else:
             messages.success(

@@ -7,7 +7,8 @@ from django.db.models import Count, Q
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
-from django.utils.translation import gettext_lazy as _
+from django.utils.formats import date_format
+from django.utils.translation import gettext_lazy as _, ngettext
 from django.views.generic import FormView, TemplateView, View
 from django_scopes import scope
 from eventyay.base.templatetags.rich_text import rich_text
@@ -663,7 +664,7 @@ class EmailComposeView(PluginActiveMixin, EventPermissionRequiredMixin, FormView
 
         if not recipients:
             messages.error(self.request, _("No recipients match the selected filters."))
-            return self.form_invalid(form)
+            return self.render_to_response(self.get_context_data(form=form))
 
         queue_email(
             event=event,
@@ -678,15 +679,28 @@ class EmailComposeView(PluginActiveMixin, EventPermissionRequiredMixin, FormView
         if send_after:
             messages.success(
                 self.request,
-                _("Email scheduled for %(count)d recipient(s). It stays in the outbox until %(when)s.") % {"count": len(recipients), "when": send_after},
+                ngettext(
+                    "Email scheduled for %(count)d recipient. It stays in the outbox until %(when)s.",
+                    "Email scheduled for %(count)d recipients. It stays in the outbox until %(when)s.",
+                    len(recipients),
+                )
+                % {
+                    "count": len(recipients),
+                    "when": date_format(send_after, "SHORT_DATETIME_FORMAT"),
+                },
             )
         else:
             messages.success(
                 self.request,
-                _("Email queued for %(count)d recipient(s).") % {"count": len(recipients)},
+                ngettext(
+                    "Email queued for %(count)d recipient.",
+                    "Email queued for %(count)d recipients.",
+                    len(recipients),
+                )
+                % {"count": len(recipients)},
             )
         return redirect(
-            "plugins:teamshifts:email_outbox" if send_after else "plugins:teamshifts:email_sent",
+            "plugins:teamshifts:email_outbox",
             organizer=self.request.organizer.slug,
             event=event.slug,
         )
@@ -755,7 +769,7 @@ class EmailQueueEditView(PluginActiveMixin, EventPermissionRequiredMixin, View):
         if queue.sent_at:
             messages.error(request, _("This email has already been sent and cannot be edited."))
             return redirect(
-                "plugins:teamshifts:email_outbox",
+                "plugins:teamshifts:email_sent",
                 organizer=request.organizer.slug,
                 event=request.event.slug,
             )
@@ -797,7 +811,7 @@ class EmailQueueDeleteView(PluginActiveMixin, EventPermissionRequiredMixin, View
                 queue.delete()
             messages.success(request, _("Email deleted."))
         return redirect(
-            "plugins:teamshifts:email_outbox",
+            "plugins:teamshifts:email_sent" if queue.sent_at else "plugins:teamshifts:email_outbox",
             organizer=request.organizer.slug,
             event=request.event.slug,
         )
@@ -814,7 +828,7 @@ class EmailQueueSendNowView(PluginActiveMixin, EventPermissionRequiredMixin, Vie
                 messages.warning(request, _("This email has already been sent."))
             else:
                 queue.send_after = None
-                queue.save(update_fields=["send_after"])
+                queue.save(update_fields=["send_after", "updated"])
                 transaction.on_commit(lambda: send_queued_email.delay(event.pk, queue.pk))
                 messages.success(request, _("Email queued for sending."))
         return redirect(

@@ -1,0 +1,139 @@
+{% extends "teamshifts/base.html" %}
+{% load i18n %}
+{% load bootstrap3 %}
+
+{% block title %}{% trans "Members" %} :: {{ request.event.name }}{% endblock %}
+
+{% block content %}
+    <nav id="event-nav" class="header-nav">
+        <div class="navigation">
+            <div class="navigation-title">
+                <h1>{% trans "Members" %}</h1>
+            </div>
+        </div>
+    </nav>
+
+    <form method="get" class="form-inline" style="margin-bottom: 1em;">
+        <div class="form-group">
+            <input type="text" name="q" value="{{ request.GET.q|default:'' }}" class="form-control" placeholder="{% trans 'Search by name or email' %}">
+        </div>
+        <div class="form-group">
+            <select name="role" class="form-control">
+                <option value="">{% trans "All roles" %}</option>
+                {% for r in roles %}
+                    <option value="{{ r.pk }}" {% if request.GET.role == r.pk|stringformat:'s' %}selected{% endif %}>{{ r.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <button type="submit" class="btn btn-default">{% trans "Filter" %}</button>
+    </form>
+
+    {% if members %}
+        <div class="table-responsive">
+            <table class="table table-hover table-quotas">
+            <thead>
+                <tr>
+                    <th>{% trans "Name" %}</th>
+                    {% if can_view_email %}
+                        <th>{% trans "Email" %}</th>
+                    {% endif %}
+                    <th>{% trans "Role" %}</th>
+                    <th>{% trans "Shifts assigned" %}</th>
+                    <th>{% trans "Hours scheduled" %}</th>
+                    <th>{% trans "Arrived" %}</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for member in members %}
+                    <tr>
+                        <td>
+                            <strong>
+                                <a href="{% url 'plugins:teamshifts:application_detail' organizer=request.organizer.slug event=request.event.slug pk=member.pk %}">
+                                    {{ member.user.fullname|default:member.user.email }}
+                                </a>
+                            </strong>
+                        </td>
+                        {% if can_view_email %}
+                            <td>{{ member.user.email }}</td>
+                        {% endif %}
+                        <td>{{ member.role.name|default:"-" }}</td>
+                        <td>{{ member.shifts_assigned }}</td>
+                        <td>
+                            {% if member.hours_scheduled %}
+                                {% blocktrans with hours=member.hours_scheduled|time:"H:i" trimmed %}
+                                    {{ hours }}
+                                {% endblocktrans %}
+                            {% else %}
+                                -
+                            {% endif %}
+                        </td>
+                        <td>
+                            <form method="post" action="{% url 'plugins:teamshifts:member_toggle_arrived' organizer=request.organizer.slug event=request.event.slug pk=member.pk %}" class="toggle-arrived-form">
+                                {% csrf_token %}
+                                <button type="submit" class="btn btn-sm {% if member.arrived %}btn-success{% else %}btn-default{% endif %}">
+                                    {% if member.arrived %}
+                                        <i class="fa fa-check"></i> {% trans "Arrived" %}
+                                    {% else %}
+                                        <i class="fa fa-times"></i> {% trans "Not arrived" %}
+                                    {% endif %}
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+            </table>
+        </div>
+        {% include "pretixcontrol/pagination.html" %}
+    {% else %}
+        <div class="empty-collection">
+            <p>
+                {% trans "No team members found." %}
+            </p>
+        </div>
+    {% endif %}
+
+    <script>
+        document.addEventListener("DOMContentLoaded", function() {
+            const forms = document.querySelectorAll('.toggle-arrived-form');
+            forms.forEach(form => {
+                form.addEventListener('submit', function(e) {
+                    e.preventDefault();
+                    const button = form.querySelector('button');
+                    const originalHtml = button.innerHTML;
+                    button.disabled = true;
+                    button.innerHTML = '<i class="fa fa-spinner fa-spin"></i>';
+
+                    fetch(form.action, {
+                        method: 'POST',
+                        body: new FormData(form),
+                        headers: {
+                            'X-Requested-With': 'XMLHttpRequest'
+                        }
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        button.disabled = false;
+                        if (data.success) {
+                            if (data.arrived) {
+                                button.className = 'btn btn-sm btn-success';
+                                button.innerHTML = '<i class="fa fa-check"></i> ' + '{% trans "Arrived"|escapejs %}';
+                            } else {
+                                button.className = 'btn btn-sm btn-default';
+                                button.innerHTML = '<i class="fa fa-times"></i> ' + '{% trans "Not arrived"|escapejs %}';
+                            }
+                        } else {
+                            button.innerHTML = originalHtml;
+                            alert('{% trans "An error occurred."|escapejs %}');
+                        }
+                    })
+                    .catch(error => {
+                        button.disabled = false;
+                        button.innerHTML = originalHtml;
+                        console.error('Error:', error);
+                    });
+                });
+            });
+        });
+    </script>
+{% endblock %}

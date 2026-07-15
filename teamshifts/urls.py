@@ -78,6 +78,16 @@ urlpatterns = [
         name="applications",
     ),
     path(
+        "teamshifts/event/<orgslug:organizer>/<slug:event>/members/",
+        views.MembersListView.as_view(),
+        name="members",
+    ),
+    path(
+        "teamshifts/event/<orgslug:organizer>/<slug:event>/members/<int:pk>/toggle-arrived/",
+        views.MemberArrivedToggleView.as_view(),
+        name="member_toggle_arrived",
+    ),
+    path(
         "teamshifts/event/<orgslug:organizer>/<slug:event>/emails/templates/",
         views.EmailTemplateListView.as_view(),
         name="email_templates",

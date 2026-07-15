@@ -197,6 +197,11 @@ class TeamMemberApplication(models.Model):
         default=ApplicationStatus.PENDING,
         verbose_name=_("Status"),
     )
+    arrived = models.BooleanField(
+        default=False,
+        verbose_name=_("Arrived"),
+        help_text=_("Indicates if the team member has arrived on the event day."),
+    )
     availability_notes = models.TextField(
         blank=True,
         verbose_name=_("Availability Notes"),

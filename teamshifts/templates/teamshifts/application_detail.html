@@ -13,9 +13,15 @@
     </nav>
     
     <div style="margin-bottom: 20px;">
-        <a href="{% url 'plugins:teamshifts:applications' organizer=request.organizer.slug event=request.event.slug %}" class="btn btn-default">
-            <span class="fa fa-arrow-left"></span> {% trans "Back to applications list" %}
-        </a>
+        {% if application.status == 'accepted' %}
+            <a href="{% url 'plugins:teamshifts:members' organizer=request.organizer.slug event=request.event.slug %}" class="btn btn-default">
+                <span class="fa fa-arrow-left"></span> {% trans "Back to members list" %}
+            </a>
+        {% else %}
+            <a href="{% url 'plugins:teamshifts:applications' organizer=request.organizer.slug event=request.event.slug %}" class="btn btn-default">
+                <span class="fa fa-arrow-left"></span> {% trans "Back to applications list" %}
+            </a>
+        {% endif %}
         
         {% if application.status == 'pending' %}
         <form action="{% url 'plugins:teamshifts:application_status' organizer=request.organizer.slug event=request.event.slug pk=application.pk %}"

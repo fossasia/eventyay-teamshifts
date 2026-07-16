@@ -105,6 +105,5 @@ def queue_lifecycle_email(application, role: str) -> TeamShiftsEmailQueue | None
         subject=template.subject,
         message=template.body,
         recipients=[application.user],
-        role_filter=application.role,
         status_filter=application.status,
     )

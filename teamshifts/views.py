@@ -661,9 +661,6 @@ class EmailComposeView(PluginActiveMixin, EventPermissionRequiredMixin, FormView
                     role = TeamRole.objects.filter(pk=role_id, event=event).first()
             recipients = get_recipients(event, role=role, status=status)
             self._preview_recipients = recipients
-            # Pass an UNBOUND form (no POST data) so validation never runs and
-            # no red "required" errors appear. Pre-fill with whatever the user
-            # already typed so they don't lose their work.
             form = EmailComposeForm(
                 event=event,
                 initial={
@@ -676,7 +673,6 @@ class EmailComposeView(PluginActiveMixin, EventPermissionRequiredMixin, FormView
             )
             return self.render_to_response(self.get_context_data(form=form))
         return super().post(request, *args, **kwargs)
-
 
     def form_valid(self, form):
         event = self.request.event

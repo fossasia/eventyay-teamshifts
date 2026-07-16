@@ -11,6 +11,7 @@ from django.utils.formats import date_format
 from django.utils.translation import gettext_lazy as _, ngettext
 from django.views.generic import FormView, TemplateView, View
 from django_scopes import scope, scopes_disabled
+from eventyay.base.i18n import LazyI18nString
 from eventyay.base.templatetags.rich_text import rich_text
 from eventyay.control.permissions import EventPermissionRequiredMixin
 
@@ -661,13 +662,16 @@ class EmailComposeView(PluginActiveMixin, EventPermissionRequiredMixin, FormView
                     role = TeamRole.objects.filter(pk=role_id, event=event).first()
             recipients = get_recipients(event, role=role, status=status)
             self._preview_recipients = recipients
+            locales = list(event.settings.get("locales") or [event.settings.locale])
+            subject_i18n = LazyI18nString({locales[i]: request.POST.get(f"subject_{i}", "") for i in range(len(locales))})
+            message_i18n = LazyI18nString({locales[i]: request.POST.get(f"message_{i}", "") for i in range(len(locales))})
             form = EmailComposeForm(
                 event=event,
                 initial={
                     "role": role,
                     "status": status,
-                    "subject": request.POST.get("subject", ""),
-                    "message": request.POST.get("message", ""),
+                    "subject": subject_i18n,
+                    "message": message_i18n,
                     "send_after": request.POST.get("send_after", ""),
                 },
             )

@@ -10,7 +10,7 @@ from django.urls import reverse
 from django.utils.formats import date_format
 from django.utils.translation import gettext_lazy as _, ngettext
 from django.views.generic import FormView, TemplateView, View
-from django_scopes import scope
+from django_scopes import scope, scopes_disabled
 from eventyay.base.templatetags.rich_text import rich_text
 from eventyay.control.permissions import EventPermissionRequiredMixin
 
@@ -650,6 +650,34 @@ class EmailComposeView(PluginActiveMixin, EventPermissionRequiredMixin, FormView
         messages.error(self.request, _("Please correct the errors below."))
         return super().form_invalid(form)
 
+    def post(self, request, *args, **kwargs):
+        if request.POST.get("action") == "preview":
+            event = request.event
+            role_id = request.POST.get("role") or None
+            status = request.POST.get("status") or ""
+            role = None
+            if role_id:
+                with scopes_disabled():
+                    role = TeamRole.objects.filter(pk=role_id, event=event).first()
+            recipients = get_recipients(event, role=role, status=status)
+            self._preview_recipients = recipients
+            # Pass an UNBOUND form (no POST data) so validation never runs and
+            # no red "required" errors appear. Pre-fill with whatever the user
+            # already typed so they don't lose their work.
+            form = EmailComposeForm(
+                event=event,
+                initial={
+                    "role": role,
+                    "status": status,
+                    "subject": request.POST.get("subject", ""),
+                    "message": request.POST.get("message", ""),
+                    "send_after": request.POST.get("send_after", ""),
+                },
+            )
+            return self.render_to_response(self.get_context_data(form=form))
+        return super().post(request, *args, **kwargs)
+
+
     def form_valid(self, form):
         event = self.request.event
         role = form.cleaned_data.get("role")
@@ -729,11 +757,9 @@ class EmailOutboxView(PluginActiveMixin, EventPermissionRequiredMixin, TemplateV
             queues = list(
                 TeamShiftsEmailQueue.objects.filter(event=event, sent_at__isnull=True, user__isnull=False)
                 .select_related("role_filter", "user")
-                .prefetch_related("recipients")
+                .annotate(recipient_count=Count("recipients"))
                 .order_by("-created")
             )
-            for q in queues:
-                q.recipient_count = q.recipients.count()
         ctx["mails"] = queues
         return ctx
 
@@ -749,11 +775,9 @@ class EmailSentView(PluginActiveMixin, EventPermissionRequiredMixin, TemplateVie
             queues = list(
                 TeamShiftsEmailQueue.objects.filter(event=event, sent_at__isnull=False, user__isnull=False)
                 .select_related("role_filter", "user")
-                .prefetch_related("recipients")
+                .annotate(recipient_count=Count("recipients"))
                 .order_by("-sent_at")
             )
-            for q in queues:
-                q.recipient_count = q.recipients.count()
         ctx["mails"] = queues
         return ctx
 

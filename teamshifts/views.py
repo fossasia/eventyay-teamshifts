@@ -2,8 +2,8 @@ import json
 
 from django.conf import settings as django_settings
 from django.contrib import messages
-from django.db import IntegrityError, transaction
-from django.db.models import Count, Q
+from django.db import transaction
+from django.db.models import Q
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -66,9 +66,9 @@ class TeamShiftsDashboard(PluginActiveMixin, EventPermissionRequiredMixin, Templ
             ctx["pending_count"] = TeamMemberApplication.objects.filter(event=event, status=ApplicationStatus.PENDING).count()
             ctx["accepted_count"] = TeamMemberApplication.objects.filter(event=event, status=ApplicationStatus.ACCEPTED).count()
             ctx["shift_count"] = Shift.objects.filter(event=event).count()
-            ctx["recent_applications"] = list(TeamMemberApplication.objects.filter(event=event).select_related("user", "role").order_by("-created_at")[:5])
+            ctx["recent_applications"] = list(TeamMemberApplication.objects.filter(event=event).select_related("user").order_by("-created_at")[:5])
             ctx["accepted_members"] = list(
-                TeamMemberApplication.objects.filter(event=event, status=ApplicationStatus.ACCEPTED).select_related("user", "role").order_by("-updated_at")[:8]
+                TeamMemberApplication.objects.filter(event=event, status=ApplicationStatus.ACCEPTED).select_related("user").order_by("-updated_at")[:8]
             )
             try:
                 ctx["cfm"] = event.call_for_team_members
@@ -128,7 +128,7 @@ class CFMApplicationFormView(PluginActiveMixin, EventPermissionRequiredMixin, Vi
 
     def _questions(self):
         with scope(event=self.request.event):
-            return list(TeamApplicationQuestion.objects.filter(event=self.request.event).select_related("role").order_by("pk"))
+            return list(TeamApplicationQuestion.objects.filter(event=self.request.event).order_by("pk"))
 
     def _unified_rows(self, cfm, questions):
         question_map = {q.pk: q for q in questions}
@@ -139,11 +139,13 @@ class CFMApplicationFormView(PluginActiveMixin, EventPermissionRequiredMixin, Vi
             if q.pk not in present_pks:
                 order.append(q.pk)
 
+        # Remove 'role' from order if it is present from legacy data
+        order = [item for item in order if item != "role"]
+
         label_map = {
             "full_name": _("Full name"),
             "email": _("Email address"),
             "phone": _("Phone / Mobile"),
-            "role": _("Role"),
             "availability": _("Availability notes"),
         }
 
@@ -229,7 +231,7 @@ class TeamRoleListView(PluginActiveMixin, EventPermissionRequiredMixin, View):
 
     def get(self, request, *args, **kwargs):
         with scope(event=request.event):
-            roles = list(TeamRole.objects.filter(event=request.event).annotate(application_count=Count("applications")))
+            roles = list(TeamRole.objects.filter(event=request.event))
         return render(request, self.template_name, {"roles": roles, "form": TeamRoleForm()})
 
     def post(self, request, *args, **kwargs):
@@ -242,7 +244,7 @@ class TeamRoleListView(PluginActiveMixin, EventPermissionRequiredMixin, View):
             messages.success(request, _("Role '%s' created.") % role.name)
             return redirect("plugins:teamshifts:roles", organizer=request.organizer.slug, event=request.event.slug)
         with scope(event=request.event):
-            roles = list(TeamRole.objects.filter(event=request.event).annotate(application_count=Count("applications")))
+            roles = list(TeamRole.objects.filter(event=request.event))
         return render(request, self.template_name, {"roles": roles, "form": form})
 
 
@@ -253,9 +255,7 @@ class TeamRoleDeleteView(PluginActiveMixin, EventPermissionRequiredMixin, View):
         event = request.event
         with scope(event=event):
             role = get_object_or_404(TeamRole, pk=kwargs["pk"], event=event)
-            if role.applications.exists():
-                messages.error(request, _("Cannot delete '%s': it has existing applications.") % role.name)
-            elif role.shifts.exists():
+            if role.shifts.exists():
                 messages.error(request, _("Cannot delete '%s': it is used by existing shifts.") % role.name)
             else:
                 name = role.name
@@ -471,7 +471,7 @@ class ApplicationListView(PluginActiveMixin, EventPermissionRequiredMixin, Templ
         ctx = super().get_context_data(**kwargs)
         event = self.request.event
         with scope(event=event):
-            qs = TeamMemberApplication.objects.filter(event=event).select_related("user", "role").prefetch_related("answers__question").order_by("-created_at")
+            qs = TeamMemberApplication.objects.filter(event=event).select_related("user").prefetch_related("answers__question").order_by("-created_at")
             status_filter = self.request.GET.get("status")
             role_filter = self.request.GET.get("role")
             search = self.request.GET.get("q", "").strip()
@@ -619,8 +619,6 @@ class PublicApplyView(FormView):
         kwargs["event"] = self.event
         kwargs["user"] = self.request.user
         kwargs["cfm"] = self.cfm
-        with scope(event=self.event):
-            kwargs["applied_role_ids"] = list(TeamMemberApplication.objects.filter(event=self.event, user=self.request.user).values_list("role_id", flat=True))
         return TeamMemberApplicationForm(**kwargs)
 
     def get_context_data(self, **kwargs):
@@ -630,7 +628,7 @@ class PublicApplyView(FormView):
         ctx["cfm_open"] = self.cfm is not None and self.cfm.is_open
         ctx["cfm_deadline_passed"] = self.cfm is not None and self.cfm.active and self.cfm.deadline is not None and not self.cfm.is_open
         with scope(event=self.event):
-            ctx["existing_applications"] = list(TeamMemberApplication.objects.filter(event=self.event, user=self.request.user).select_related("role"))
+            ctx["existing_application"] = TeamMemberApplication.objects.filter(event=self.event, user=self.request.user).first()
         return ctx
 
     def form_valid(self, form):
@@ -638,32 +636,24 @@ class PublicApplyView(FormView):
         if self.cfm is None or not self.cfm.is_open:
             messages.error(self.request, _("Applications are not currently open for this event."))
             return self.form_invalid(form)
-        role = form.cleaned_data["role"]
         full_name = form.cleaned_data.get("full_name", "").strip()
         with scope(event=event):
-            if TeamMemberApplication.objects.filter(event=event, user=self.request.user, role=role).exists():
-                messages.error(self.request, _("You have already applied for the role '%s'.") % role.name)
+            if TeamMemberApplication.objects.filter(event=event, user=self.request.user).exists():
+                messages.error(self.request, _("You have already submitted an application for this event."))
                 return self.form_invalid(form)
-            try:
-                application = TeamMemberApplication.objects.create(
-                    event=event,
-                    user=self.request.user,
-                    role=role,
-                    availability_notes=form.cleaned_data.get("availability_notes", ""),
-                    phone=form.cleaned_data.get("phone", ""),
-                )
-            except IntegrityError:
-                messages.error(self.request, _("You have already applied for the role '%s'.") % role.name)
-                return self.form_invalid(form)
+            application = TeamMemberApplication.objects.create(
+                event=event,
+                user=self.request.user,
+                availability_notes=form.cleaned_data.get("availability_notes", ""),
+                phone=form.cleaned_data.get("phone", ""),
+            )
             for question, answer_text in form.get_question_answers():
-                if question.role_id and question.role_id != role.pk:
-                    continue
                 TeamApplicationAnswer.objects.create(application=application, question=question, answer=answer_text)
         if full_name and full_name != self.request.user.fullname:
             self.request.user.fullname = full_name
             self.request.user.save(update_fields=["fullname"])
         transaction.on_commit(lambda app=application: queue_lifecycle_email(app, EmailTemplateRoles.APPLICATION_RECEIVED))
-        messages.success(self.request, _("Your application for '%s' has been submitted.") % role.name)
+        messages.success(self.request, _("Your application has been submitted."))
         return redirect(
             reverse(
                 "plugins:teamshifts:apply_thanks",

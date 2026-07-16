@@ -70,7 +70,6 @@
               <thead>
                 <tr>
                   <th>{% trans "Applicant" %}</th>
-                  <th>{% trans "Role" %}</th>
                   <th>{% trans "Status" %}</th>
                   <th>{% trans "Date" %}</th>
                 </tr>
@@ -79,7 +78,6 @@
                 {% for app in recent_applications %}
                   <tr>
                     <td>{{ app.user.fullname|default:app.user.email }}</td>
-                    <td>{{ app.role.name }}</td>
                     <td>
                       {% if app.status == 'pending' %}
                         <span class='label label-warning'>{% trans "Pending" %}</span>
@@ -117,7 +115,6 @@
               <thead>
                 <tr>
                   <th>{% trans "Member" %}</th>
-                  <th>{% trans "Role" %}</th>
                   <th>{% trans "Attendance" %}</th>
                 </tr>
               </thead>
@@ -125,7 +122,6 @@
                 {% for app in accepted_members %}
                   <tr>
                     <td>{{ app.user.fullname|default:app.user.email }}</td>
-                    <td><span class='label label-info'>{{ app.role.name }}</span></td>
                     <td>
                       {% if app.attendance_confirmed is None %}
                         <span class='label label-default'>{% trans "Not confirmed" %}</span>

@@ -56,4 +56,41 @@
             <span class="sidebar-text">{% trans "Applications" %}</span>
         </a>
     </li>
+    <li>
+        <a href="{% url 'plugins:teamshifts:email_outbox' organizer=request.organizer.slug event=request.event.slug %}"
+           class="has-children {% if url_name == 'email_compose' or url_name == 'email_outbox' or url_name == 'email_sent' or url_name == 'email_edit' or url_name == 'email_delete' or url_name == 'email_templates' or url_name == 'email_template_edit' %}active{% endif %}">
+            <span class="fa fa-fw fa-envelope"></span>
+            <span class="sidebar-text">{% trans "Emails" %}</span>
+        </a>
+        <a class="arrow" href="#" data-toggle="collapse" data-target="#collapse-emails">
+            <span class="fa arrow"></span>
+        </a>
+        <ul class="nav nav-second-level {% if url_name == 'email_compose' or url_name == 'email_outbox' or url_name == 'email_sent' or url_name == 'email_edit' or url_name == 'email_delete' or url_name == 'email_templates' or url_name == 'email_template_edit' %}in{% endif %}"
+            id="collapse-emails">
+            <li>
+                <a href="{% url 'plugins:teamshifts:email_compose' organizer=request.organizer.slug event=request.event.slug %}"
+                   {% if url_name == 'email_compose' %}class="active"{% endif %}>
+                    <span class="sidebar-text">{% trans "Compose" %}</span>
+                </a>
+            </li>
+            <li>
+                <a href="{% url 'plugins:teamshifts:email_outbox' organizer=request.organizer.slug event=request.event.slug %}"
+                   {% if url_name == 'email_outbox' or url_name == 'email_edit' or url_name == 'email_delete' %}class="active"{% endif %}>
+                    <span class="sidebar-text">{% trans "Outbox" %}</span>
+                </a>
+            </li>
+            <li>
+                <a href="{% url 'plugins:teamshifts:email_sent' organizer=request.organizer.slug event=request.event.slug %}"
+                   {% if url_name == 'email_sent' %}class="active"{% endif %}>
+                    <span class="sidebar-text">{% trans "Sent" %}</span>
+                </a>
+            </li>
+            <li>
+                <a href="{% url 'plugins:teamshifts:email_templates' organizer=request.organizer.slug event=request.event.slug %}"
+                   {% if url_name == 'email_templates' or url_name == 'email_template_edit' %}class="active"{% endif %}>
+                    <span class="sidebar-text">{% trans "Templates" %}</span>
+                </a>
+            </li>
+        </ul>
+    </li>
 {% endblock %}

@@ -1,0 +1,34 @@
+{% extends "teamshifts/base.html" %}
+{% load i18n %}
+
+{% block title %}{% trans "Delete email" %} :: {{ request.event.name }}{% endblock %}
+
+{% block content %}
+  <nav id='event-nav' class='header-nav'>
+    <div class='navigation'>
+      <div class='navigation-title'>
+        <h1>{% trans "Delete email" %}</h1>
+      </div>
+    </div>
+  </nav>
+
+  <h4>{% trans "Do you really want to delete this email?" %}</h4>
+  <p><strong>{% trans "Subject" %}:</strong> {{ queue.subject }}</p>
+
+  <form method='post' class='submit-group'>
+    {% csrf_token %}
+    <div class='row'>
+      <div class='col-xs-6 text-left'>
+        <a href='{% url "plugins:teamshifts:email_outbox" organizer=request.organizer.slug event=request.event.slug %}'
+           class='btn btn-default btn-lg'>
+          {% trans "Back" %}
+        </a>
+      </div>
+      <div class='col-xs-6 text-right'>
+        <button type='submit' class='btn btn-danger btn-lg'>
+          <i class='fa fa-trash'></i> {% trans "Delete" %}
+        </button>
+      </div>
+    </div>
+  </form>
+{% endblock %}

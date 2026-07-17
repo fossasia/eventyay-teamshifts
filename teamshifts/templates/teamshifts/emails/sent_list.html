@@ -1,0 +1,73 @@
+{% extends "teamshifts/base.html" %}
+{% load i18n %}
+
+{% block title %}{% trans "Sent emails" %} :: {{ request.event.name }}{% endblock %}
+
+{% block content %}
+  <nav id='event-nav' class='header-nav'>
+    <div class='navigation'>
+      <div class='navigation-title'>
+        <h1>
+          {% blocktrans count mail_count=mails|length trimmed %}
+            {{ mail_count }} sent email
+          {% plural %}
+            {{ mail_count }} sent emails
+          {% endblocktrans %}
+        </h1>
+      </div>
+    </div>
+  </nav>
+
+  <div class='submit-group'>
+    <a href='{% url "plugins:teamshifts:email_compose" organizer=request.organizer.slug event=request.event.slug %}'
+       class='btn btn-primary'>
+      <i class='fa fa-plus'></i> {% trans "New email" %}
+    </a>
+  </div>
+
+  <table class='table'>
+    <thead>
+      <tr>
+        <th>{% trans "Subject" %}</th>
+        <th>{% trans "Filters" %}</th>
+        <th>{% trans "Recipients" %}</th>
+        <th>{% trans "Sent at" %}</th>
+        <th>{% trans "Actions" %}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for mail in mails %}
+        <tr>
+          <td>
+            <a href='{% url "plugins:teamshifts:email_edit" organizer=request.organizer.slug event=request.event.slug pk=mail.pk %}'>
+              {{ mail.subject }}
+            </a>
+          </td>
+          <td>
+            {% if mail.role_filter %}
+              <span class='label label-default'>{{ mail.role_filter.name }}</span>
+            {% else %}
+              <span class='text-muted'>{% trans "All roles" %}</span>
+            {% endif %}
+            {% if mail.status_filter %}
+              <span class='label label-default'>{{ mail.get_status_filter_display }}</span>
+            {% endif %}
+          </td>
+          <td>{{ mail.recipient_count }}</td>
+          <td>{{ mail.sent_at|date:"SHORT_DATETIME_FORMAT" }}</td>
+          <td>
+            <a class='btn btn-sm btn-default'
+               href='{% url "plugins:teamshifts:email_compose" organizer=request.organizer.slug event=request.event.slug %}?copy={{ mail.pk }}'
+               title='{% trans "Copy" %}'>
+              <i class='fa fa-copy'></i> {% trans "Copy" %}
+            </a>
+          </td>
+        </tr>
+      {% empty %}
+        <tr>
+          <td colspan='5' class='text-muted'>{% trans "No sent emails yet." %}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}

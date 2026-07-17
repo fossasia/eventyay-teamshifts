@@ -47,6 +47,7 @@ def queue_email(
     role_filter: TeamRole | None = None,
     status_filter: str = "",
     send_after=None,
+    dispatch: bool = True,
 ) -> TeamShiftsEmailQueue:
     with scope(event=event):
         queue = TeamShiftsEmailQueue.objects.create(
@@ -72,7 +73,7 @@ def queue_email(
         if rows:
             TeamShiftsEmailQueueRecipient.objects.bulk_create(rows)
 
-    if send_after is None:
+    if send_after is None and dispatch:
         _dispatch(event.pk, queue.pk)
     return queue
 

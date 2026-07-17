@@ -1,6 +1,6 @@
+import pytest
 from datetime import timedelta
 
-import pytest
 from django.urls import reverse
 from django.utils.timezone import now
 from django_scopes import scope
@@ -10,7 +10,8 @@ from teamshifts.models import Shift, ShiftLocation, TeamRole
 
 
 @pytest.fixture
-def orga_client(client, event, user):
+def orga_client(client, event, user, settings):
+    settings.SITE_URL = "https://testserver"
     with scope(event=event):
         team = Team.objects.create(
             organizer=event.organizer,
@@ -36,7 +37,8 @@ def team_role(event):
 
 
 @pytest.mark.django_db
-def test_location_list_requires_login(client, event):
+def test_location_list_requires_login(client, event, settings):
+    settings.SITE_URL = "https://testserver"
     url = reverse("plugins:teamshifts:locations", kwargs={"organizer": event.organizer.slug, "event": event.slug})
     response = client.get(url)
     assert response.status_code == 302
@@ -143,7 +145,8 @@ def test_location_delete_blocked_when_in_use(orga_client, event, location, team_
 
 
 @pytest.mark.django_db
-def test_location_delete_other_event_returns_404(orga_client, event, user):
+def test_location_delete_other_event_returns_404(orga_client, event, user, settings):
+    settings.SITE_URL = "https://testserver"
     other_organizer = Organizer.objects.create(name="Other Org", slug="other-org")
     other_event = Event.objects.create(
         organizer=other_organizer,

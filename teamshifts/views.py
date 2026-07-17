@@ -483,11 +483,64 @@ class ApplicationListView(PluginActiveMixin, EventPermissionRequiredMixin, Templ
             if search:
                 qs = qs.filter(Q(user__email__icontains=search) | Q(user__fullname__icontains=search))
 
+            try:
+                cfm = event.call_for_team_members
+                field_order = normalize_field_order(list(cfm.field_order))
+            except CallForTeamMembers.DoesNotExist:
+                cfm = None
+                field_order = list(CFM_BUILTIN_FIELD_KEYS)
+
+            custom_questions = {str(q.pk): q.question for q in TeamApplicationQuestion.objects.filter(event=event, active=True)}
+
+            active_keys = []
+            for k in field_order:
+                if k == "role":
+                    continue
+                if k in CFM_BUILTIN_FIELD_KEYS:
+                    if cfm and getattr(cfm, f"ask_{k}", "optional") == "do_not_ask":
+                        continue
+                    active_keys.append(k)
+                elif str(k) in custom_questions:
+                    active_keys.append(k)
+
+            dynamic_keys = active_keys[:4]
+            columns = []
+
+            for raw_key in dynamic_keys:
+                key = str(raw_key)
+                if key == "full_name":
+                    columns.append({"key": key, "label": _("Name")})
+                elif key == "email":
+                    columns.append({"key": key, "label": _("Email")})
+                elif key == "phone":
+                    columns.append({"key": key, "label": _("Phone")})
+                elif key == "availability":
+                    columns.append({"key": key, "label": _("Availability")})
+                elif key in custom_questions:
+                    columns.append({"key": key, "label": custom_questions[key]})
+
             applications = list(qs)
             for app in applications:
-                app.rendered_answers = [{"question": a.question, "value": render_answer_for_review(a.question, a.answer)} for a in app.answers.all()]
+                app_dynamic_values = []
+                answers_dict = {str(a.question_id): render_answer_for_review(a.question, a.answer) for a in app.answers.all()}
+
+                for col in columns:
+                    key = col["key"]
+                    if key == "full_name":
+                        app_dynamic_values.append(app.user.fullname)
+                    elif key == "email":
+                        app_dynamic_values.append(app.user.email)
+                    elif key == "phone":
+                        app_dynamic_values.append(app.phone)
+                    elif key == "availability":
+                        app_dynamic_values.append(app.availability_notes)
+                    else:
+                        app_dynamic_values.append(answers_dict.get(key, ""))
+
+                app.dynamic_values = app_dynamic_values
 
             ctx["applications"] = applications
+            ctx["columns"] = columns
             ctx["roles"] = list(TeamRole.objects.filter(event=event))
             ctx["status_choices"] = ApplicationStatus.choices
             ctx["current_status"] = status_filter
@@ -520,7 +573,25 @@ class ApplicationStatusView(PluginActiveMixin, EventPermissionRequiredMixin, Vie
                 transaction.on_commit(lambda app=application: queue_lifecycle_email(app, EmailTemplateRoles.APPLICATION_REJECTED))
             else:
                 raise Http404
-        return redirect("plugins:teamshifts:applications", organizer=request.organizer.slug, event=event.slug)
+        return redirect(reverse("plugins:teamshifts:applications", kwargs={"organizer": event.organizer.slug, "event": event.slug}))
+
+
+class ApplicationDetailView(PluginActiveMixin, EventPermissionRequiredMixin, TemplateView):
+    permission = "can_change_event_settings"
+    template_name = "teamshifts/application_detail.html"
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        event = self.request.event
+        with scope(event=event):
+            app = get_object_or_404(
+                TeamMemberApplication.objects.select_related("user", "role").prefetch_related("answers__question"),
+                pk=kwargs["pk"],
+                event=event,
+            )
+            app.rendered_answers = [{"question": a.question, "value": render_answer_for_review(a.question, a.answer)} for a in app.answers.all()]
+            ctx["application"] = app
+        return ctx
 
 
 class PublicApplyView(FormView):

@@ -252,7 +252,7 @@ class TeamRoleDeleteView(PluginActiveMixin, EventPermissionRequiredMixin, View):
     def post(self, request, *args, **kwargs):
         event = request.event
         with scope(event=event):
-            role = get_object_or_404(TeamRole, ShiftLocation, pk=kwargs["pk"], event=event)
+            role = get_object_or_404(TeamRole, pk=kwargs["pk"], event=event)
             if role.applications.exists():
                 messages.error(request, _("Cannot delete '%s': it has existing applications.") % role.name)
             elif role.shifts.exists():
@@ -966,11 +966,10 @@ class ShiftLocationCreateView(PluginActiveMixin, EventPermissionRequiredMixin, V
 
     def post(self, request, *args, **kwargs):
         form = ShiftLocationForm(request.POST)
+        form.instance.event = request.event
         if form.is_valid():
-            location = form.save(commit=False)
-            location.event = request.event
             with scope(event=request.event):
-                location.save()
+                location = form.save()
             messages.success(request, _("Location '%s' created.") % location.name)
             return redirect("plugins:teamshifts:locations", organizer=request.organizer.slug, event=request.event.slug)
         return render(request, self.template_name, {"form": form})
@@ -1010,7 +1009,7 @@ class ShiftLocationDeleteView(PluginActiveMixin, EventPermissionRequiredMixin, V
     def post(self, request, *args, **kwargs):
         with scope(event=request.event):
             location = get_object_or_404(ShiftLocation, pk=kwargs["pk"], event=request.event)
-            if getattr(location, "shifts", None) and location.shifts.exists():
+            if location.shifts.exists():
                 messages.error(request, _("Cannot delete '%s': it is used by existing shifts.") % location.name)
             else:
                 name = location.name

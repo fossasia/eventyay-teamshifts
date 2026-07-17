@@ -15,11 +15,6 @@ class Migration(migrations.Migration):
             name="location_text",
             field=models.CharField(blank=True, max_length=190, verbose_name="Location Text"),
         ),
-        migrations.AddField(
-            model_name="teamrole",
-            name="color",
-            field=models.CharField(blank=True, max_length=7, verbose_name="Color"),
-        ),
         migrations.AlterField(
             model_name="callforteammembers",
             name="active",

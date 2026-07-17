@@ -163,8 +163,6 @@ class TeamRole(models.Model):
     )
     name = models.CharField(max_length=190, verbose_name=_("Role Name"))
     description = models.TextField(blank=True, verbose_name=_("Description"))
-    color = models.CharField(max_length=7, blank=True, verbose_name=_("Color"))
-
     objects = ScopedManager(event="event")
 
     class Meta:

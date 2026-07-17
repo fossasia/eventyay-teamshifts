@@ -1,6 +1,6 @@
-import pytest
 from datetime import timedelta
 
+import pytest
 from django.urls import reverse
 from django.utils.timezone import now
 from django_scopes import scope

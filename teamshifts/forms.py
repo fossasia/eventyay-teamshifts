@@ -11,6 +11,7 @@ from .models import (
     AskChoices,
     CallForTeamMembers,
     QuestionVariant,
+    ShiftLocation,
     TeamApplicationQuestion,
     TeamRole,
     TeamShiftsEmailQueue,
@@ -452,8 +453,6 @@ __all__ = [
 
 class ShiftLocationForm(forms.ModelForm):
     class Meta:
-        from .models import ShiftLocation
-
         model = ShiftLocation
         fields = ("name", "description")
         widgets = {
@@ -465,8 +464,6 @@ class ShiftLocationForm(forms.ModelForm):
         cleaned_data = super().clean()
         name = cleaned_data.get("name")
         if name and self.instance and hasattr(self.instance, "event_id") and self.instance.event_id:
-            from .models import ShiftLocation
-
             qs = ShiftLocation.objects.filter(event_id=self.instance.event_id, name=name)
             if self.instance.pk:
                 qs = qs.exclude(pk=self.instance.pk)

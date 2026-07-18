@@ -1,5 +1,6 @@
 import logging
 
+from django.core.cache import cache
 from django.db import transaction
 from django.dispatch import receiver
 from django.urls import reverse
@@ -115,5 +116,8 @@ def dispatch_scheduled_emails(sender, **kwargs):
             .values("pk", "event_id")[:MAIL_SEND_BATCH_SIZE]
         )
     for item in due:
-        send_queued_email.delay(item["event_id"], item["pk"])
-        logger.info("[TeamShifts] Enqueued missed scheduled email queue %s", item["pk"])
+        cache_key = f"teamshifts_mail_queue_{item['pk']}_enqueued"
+        if not cache.get(cache_key):
+            send_queued_email.delay(item["event_id"], item["pk"])
+            cache.set(cache_key, True, timeout=3600)
+            logger.info("[TeamShifts] Enqueued missed scheduled email queue %s", item["pk"])

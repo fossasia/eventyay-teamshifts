@@ -1,7 +1,6 @@
 import logging
 
 from celery.exceptions import MaxRetriesExceededError
-from django.db import transaction
 from django.utils.timezone import now
 from django_scopes import scope
 from eventyay.base.email import get_email_context
@@ -37,13 +36,8 @@ def send_queued_email(self, event_id: int, queue_id: int):
             return
 
     try:
-        with scope(event=event), transaction.atomic():
-            queue = (
-                TeamShiftsEmailQueue.objects.select_related("event", "role_filter")
-                .select_for_update(skip_locked=True, of=("self",))
-                .filter(pk=queue_id, event=event)
-                .first()
-            )
+        with scope(event=event):
+            queue = TeamShiftsEmailQueue.objects.select_related("event", "role_filter").filter(pk=queue_id, event=event).first()
             if queue is None:
                 logger.debug("[TeamShifts] Queue %s not found or locked", queue_id)
                 return
@@ -78,6 +72,12 @@ def send_queued_email(self, event_id: int, queue_id: int):
             for recipient in recipients:
                 if recipient.sent_at:
                     continue
+
+                claimed = type(recipient).objects.filter(pk=recipient.pk, sent_at__isnull=True).update(sent_at=now())
+
+                if not claimed:
+                    continue
+
                 try:
                     ctx_kwargs = {"event": event}
                     if recipient.user:
@@ -98,12 +98,12 @@ def send_queued_email(self, event_id: int, queue_id: int):
                         auto_email=False,
                         sync_send=True,
                     )
-                    recipient.sent_at = now()
                     recipient.error = ""
-                    recipient.save(update_fields=["sent_at", "error"])
-                except SendMailException as exc:
-                    recipient.error = str(exc)
                     recipient.save(update_fields=["error"])
+                except SendMailException as exc:
+                    recipient.sent_at = None
+                    recipient.error = str(exc)
+                    recipient.save(update_fields=["error", "sent_at"])
                     logger.exception("[TeamShifts] Send failed for %s", recipient.email)
                     partial_send = True
 

@@ -967,9 +967,11 @@ class ShiftLocationCreateView(PluginActiveMixin, EventPermissionRequiredMixin, V
     def post(self, request, *args, **kwargs):
         form = ShiftLocationForm(request.POST)
         form.instance.event = request.event
-        if form.is_valid():
-            with scope(event=request.event):
+        with scope(event=request.event):
+            is_valid = form.is_valid()
+            if is_valid:
                 location = form.save()
+        if is_valid:
             messages.success(request, _("Location '%s' created.") % location.name)
             return redirect("plugins:teamshifts:locations", organizer=request.organizer.slug, event=request.event.slug)
         return render(request, self.template_name, {"form": form})
@@ -989,9 +991,11 @@ class ShiftLocationUpdateView(PluginActiveMixin, EventPermissionRequiredMixin, V
         with scope(event=request.event):
             location = get_object_or_404(ShiftLocation, pk=kwargs["pk"], event=request.event)
         form = ShiftLocationForm(request.POST, instance=location)
-        if form.is_valid():
-            with scope(event=request.event):
+        with scope(event=request.event):
+            is_valid = form.is_valid()
+            if is_valid:
                 form.save()
+        if is_valid:
             messages.success(request, _("Location '%s' updated.") % location.name)
             return redirect("plugins:teamshifts:locations", organizer=request.organizer.slug, event=request.event.slug)
         return render(request, self.template_name, {"form": form, "location": location})

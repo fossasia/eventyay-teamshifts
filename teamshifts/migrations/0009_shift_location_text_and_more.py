@@ -10,7 +10,12 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddField(
+        migrations.RenameField(
+            model_name="shift",
+            old_name="location",
+            new_name="location_text",
+        ),
+        migrations.AlterField(
             model_name="shift",
             name="location_text",
             field=models.CharField(blank=True, max_length=190, verbose_name="Location Text"),
@@ -59,7 +64,7 @@ class Migration(migrations.Migration):
                 "unique_together": {("event", "name")},
             },
         ),
-        migrations.AlterField(
+        migrations.AddField(
             model_name="shift",
             name="location",
             field=models.ForeignKey(

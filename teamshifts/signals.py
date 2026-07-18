@@ -107,15 +107,13 @@ def teamshifts_mail_placeholders(sender, **kwargs):
 @scopes_disabled()
 def dispatch_scheduled_emails(sender, **kwargs):
     MAIL_SEND_BATCH_SIZE = 50
-    for _ in range(MAIL_SEND_BATCH_SIZE):
-        with transaction.atomic():
-            queue = (
-                TeamShiftsEmailQueue.objects.filter(send_after__isnull=False, send_after__lte=now(), sent_at__isnull=True)
-                .select_for_update(skip_locked=True, of=("self",))
-                .order_by("pk")
-                .first()
-            )
-            if queue is None:
-                break
-            send_queued_email(queue.event_id, queue.pk)
-            logger.info("[TeamShifts] Dispatched missed scheduled email queue %s", queue.pk)
+    with transaction.atomic():
+        due = list(
+            TeamShiftsEmailQueue.objects.filter(send_after__isnull=False, send_after__lte=now(), sent_at__isnull=True)
+            .select_for_update(skip_locked=True, of=("self",))
+            .order_by("pk")
+            .values("pk", "event_id")[:MAIL_SEND_BATCH_SIZE]
+        )
+    for item in due:
+        send_queued_email.delay(item["event_id"], item["pk"])
+        logger.info("[TeamShifts] Enqueued missed scheduled email queue %s", item["pk"])

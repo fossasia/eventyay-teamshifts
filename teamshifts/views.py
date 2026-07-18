@@ -883,8 +883,16 @@ class EmailQueueEditView(PluginActiveMixin, EventPermissionRequiredMixin, View):
         form = EmailQueueEditForm(request.POST, instance=queue, event=request.event)
         if form.is_valid():
             with scope(event=request.event):
-                form.save()
-            messages.success(request, _("Email saved."))
+                queue = form.save()
+
+            if "send_after" in form.changed_data and not queue.send_after:
+                from .services.email import _dispatch
+
+                _dispatch(request.event.pk, queue.pk, eta=None)
+                messages.success(request, _("Email queued for immediate sending."))
+            else:
+                messages.success(request, _("Email saved."))
+
             return redirect(
                 "plugins:teamshifts:email_outbox",
                 organizer=request.organizer.slug,

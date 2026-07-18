@@ -1,7 +1,9 @@
 import json
+from collections import defaultdict
 
 from django.conf import settings as django_settings
 from django.contrib import messages
+from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import IntegrityError, transaction
 from django.db.models import Count, Q
 from django.http import Http404, HttpResponse, JsonResponse
@@ -33,6 +35,7 @@ from .models import (
     CallForTeamMembers,
     EmailTemplateRoles,
     Shift,
+    ShiftAssignment,
     TeamApplicationAnswer,
     TeamApplicationQuestion,
     TeamMemberApplication,
@@ -943,3 +946,24 @@ class EmailQueueSendNowView(PluginActiveMixin, EventPermissionRequiredMixin, Vie
             organizer=request.organizer.slug,
             event=event.slug,
         )
+
+
+class MyShiftsView(LoginRequiredMixin, TemplateView):
+    template_name = "teamshifts/my_shifts.html"
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        with scopes_disabled():
+            assignments = (
+                ShiftAssignment.objects.filter(team_member=self.request.user)
+                .select_related("shift", "shift__role", "shift__event")
+                .order_by("shift__start_time")
+            )
+
+        shifts_by_day = defaultdict(list)
+        for assignment in assignments:
+            day = assignment.shift.start_time.date()
+            shifts_by_day[day].append(assignment)
+
+        ctx["shifts_by_day"] = dict(shifts_by_day)
+        return ctx

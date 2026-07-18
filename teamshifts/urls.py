@@ -18,6 +18,11 @@ event_patterns = [
 
 urlpatterns = [
     path(
+        "teamshifts/my-shifts/",
+        views.MyShiftsView.as_view(),
+        name="my_shifts",
+    ),
+    path(
         "teamshifts/event/<orgslug:organizer>/<slug:event>/",
         views.TeamShiftsDashboard.as_view(),
         name="dashboard",

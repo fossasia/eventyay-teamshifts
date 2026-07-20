@@ -6,7 +6,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("teamshifts", "0009_shift_location_text_teamrole_color_and_more"),
+        ("teamshifts", "0009_shift_location_text_and_more"),
     ]
 
     operations = [

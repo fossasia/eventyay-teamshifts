@@ -44,7 +44,7 @@ class TeamMemberApplicationAdmin(admin.ModelAdmin):
 class ShiftAdmin(admin.ModelAdmin):
     list_display = ("name", "event", "location", "start_time", "end_time")
     list_filter = ("event__organizer",)
-    search_fields = ("name", "event__slug", "location")
+    search_fields = ("name", "event__slug", "location__name", "location_text")
 
 
 @admin.register(ShiftRoleAssignment)

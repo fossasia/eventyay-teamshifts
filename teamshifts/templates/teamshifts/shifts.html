@@ -24,7 +24,7 @@
             <tbody>
             {% for shift in shifts %}
                 <tr>
-                    <td>{{ shift.name }}</td>
+                    <td>{{ shift.name|default:shift }}</td>
                     <td>{{ shift.location.name }}</td>
                     <td>{{ shift.start_time|date:"SHORT_DATETIME_FORMAT" }}</td>
                     <td>{{ shift.end_time|date:"SHORT_DATETIME_FORMAT" }}</td>

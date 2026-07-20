@@ -278,7 +278,7 @@ class Shift(models.Model):
             raise ValidationError({"end_time": _("End time must be after start time.")})
 
     def __str__(self):
-        label = self.name or "Shift"
+        label = self.name or (self.location.name if getattr(self, "location_id", None) else "Shift")
         return f"{label} ({self.start_time:%Y-%m-%d %H:%M} – {self.end_time:%H:%M})"
 
     @property

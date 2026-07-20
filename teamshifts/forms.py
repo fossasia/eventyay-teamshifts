@@ -498,8 +498,8 @@ class ShiftForm(forms.ModelForm):
             "location": SafeModelChoiceField,
         }
         widgets = {
-            "start_time": forms.DateTimeInput(attrs={"type": "datetime-local", "class": "form-control"}),
-            "end_time": forms.DateTimeInput(attrs={"type": "datetime-local", "class": "form-control"}),
+            "start_time": forms.DateTimeInput(attrs={"type": "datetime-local", "class": "form-control"}, format="%Y-%m-%dT%H:%M"),
+            "end_time": forms.DateTimeInput(attrs={"type": "datetime-local", "class": "form-control"}, format="%Y-%m-%dT%H:%M"),
             "name": forms.TextInput(attrs={"class": "form-control"}),
             "location": forms.Select(attrs={"class": "form-control"}),
             "description": forms.Textarea(attrs={"class": "form-control", "rows": 3}),
@@ -507,6 +507,9 @@ class ShiftForm(forms.ModelForm):
 
     def __init__(self, *args, event=None, **kwargs):
         super().__init__(*args, **kwargs)
+        self.fields["location"].required = True
+        self.fields["start_time"].input_formats = ["%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"]
+        self.fields["end_time"].input_formats = self.fields["start_time"].input_formats
         if event is not None:
             from django_scopes import scopes_disabled
 
@@ -530,8 +533,8 @@ class ShiftForm(forms.ModelForm):
             if not shift_length:
                 self.add_error("shift_length_minutes", _("Please provide a shift length."))
             elif start_time and end_time and end_time > start_time:
-                duration_minutes = (end_time - start_time).total_seconds() / 60
-                if duration_minutes % shift_length != 0:
+                duration_seconds = int((end_time - start_time).total_seconds())
+                if duration_seconds % (shift_length * 60) != 0:
                     self.add_error("shift_length_minutes", _("The shift length must divide evenly into the total duration between start and end time."))
         return cleaned_data
 
@@ -574,6 +577,7 @@ class ShiftRoleAssignmentForm(forms.ModelForm):
 
     def __init__(self, *args, event=None, **kwargs):
         super().__init__(*args, **kwargs)
+        self.fields["capacity"].min_value = 1
         if event is not None:
             from django_scopes import scopes_disabled
 

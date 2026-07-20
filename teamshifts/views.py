@@ -1,9 +1,11 @@
 import json
+from datetime import timedelta
 
 from django.conf import settings as django_settings
 from django.contrib import messages
 from django.db import IntegrityError, transaction
 from django.db.models import Count, Q
+from django.forms import inlineformset_factory
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -16,12 +18,15 @@ from eventyay.base.templatetags.rich_text import rich_text
 from eventyay.control.permissions import EventPermissionRequiredMixin
 
 from .forms import (
+    BaseShiftRoleFormSet,
     CallForTeamMembersApplicationSettingsForm,
     CallForTeamMembersSettingsForm,
     EmailComposeForm,
     EmailQueueEditForm,
     EmailTemplateForm,
+    ShiftForm,
     ShiftLocationForm,
+    ShiftRoleAssignmentForm,
     TeamApplicationQuestionForm,
     TeamMemberApplicationForm,
     TeamRoleForm,
@@ -35,6 +40,7 @@ from .models import (
     EmailTemplateRoles,
     Shift,
     ShiftLocation,
+    ShiftRoleAssignment,
     TeamApplicationAnswer,
     TeamApplicationQuestion,
     TeamMemberApplication,
@@ -43,6 +49,8 @@ from .models import (
     TeamShiftsEmailTemplate,
     normalize_field_order,
 )
+
+ShiftRoleFormSet = inlineformset_factory(Shift, ShiftRoleAssignment, form=ShiftRoleAssignmentForm, formset=BaseShiftRoleFormSet, extra=1, can_delete=True)
 from .services.email import get_recipients, queue_email, queue_lifecycle_email
 from .tasks import send_queued_email
 
@@ -1030,16 +1038,6 @@ class ShiftLocationDeleteView(PluginActiveMixin, EventPermissionRequiredMixin, V
         return redirect("plugins:teamshifts:locations", organizer=request.organizer.slug, event=request.event.slug)
 
 
-from datetime import timedelta
-
-from django.forms import inlineformset_factory
-
-from .forms import BaseShiftRoleFormSet, ShiftForm, ShiftRoleAssignmentForm
-from .models import ShiftRoleAssignment
-
-ShiftRoleFormSet = inlineformset_factory(Shift, ShiftRoleAssignment, form=ShiftRoleAssignmentForm, formset=BaseShiftRoleFormSet, extra=1, can_delete=True)
-
-
 class ShiftListView(PluginActiveMixin, EventPermissionRequiredMixin, TemplateView):
     permission = "can_change_event_settings"
     template_name = "teamshifts/shifts.html"
@@ -1071,11 +1069,14 @@ class ShiftCreateView(PluginActiveMixin, EventPermissionRequiredMixin, TemplateV
 
     def post(self, request, *args, **kwargs):
         ctx = self.get_context_data(**kwargs)
+        if not ctx.get("has_locations"):
+            messages.error(request, _("No locations defined yet, add locations first."))
+            return redirect("plugins:teamshifts:location_create", organizer=request.event.organizer.slug, event=request.event.slug)
         form = ctx["form"]
         formset = ctx["formset"]
 
         if form.is_valid() and formset.is_valid():
-            with transaction.atomic():
+            with scope(event=request.event), transaction.atomic():
                 mode = form.cleaned_data.get("mode")
                 shifts_to_create = []
 

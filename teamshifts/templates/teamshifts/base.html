@@ -20,14 +20,14 @@
 
     <li>
         <a href="{% url 'plugins:teamshifts:roles' organizer=request.organizer.slug event=request.event.slug %}"
-           class="has-children {% if url_name == 'roles' %}active{% endif %}">
+           class="has-children {% if url_name == 'roles' or url_name == 'locations' or url_name == 'location_create' or url_name == 'location_edit' or url_name == 'location_delete' %}active{% endif %}">
             <span class="fa fa-fw fa-cogs"></span>
             <span class="sidebar-text">{% trans "Setup" %}</span>
         </a>
         <a class="arrow" href="#" data-toggle="collapse" data-target="#collapse-setup">
             <span class="fa arrow"></span>
         </a>
-        <ul class="nav nav-second-level {% if url_name == 'roles' %}in{% endif %}"
+        <ul class="nav nav-second-level {% if url_name == 'roles' or url_name == 'locations' or url_name == 'location_create' or url_name == 'location_edit' or url_name == 'location_delete' %}in{% endif %}"
             id="collapse-setup">
             <li>
                 <a href="{% url 'plugins:teamshifts:roles' organizer=request.organizer.slug event=request.event.slug %}"
@@ -36,7 +36,8 @@
                 </a>
             </li>
             <li>
-                <a href="#">
+                <a href="{% url 'plugins:teamshifts:locations' organizer=request.organizer.slug event=request.event.slug %}"
+                   {% if url_name == 'locations' or url_name == 'location_create' or url_name == 'location_edit' or url_name == 'location_delete' %}class="active"{% endif %}>
                     <span class="sidebar-text">{% trans "Locations" %}</span>
                 </a>
             </li>

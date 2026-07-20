@@ -11,6 +11,7 @@ from .models import (
     AskChoices,
     CallForTeamMembers,
     QuestionVariant,
+    ShiftLocation,
     TeamApplicationQuestion,
     TeamRole,
     TeamShiftsEmailQueue,
@@ -61,9 +62,19 @@ class TeamRoleForm(forms.ModelForm):
             "description": forms.Textarea(attrs={"class": "form-control", "rows": 3}),
         }
 
+    def clean(self):
+        cleaned_data = super().clean()
+        name = cleaned_data.get("name")
+        if name and self.instance and hasattr(self.instance, "event_id") and self.instance.event_id:
+            qs = TeamRole.objects.filter(event_id=self.instance.event_id, name=name)
+            if self.instance.pk:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                self.add_error("name", _("A role with this name already exists for this event."))
+        return cleaned_data
+
 
 class TeamApplicationQuestionForm(forms.ModelForm):
-    # Declared explicitly to avoid the scoped manager firing at class-definition time.
     role = forms.ModelChoiceField(
         queryset=TeamRole.objects.none(),
         required=False,
@@ -436,4 +447,26 @@ __all__ = [
     "EmailComposeForm",
     "EmailQueueEditForm",
     "render_answer_for_review",
+    "ShiftLocationForm",
 ]
+
+
+class ShiftLocationForm(forms.ModelForm):
+    class Meta:
+        model = ShiftLocation
+        fields = ("name", "description")
+        widgets = {
+            "name": forms.TextInput(attrs={"class": "form-control"}),
+            "description": forms.Textarea(attrs={"class": "form-control", "rows": 3}),
+        }
+
+    def clean(self):
+        cleaned_data = super().clean()
+        name = cleaned_data.get("name")
+        if name and self.instance and hasattr(self.instance, "event_id") and self.instance.event_id:
+            qs = ShiftLocation.objects.filter(event_id=self.instance.event_id, name=name)
+            if self.instance.pk:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                self.add_error("name", _("A location with this name already exists for this event."))
+        return cleaned_data

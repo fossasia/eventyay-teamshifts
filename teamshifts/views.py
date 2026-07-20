@@ -21,6 +21,7 @@ from .forms import (
     EmailComposeForm,
     EmailQueueEditForm,
     EmailTemplateForm,
+    ShiftLocationForm,
     TeamApplicationQuestionForm,
     TeamMemberApplicationForm,
     TeamRoleForm,
@@ -33,6 +34,7 @@ from .models import (
     CallForTeamMembers,
     EmailTemplateRoles,
     Shift,
+    ShiftLocation,
     TeamApplicationAnswer,
     TeamApplicationQuestion,
     TeamMemberApplication,
@@ -943,3 +945,78 @@ class EmailQueueSendNowView(PluginActiveMixin, EventPermissionRequiredMixin, Vie
             organizer=request.organizer.slug,
             event=event.slug,
         )
+
+
+class ShiftLocationListView(PluginActiveMixin, EventPermissionRequiredMixin, View):
+    permission = "can_change_event_settings"
+    template_name = "teamshifts/locations.html"
+
+    def get(self, request, *args, **kwargs):
+        with scope(event=request.event):
+            locations = list(ShiftLocation.objects.filter(event=request.event))
+        return render(request, self.template_name, {"locations": locations})
+
+
+class ShiftLocationCreateView(PluginActiveMixin, EventPermissionRequiredMixin, View):
+    permission = "can_change_event_settings"
+    template_name = "teamshifts/location_edit.html"
+
+    def get(self, request, *args, **kwargs):
+        return render(request, self.template_name, {"form": ShiftLocationForm()})
+
+    def post(self, request, *args, **kwargs):
+        form = ShiftLocationForm(request.POST)
+        form.instance.event = request.event
+        with scope(event=request.event):
+            is_valid = form.is_valid()
+            if is_valid:
+                location = form.save()
+        if is_valid:
+            messages.success(request, _("Location '%s' created.") % location.name)
+            return redirect("plugins:teamshifts:locations", organizer=request.organizer.slug, event=request.event.slug)
+        return render(request, self.template_name, {"form": form})
+
+
+class ShiftLocationUpdateView(PluginActiveMixin, EventPermissionRequiredMixin, View):
+    permission = "can_change_event_settings"
+    template_name = "teamshifts/location_edit.html"
+
+    def get(self, request, *args, **kwargs):
+        with scope(event=request.event):
+            location = get_object_or_404(ShiftLocation, pk=kwargs["pk"], event=request.event)
+        form = ShiftLocationForm(instance=location)
+        return render(request, self.template_name, {"form": form, "location": location})
+
+    def post(self, request, *args, **kwargs):
+        with scope(event=request.event):
+            location = get_object_or_404(ShiftLocation, pk=kwargs["pk"], event=request.event)
+        form = ShiftLocationForm(request.POST, instance=location)
+        with scope(event=request.event):
+            is_valid = form.is_valid()
+            if is_valid:
+                form.save()
+        if is_valid:
+            messages.success(request, _("Location '%s' updated.") % location.name)
+            return redirect("plugins:teamshifts:locations", organizer=request.organizer.slug, event=request.event.slug)
+        return render(request, self.template_name, {"form": form, "location": location})
+
+
+class ShiftLocationDeleteView(PluginActiveMixin, EventPermissionRequiredMixin, View):
+    permission = "can_change_event_settings"
+    template_name = "teamshifts/location_delete.html"
+
+    def get(self, request, *args, **kwargs):
+        with scope(event=request.event):
+            location = get_object_or_404(ShiftLocation, pk=kwargs["pk"], event=request.event)
+        return render(request, self.template_name, {"location": location})
+
+    def post(self, request, *args, **kwargs):
+        with scope(event=request.event):
+            location = get_object_or_404(ShiftLocation, pk=kwargs["pk"], event=request.event)
+            if location.shifts.exists():
+                messages.error(request, _("Cannot delete '%s': it is used by existing shifts.") % location.name)
+            else:
+                name = location.name
+                location.delete()
+                messages.success(request, _("Location '%s' deleted.") % name)
+        return redirect("plugins:teamshifts:locations", organizer=request.organizer.slug, event=request.event.slug)

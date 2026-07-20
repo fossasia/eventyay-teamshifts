@@ -1,0 +1,57 @@
+{% extends "teamshifts/base.html" %}
+{% load i18n %}
+{% load bootstrap3 %}
+
+{% block title %}
+    {% if location %}
+        {% trans "Edit Location" %}
+    {% else %}
+        {% trans "Add Location" %}
+    {% endif %}
+{% endblock %}
+
+{% block content %}
+    <nav id='event-nav' class='header-nav'>
+        <div class='navigation'>
+            <div class='navigation-title'>
+                <h1>
+                    {% if location %}
+                        {% trans "Edit Location" %}
+                    {% else %}
+                        {% trans "Add Location" %}
+                    {% endif %}
+                </h1>
+            </div>
+            <div class='navigation-action'>
+                <a href='{% url "plugins:teamshifts:locations" organizer=request.organizer.slug event=request.event.slug %}' class='btn btn-default'>
+                    {% trans "Back" %}
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <div class='panel panel-default'>
+        <div class='panel-heading'>
+            <h3 class='panel-title'>
+                {% if location %}
+                    {% trans "Edit location details" %}
+                {% else %}
+                    {% trans "Location details" %}
+                {% endif %}
+            </h3>
+        </div>
+        <div class='panel-body'>
+            <form action='' method='post' class='form-horizontal'>
+                {% csrf_token %}
+                {% bootstrap_form_errors form %}
+                {% bootstrap_field form.name layout="control" %}
+                {% bootstrap_field form.description layout="control" %}
+                <div class='form-group submit-group'>
+                    <button type='submit' class='btn btn-primary btn-save'>
+                        {% trans "Save" %}
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+{% endblock %}

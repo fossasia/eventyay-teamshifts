@@ -163,13 +163,34 @@ class TeamRole(models.Model):
     )
     name = models.CharField(max_length=190, verbose_name=_("Role Name"))
     description = models.TextField(blank=True, verbose_name=_("Description"))
-
     objects = ScopedManager(event="event")
 
     class Meta:
         verbose_name = _("Team Role")
         verbose_name_plural = _("Team Roles")
         unique_together = ("event", "name")
+
+    def __str__(self):
+        return f"{self.name} ({self.event.slug})"
+
+
+class ShiftLocation(models.Model):
+    event = models.ForeignKey(
+        "base.Event",
+        on_delete=models.CASCADE,
+        related_name="shift_locations",
+    )
+    name = models.CharField(max_length=190, verbose_name=_("Location Name"))
+    description = models.TextField(blank=True, verbose_name=_("Description"))
+    position = models.IntegerField(default=0)
+
+    objects = ScopedManager(event="event")
+
+    class Meta:
+        verbose_name = _("Shift Location")
+        verbose_name_plural = _("Shift Locations")
+        unique_together = ("event", "name")
+        ordering = ["position", "name"]
 
     def __str__(self):
         return f"{self.name} ({self.event.slug})"
@@ -244,7 +265,8 @@ class Shift(models.Model):
         related_name="shifts",
     )
     name = models.CharField(max_length=190, blank=True, verbose_name=_("Shift Name"))
-    location = models.CharField(max_length=190, blank=True, verbose_name=_("Location"))
+    location_text = models.CharField(max_length=190, blank=True, verbose_name=_("Location Text"))
+    location = models.ForeignKey(ShiftLocation, on_delete=models.SET_NULL, null=True, blank=True, related_name="shifts", verbose_name=_("Location"))
     start_time = models.DateTimeField(verbose_name=_("Start Time"))
     end_time = models.DateTimeField(verbose_name=_("End Time"))
     capacity = models.PositiveIntegerField(default=1, verbose_name=_("Capacity"))

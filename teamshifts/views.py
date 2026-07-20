@@ -1060,11 +1060,11 @@ class ShiftCreateView(PluginActiveMixin, EventPermissionRequiredMixin, TemplateV
             ctx["has_locations"] = kwargs.get("has_locations", ShiftLocation.objects.filter(event=self.request.event).exists())
 
         ctx["form"] = kwargs.get("form") or (
-            ShiftForm(self.request.POST, event=self.request.event) if self.request.method == "POST" 
-            else ShiftForm(event=self.request.event)
+            ShiftForm(self.request.POST, event=self.request.event) if self.request.method == "POST" else ShiftForm(event=self.request.event)
         )
         ctx["formset"] = kwargs.get("formset") or (
-            ShiftRoleFormSet(self.request.POST, prefix="roles", form_kwargs={"event": self.request.event}) if self.request.method == "POST"
+            ShiftRoleFormSet(self.request.POST, prefix="roles", form_kwargs={"event": self.request.event})
+            if self.request.method == "POST"
             else ShiftRoleFormSet(prefix="roles", form_kwargs={"event": self.request.event})
         )
         return ctx
@@ -1072,11 +1072,11 @@ class ShiftCreateView(PluginActiveMixin, EventPermissionRequiredMixin, TemplateV
     def post(self, request, *args, **kwargs):
         with scope(event=self.request.event):
             has_locations = ShiftLocation.objects.filter(event=self.request.event).exists()
-        
+
         if not has_locations:
             messages.error(request, _("No locations defined yet, add locations first."))
             return redirect("plugins:teamshifts:location_create", organizer=request.event.organizer.slug, event=request.event.slug)
-        
+
         form = ShiftForm(self.request.POST, event=self.request.event)
         formset = ShiftRoleFormSet(self.request.POST, prefix="roles", form_kwargs={"event": self.request.event})
 

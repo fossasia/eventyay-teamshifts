@@ -184,8 +184,10 @@ def test_dispatch_uses_delay_when_no_eta(event, accepted_user):
 @pytest.mark.django_db
 def test_dispatch_scheduled_emails_enqueues_due_queues(event):
     """Periodic handler must call send_queued_email.delay() for each due queue."""
+    from django.core.cache import cache
     from teamshifts.signals import dispatch_scheduled_emails
 
+    cache.clear()
     past = now() - datetime.timedelta(minutes=5)
     with scope(event=event):
         q1 = TeamShiftsEmailQueue.objects.create(event=event, subject="s1", message="m", locale="en", send_after=past)

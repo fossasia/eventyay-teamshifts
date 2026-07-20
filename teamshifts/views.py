@@ -1057,23 +1057,28 @@ class ShiftCreateView(PluginActiveMixin, EventPermissionRequiredMixin, TemplateV
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         with scope(event=self.request.event):
-            ctx["has_locations"] = ShiftLocation.objects.filter(event=self.request.event).exists()
+            ctx["has_locations"] = kwargs.get("has_locations", ShiftLocation.objects.filter(event=self.request.event).exists())
 
-        if self.request.method == "POST":
-            ctx["form"] = ShiftForm(self.request.POST, event=self.request.event)
-            ctx["formset"] = ShiftRoleFormSet(self.request.POST, prefix="roles", form_kwargs={"event": self.request.event})
-        else:
-            ctx["form"] = ShiftForm(event=self.request.event)
-            ctx["formset"] = ShiftRoleFormSet(prefix="roles", form_kwargs={"event": self.request.event})
+        ctx["form"] = kwargs.get("form") or (
+            ShiftForm(self.request.POST, event=self.request.event) if self.request.method == "POST" 
+            else ShiftForm(event=self.request.event)
+        )
+        ctx["formset"] = kwargs.get("formset") or (
+            ShiftRoleFormSet(self.request.POST, prefix="roles", form_kwargs={"event": self.request.event}) if self.request.method == "POST"
+            else ShiftRoleFormSet(prefix="roles", form_kwargs={"event": self.request.event})
+        )
         return ctx
 
     def post(self, request, *args, **kwargs):
-        ctx = self.get_context_data(**kwargs)
-        if not ctx.get("has_locations"):
+        with scope(event=self.request.event):
+            has_locations = ShiftLocation.objects.filter(event=self.request.event).exists()
+        
+        if not has_locations:
             messages.error(request, _("No locations defined yet, add locations first."))
             return redirect("plugins:teamshifts:location_create", organizer=request.event.organizer.slug, event=request.event.slug)
-        form = ctx["form"]
-        formset = ctx["formset"]
+        
+        form = ShiftForm(self.request.POST, event=self.request.event)
+        formset = ShiftRoleFormSet(self.request.POST, prefix="roles", form_kwargs={"event": self.request.event})
 
         if form.is_valid() and formset.is_valid():
             with scope(event=request.event), transaction.atomic():
@@ -1127,4 +1132,5 @@ class ShiftCreateView(PluginActiveMixin, EventPermissionRequiredMixin, TemplateV
                     event=request.event.slug,
                 )
 
+        ctx = self.get_context_data(form=form, formset=formset, has_locations=has_locations)
         return self.render_to_response(ctx)

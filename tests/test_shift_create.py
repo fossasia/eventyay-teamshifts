@@ -140,16 +140,17 @@ def test_shift_create_missing_role(orga_client, event, location, team_role):
         "start_time": start.strftime("%Y-%m-%dT%H:%M"),
         "end_time": end.strftime("%Y-%m-%dT%H:%M"),
         "shift_length_minutes": "",
-        "roles-TOTAL_FORMS": "1",
+        "roles-TOTAL_FORMS": "0",
         "roles-INITIAL_FORMS": "0",
         "roles-MIN_NUM_FORMS": "0",
         "roles-MAX_NUM_FORMS": "1000",
-        "roles-0-role": "",
-        "roles-0-capacity": "2",
     }
 
     response = orga_client.post(url, data)
     assert response.status_code == 200
+    if b"At least one role must be added to the shift" not in response.content:
+        print("FORMSET ERRORS:", response.context_data["formset"].errors)
+        print("FORMSET NON-FORM ERRORS:", response.context_data["formset"].non_form_errors())
     assert b"At least one role must be added to the shift" in response.content
 
     with scope(event=event):

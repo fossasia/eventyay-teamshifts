@@ -66,8 +66,8 @@ testpaths = ["tests"]
 EVY_RUNNING_ENVIRONMENT = "testing"
 EVY_POSTGRES_HOST = "localhost"
 EVY_POSTGRES_PORT = "5432"
-EVY_POSTGRES_USER = "postgres"
-EVY_POSTGRES_PASSWORD = "postgres"
+EVY_POSTGRES_USER = "eventyay"
+EVY_POSTGRES_PASSWORD = "eventyay_devpassword"
 EVY_POSTGRES_DB = "eventyay-db"
 
 [tool.ruff]

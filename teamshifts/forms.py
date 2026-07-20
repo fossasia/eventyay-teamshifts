@@ -562,6 +562,12 @@ class BaseShiftRoleFormSet(forms.BaseInlineFormSet):
 
 
 class ShiftRoleAssignmentForm(forms.ModelForm):
+    capacity = forms.IntegerField(
+        min_value=1,
+        widget=forms.NumberInput(attrs={"class": "form-control", "min": "1"}),
+        label=_("Capacity"),
+    )
+
     class Meta:
         from .models import ShiftRoleAssignment
 
@@ -572,7 +578,6 @@ class ShiftRoleAssignmentForm(forms.ModelForm):
         }
         widgets = {
             "role": forms.Select(attrs={"class": "form-control"}),
-            "capacity": forms.NumberInput(attrs={"class": "form-control", "min": "1"}),
         }
 
     def __init__(self, *args, event=None, **kwargs):

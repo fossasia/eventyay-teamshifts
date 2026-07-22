@@ -11,7 +11,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.formats import date_format
 from django.utils.translation import gettext_lazy as _, ngettext
-from django.views.generic import FormView, TemplateView, View
+from django.views.generic import DeleteView, FormView, TemplateView, View
 from django_scopes import scope, scopes_disabled
 from eventyay.base.i18n import LazyI18nString
 from eventyay.base.templatetags.rich_text import rich_text
@@ -1136,3 +1136,73 @@ class ShiftCreateView(PluginActiveMixin, EventPermissionRequiredMixin, TemplateV
 
         ctx = self.get_context_data(form=form, formset=formset, has_locations=has_locations)
         return self.render_to_response(ctx)
+
+
+class ShiftUpdateView(PluginActiveMixin, EventPermissionRequiredMixin, TemplateView):
+    permission = "can_change_event_settings"
+    template_name = "teamshifts/shift_edit.html"
+
+    def dispatch(self, request, *args, **kwargs):
+        self.shift = get_object_or_404(Shift, pk=kwargs.get("pk"), event=request.event)
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        with scope(event=self.request.event):
+            ctx["has_locations"] = kwargs.get("has_locations", ShiftLocation.objects.filter(event=self.request.event).exists())
+
+        ctx["form"] = kwargs.get("form") or (
+            ShiftForm(self.request.POST, event=self.request.event, instance=self.shift)
+            if self.request.method == "POST"
+            else ShiftForm(event=self.request.event, instance=self.shift)
+        )
+        ctx["formset"] = kwargs.get("formset") or (
+            ShiftRoleFormSet(self.request.POST, prefix="roles", instance=self.shift, form_kwargs={"event": self.request.event})
+            if self.request.method == "POST"
+            else ShiftRoleFormSet(prefix="roles", instance=self.shift, form_kwargs={"event": self.request.event})
+        )
+        return ctx
+
+    def post(self, request, *args, **kwargs):
+        with scope(event=self.request.event):
+            has_locations = ShiftLocation.objects.filter(event=self.request.event).exists()
+
+        if not has_locations:
+            messages.error(request, _("No locations defined yet, add locations first."))
+            return redirect("plugins:teamshifts:location_create", organizer=request.event.organizer.slug, event=request.event.slug)
+
+        form = ShiftForm(self.request.POST, event=self.request.event, instance=self.shift)
+        formset = ShiftRoleFormSet(self.request.POST, prefix="roles", instance=self.shift, form_kwargs={"event": self.request.event})
+
+        if form.is_valid() and formset.is_valid():
+            with scope(event=request.event), transaction.atomic():
+                form.save()
+                formset.save()
+                messages.success(request, _("Shift updated successfully."))
+                return redirect("plugins:teamshifts:shift_edit", organizer=request.event.organizer.slug, event=request.event.slug, pk=self.shift.pk)
+        else:
+            messages.error(request, _("We could not save your changes. See below for details."))
+            return self.get(request, form=form, formset=formset, has_locations=has_locations)
+
+
+class ShiftDeleteView(PluginActiveMixin, EventPermissionRequiredMixin, DeleteView):
+    model = Shift
+    permission = "can_change_event_settings"
+    template_name = "teamshifts/shift_delete.html"
+    context_object_name = "shift"
+
+    def get_object(self, queryset=None):
+        return get_object_or_404(Shift, pk=self.kwargs.get("pk"), event=self.request.event)
+
+    def get_success_url(self):
+        return reverse(
+            "plugins:teamshifts:shifts",
+            kwargs={
+                "organizer": self.request.event.organizer.slug,
+                "event": self.request.event.slug,
+            },
+        )
+
+    def delete(self, request, *args, **kwargs):
+        messages.success(request, _("The shift has been deleted."))
+        return super().delete(request, *args, **kwargs)

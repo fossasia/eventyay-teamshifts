@@ -19,19 +19,28 @@
                 <th>{% trans "Location" %}</th>
                 <th>{% trans "Start" %}</th>
                 <th>{% trans "End" %}</th>
+                <th class="text-right">{% trans "Actions" %}</th>
             </tr>
             </thead>
             <tbody>
             {% for shift in shifts %}
                 <tr>
-                    <td>{{ shift.name|default:shift }}</td>
+                    <td>{{ shift.name|default:"-" }}</td>
                     <td>{{ shift.location.name }}</td>
                     <td>{{ shift.start_time|date:"SHORT_DATETIME_FORMAT" }}</td>
                     <td>{{ shift.end_time|date:"SHORT_DATETIME_FORMAT" }}</td>
+                    <td class="text-right">
+                        <a href="{% url 'plugins:teamshifts:shift_edit' organizer=request.event.organizer.slug event=request.event.slug pk=shift.pk %}" class="btn btn-default btn-sm" data-toggle="tooltip" title="{% trans 'Edit' %}">
+                            <i class="fa fa-edit"></i>
+                        </a>
+                        <a href="{% url 'plugins:teamshifts:shift_delete' organizer=request.event.organizer.slug event=request.event.slug pk=shift.pk %}" class="btn btn-danger btn-sm" data-toggle="tooltip" title="{% trans 'Delete' %}">
+                            <i class="fa fa-trash"></i>
+                        </a>
+                    </td>
                 </tr>
             {% empty %}
                 <tr>
-                    <td colspan="4" class="text-center">{% trans "No shifts created yet." %}</td>
+                    <td colspan="5" class="text-center">{% trans "No shifts created yet." %}</td>
                 </tr>
             {% endfor %}
             </tbody>

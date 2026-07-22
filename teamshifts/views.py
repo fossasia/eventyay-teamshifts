@@ -2,19 +2,26 @@ import json
 
 from django.conf import settings as django_settings
 from django.contrib import messages
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.db.models import Count, Q
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
-from django.utils.translation import gettext_lazy as _
+from django.utils.formats import date_format
+from django.utils.translation import gettext_lazy as _, ngettext
 from django.views.generic import FormView, TemplateView, View
-from django_scopes import scope
+from django_scopes import scope, scopes_disabled
+from eventyay.base.i18n import LazyI18nString
 from eventyay.base.templatetags.rich_text import rich_text
+from eventyay.control.permissions import EventPermissionRequiredMixin
 
 from .forms import (
     CallForTeamMembersApplicationSettingsForm,
     CallForTeamMembersSettingsForm,
+    EmailComposeForm,
+    EmailQueueEditForm,
+    EmailTemplateForm,
+    ShiftLocationForm,
     TeamApplicationQuestionForm,
     TeamMemberApplicationForm,
     TeamRoleForm,
@@ -25,14 +32,19 @@ from .models import (
     CFM_LOCKED_FIELDS,
     ApplicationStatus,
     CallForTeamMembers,
+    EmailTemplateRoles,
     Shift,
+    ShiftLocation,
     TeamApplicationAnswer,
     TeamApplicationQuestion,
     TeamMemberApplication,
     TeamRole,
+    TeamShiftsEmailQueue,
+    TeamShiftsEmailTemplate,
     normalize_field_order,
 )
-from .permissions import TeamShiftsPermissionRequiredMixin
+from .services.email import get_recipients, queue_email, queue_lifecycle_email
+from .tasks import send_queued_email
 
 
 class PluginActiveMixin:
@@ -42,8 +54,8 @@ class PluginActiveMixin:
         return super().dispatch(request, *args, **kwargs)
 
 
-class TeamShiftsDashboard(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, TemplateView):
-    permission = None
+class TeamShiftsDashboard(PluginActiveMixin, EventPermissionRequiredMixin, TemplateView):
+    permission = "can_change_event_settings"
     template_name = "teamshifts/dashboard.html"
 
     def get_context_data(self, **kwargs):
@@ -65,7 +77,7 @@ class TeamShiftsDashboard(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, 
         return ctx
 
 
-class CFMSettingsView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):
+class CFMSettingsView(PluginActiveMixin, EventPermissionRequiredMixin, View):
     permission = "can_change_event_settings"
     template_name = "teamshifts/cfm_settings.html"
 
@@ -105,7 +117,7 @@ class CFMSettingsView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View
         return render(request, self.template_name, {"form": form, "cfm": cfm, "description_previews": description_previews})
 
 
-class CFMApplicationFormView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):
+class CFMApplicationFormView(PluginActiveMixin, EventPermissionRequiredMixin, View):
     permission = "can_change_event_settings"
     template_name = "teamshifts/cfm_application_form.html"
 
@@ -190,7 +202,7 @@ class CFMApplicationFormView(PluginActiveMixin, TeamShiftsPermissionRequiredMixi
         return render(request, self.template_name, self._ctx(cfm, form, questions))
 
 
-class CFMDescriptionPreviewView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):
+class CFMDescriptionPreviewView(PluginActiveMixin, EventPermissionRequiredMixin, View):
     """Render draft description text with the same Markdown conversion as the public call page."""
 
     permission = "can_change_event_settings"
@@ -211,8 +223,8 @@ class CFMDescriptionPreviewView(PluginActiveMixin, TeamShiftsPermissionRequiredM
         return JsonResponse({"msgs": msgs})
 
 
-class TeamRoleListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):
-    permission = "can_teamshifts_create_roles"
+class TeamRoleListView(PluginActiveMixin, EventPermissionRequiredMixin, View):
+    permission = "can_change_event_settings"
     template_name = "teamshifts/roles.html"
 
     def get(self, request, *args, **kwargs):
@@ -234,8 +246,8 @@ class TeamRoleListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Vie
         return render(request, self.template_name, {"roles": roles, "form": form})
 
 
-class TeamRoleDeleteView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):
-    permission = "can_teamshifts_create_roles"
+class TeamRoleDeleteView(PluginActiveMixin, EventPermissionRequiredMixin, View):
+    permission = "can_change_event_settings"
 
     def post(self, request, *args, **kwargs):
         event = request.event
@@ -252,7 +264,83 @@ class TeamRoleDeleteView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, V
         return redirect("plugins:teamshifts:roles", organizer=request.organizer.slug, event=event.slug)
 
 
-class QuestionEditView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):
+class EmailTemplateListView(PluginActiveMixin, EventPermissionRequiredMixin, View):
+    permission = "can_change_event_settings"
+    template_name = "teamshifts/email_templates.html"
+
+    def get(self, request, *args, **kwargs):
+        event = request.event
+        with scope(event=event):
+            existing = {t.role: t for t in TeamShiftsEmailTemplate.objects.filter(event=event)}
+        from .mail.default_templates import get_default_template
+
+        rows = []
+        for role in EmailTemplateRoles.values:
+            template = existing.get(role)
+            default_subject, _ = get_default_template(role)
+            rows.append(
+                {
+                    "role": role,
+                    "label": EmailTemplateRoles(role).label,
+                    "subject": template.subject if template else default_subject,
+                    "is_customised": template is not None,
+                }
+            )
+        return render(request, self.template_name, {"rows": rows})
+
+
+class EmailTemplateEditView(PluginActiveMixin, EventPermissionRequiredMixin, View):
+    permission = "can_change_event_settings"
+    template_name = "teamshifts/email_template_edit.html"
+
+    def _get_or_seed(self, request, role):
+        if role not in EmailTemplateRoles.values:
+            raise Http404
+        with scope(event=request.event):
+            try:
+                cfm = request.event.call_for_team_members
+            except CallForTeamMembers.DoesNotExist:
+                raise Http404 from None
+            template = cfm.get_mail_template(role)
+        return template
+
+    def get(self, request, *args, **kwargs):
+        template = self._get_or_seed(request, kwargs["role"])
+        form = EmailTemplateForm(instance=template, locales=request.event.settings.locales)
+        return render(
+            request,
+            self.template_name,
+            {
+                "form": form,
+                "template": template,
+                "role_label": EmailTemplateRoles(template.role).label,
+            },
+        )
+
+    def post(self, request, *args, **kwargs):
+        template = self._get_or_seed(request, kwargs["role"])
+        form = EmailTemplateForm(request.POST, instance=template, locales=request.event.settings.locales)
+        if form.is_valid():
+            with scope(event=request.event):
+                form.save()
+            messages.success(request, _("Template saved."))
+            return redirect(
+                "plugins:teamshifts:email_templates",
+                organizer=request.organizer.slug,
+                event=request.event.slug,
+            )
+        return render(
+            request,
+            self.template_name,
+            {
+                "form": form,
+                "template": template,
+                "role_label": EmailTemplateRoles(template.role).label,
+            },
+        )
+
+
+class QuestionEditView(PluginActiveMixin, EventPermissionRequiredMixin, View):
     permission = "can_change_event_settings"
     template_name = "teamshifts/question_edit.html"
 
@@ -291,7 +379,7 @@ class QuestionEditView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Vie
         return render(request, self.template_name, {"form": form, "question": instance})
 
 
-class QuestionDeleteView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):
+class QuestionDeleteView(PluginActiveMixin, EventPermissionRequiredMixin, View):
     permission = "can_change_event_settings"
 
     def post(self, request, *args, **kwargs):
@@ -311,7 +399,7 @@ class QuestionDeleteView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, V
         return redirect("plugins:teamshifts:cfm_settings", organizer=request.organizer.slug, event=event.slug)
 
 
-class QuestionReorderView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):
+class QuestionReorderView(PluginActiveMixin, EventPermissionRequiredMixin, View):
     permission = "can_change_event_settings"
 
     def post(self, request, *args, **kwargs):
@@ -345,7 +433,7 @@ class QuestionReorderView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, 
         return HttpResponse(status=204)
 
 
-class QuestionToggleView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):
+class QuestionToggleView(PluginActiveMixin, EventPermissionRequiredMixin, View):
     permission = "can_change_event_settings"
 
     def post(self, request, *args, **kwargs):
@@ -375,8 +463,8 @@ class QuestionToggleView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, V
         return JsonResponse({"success": True, "field": field, "value": value})
 
 
-class ApplicationListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, TemplateView):
-    permission = "can_teamshifts_manage_applicants"
+class ApplicationListView(PluginActiveMixin, EventPermissionRequiredMixin, TemplateView):
+    permission = "can_change_event_settings"
     template_name = "teamshifts/applications.html"
 
     def get_context_data(self, **kwargs):
@@ -397,11 +485,64 @@ class ApplicationListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, 
             if search:
                 qs = qs.filter(Q(user__email__icontains=search) | Q(user__fullname__icontains=search))
 
+            try:
+                cfm = event.call_for_team_members
+                field_order = normalize_field_order(list(cfm.field_order))
+            except CallForTeamMembers.DoesNotExist:
+                cfm = None
+                field_order = list(CFM_BUILTIN_FIELD_KEYS)
+
+            custom_questions = {str(q.pk): q.question for q in TeamApplicationQuestion.objects.filter(event=event, active=True)}
+
+            active_keys = []
+            for k in field_order:
+                if k == "role":
+                    continue
+                if k in CFM_BUILTIN_FIELD_KEYS:
+                    if cfm and getattr(cfm, f"ask_{k}", "optional") == "do_not_ask":
+                        continue
+                    active_keys.append(k)
+                elif str(k) in custom_questions:
+                    active_keys.append(k)
+
+            dynamic_keys = active_keys[:4]
+            columns = []
+
+            for raw_key in dynamic_keys:
+                key = str(raw_key)
+                if key == "full_name":
+                    columns.append({"key": key, "label": _("Name")})
+                elif key == "email":
+                    columns.append({"key": key, "label": _("Email")})
+                elif key == "phone":
+                    columns.append({"key": key, "label": _("Phone")})
+                elif key == "availability":
+                    columns.append({"key": key, "label": _("Availability")})
+                elif key in custom_questions:
+                    columns.append({"key": key, "label": custom_questions[key]})
+
             applications = list(qs)
             for app in applications:
-                app.rendered_answers = [{"question": a.question, "value": render_answer_for_review(a.question, a.answer)} for a in app.answers.all()]
+                app_dynamic_values = []
+                answers_dict = {str(a.question_id): render_answer_for_review(a.question, a.answer) for a in app.answers.all()}
+
+                for col in columns:
+                    key = col["key"]
+                    if key == "full_name":
+                        app_dynamic_values.append(app.user.fullname)
+                    elif key == "email":
+                        app_dynamic_values.append(app.user.email)
+                    elif key == "phone":
+                        app_dynamic_values.append(app.phone)
+                    elif key == "availability":
+                        app_dynamic_values.append(app.availability_notes)
+                    else:
+                        app_dynamic_values.append(answers_dict.get(key, ""))
+
+                app.dynamic_values = app_dynamic_values
 
             ctx["applications"] = applications
+            ctx["columns"] = columns
             ctx["roles"] = list(TeamRole.objects.filter(event=event))
             ctx["status_choices"] = ApplicationStatus.choices
             ctx["current_status"] = status_filter
@@ -410,8 +551,8 @@ class ApplicationListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, 
         return ctx
 
 
-class ApplicationStatusView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):
-    permission = "can_teamshifts_manage_applicants"
+class ApplicationStatusView(PluginActiveMixin, EventPermissionRequiredMixin, View):
+    permission = "can_change_event_settings"
 
     def post(self, request, *args, **kwargs):
         event = request.event
@@ -426,13 +567,33 @@ class ApplicationStatusView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin
                 application.status = ApplicationStatus.ACCEPTED
                 application.save(update_fields=["status", "updated_at"])
                 messages.success(request, _("Application by %s accepted.") % application.user.email)
+                transaction.on_commit(lambda app=application: queue_lifecycle_email(app, EmailTemplateRoles.APPLICATION_ACCEPTED))
             elif action == "reject":
                 application.status = ApplicationStatus.REJECTED
                 application.save(update_fields=["status", "updated_at"])
                 messages.warning(request, _("Application by %s rejected.") % application.user.email)
+                transaction.on_commit(lambda app=application: queue_lifecycle_email(app, EmailTemplateRoles.APPLICATION_REJECTED))
             else:
                 raise Http404
-        return redirect("plugins:teamshifts:applications", organizer=request.organizer.slug, event=event.slug)
+        return redirect(reverse("plugins:teamshifts:applications", kwargs={"organizer": event.organizer.slug, "event": event.slug}))
+
+
+class ApplicationDetailView(PluginActiveMixin, EventPermissionRequiredMixin, TemplateView):
+    permission = "can_change_event_settings"
+    template_name = "teamshifts/application_detail.html"
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        event = self.request.event
+        with scope(event=event):
+            app = get_object_or_404(
+                TeamMemberApplication.objects.select_related("user", "role").prefetch_related("answers__question"),
+                pk=kwargs["pk"],
+                event=event,
+            )
+            app.rendered_answers = [{"question": a.question, "value": render_answer_for_review(a.question, a.answer)} for a in app.answers.all()]
+            ctx["application"] = app
+        return ctx
 
 
 class PublicApplyView(FormView):
@@ -501,6 +662,7 @@ class PublicApplyView(FormView):
         if full_name and full_name != self.request.user.fullname:
             self.request.user.fullname = full_name
             self.request.user.save(update_fields=["fullname"])
+        transaction.on_commit(lambda app=application: queue_lifecycle_email(app, EmailTemplateRoles.APPLICATION_RECEIVED))
         messages.success(self.request, _("Your application for '%s' has been submitted.") % role.name)
         return redirect(
             reverse(
@@ -526,3 +688,343 @@ class PublicApplyThanksView(TemplateView):
         ctx = super().get_context_data(**kwargs)
         ctx["event"] = self.event
         return ctx
+
+
+class EmailComposeView(PluginActiveMixin, EventPermissionRequiredMixin, FormView):
+    permission = "can_change_event_settings"
+    template_name = "teamshifts/emails/compose.html"
+    form_class = EmailComposeForm
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["event"] = self.request.event
+        return kwargs
+
+    def get_initial(self):
+        initial = super().get_initial()
+        copy_pk = self.request.GET.get("copy")
+        if copy_pk and copy_pk.isdigit():
+            with scope(event=self.request.event):
+                try:
+                    source = TeamShiftsEmailQueue.objects.get(pk=int(copy_pk), event=self.request.event)
+                except TeamShiftsEmailQueue.DoesNotExist:
+                    return initial
+            initial["subject"] = source.subject
+            initial["message"] = source.message
+            initial["role"] = source.role_filter_id or None
+            initial["status"] = source.status_filter or ""
+        return initial
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["preview_recipients"] = getattr(self, "_preview_recipients", None)
+        return ctx
+
+    def form_invalid(self, form):
+        messages.error(self.request, _("Please correct the errors below."))
+        return super().form_invalid(form)
+
+    def post(self, request, *args, **kwargs):
+        if request.POST.get("action") == "preview":
+            event = request.event
+            role_id = request.POST.get("role") or None
+            status = request.POST.get("status") or ""
+            role = None
+            if role_id:
+                with scopes_disabled():
+                    role = TeamRole.objects.filter(pk=role_id, event=event).first()
+            recipients = get_recipients(event, role=role, status=status)
+            self._preview_recipients = recipients
+            locales = list(event.settings.get("locales") or [event.settings.locale])
+            subject_i18n = LazyI18nString({locales[i]: request.POST.get(f"subject_{i}", "") for i in range(len(locales))})
+            message_i18n = LazyI18nString({locales[i]: request.POST.get(f"message_{i}", "") for i in range(len(locales))})
+            form = EmailComposeForm(
+                event=event,
+                initial={
+                    "role": role,
+                    "status": status,
+                    "subject": subject_i18n,
+                    "message": message_i18n,
+                    "send_after": request.POST.get("send_after", ""),
+                },
+            )
+            return self.render_to_response(self.get_context_data(form=form))
+        return super().post(request, *args, **kwargs)
+
+    def form_valid(self, form):
+        event = self.request.event
+        role = form.cleaned_data.get("role")
+        status = form.cleaned_data.get("status") or ""
+        send_after = form.cleaned_data.get("send_after")
+
+        recipients = get_recipients(event, role=role, status=status)
+
+        action = self.request.POST.get("action")
+        if action == "preview":
+            self._preview_recipients = recipients
+            return self.render_to_response(self.get_context_data(form=form))
+
+        if not recipients:
+            messages.error(self.request, _("No recipients match the selected filters."))
+            return self.render_to_response(self.get_context_data(form=form))
+
+        queue_email(
+            event=event,
+            subject=form.cleaned_data["subject"],
+            message=form.cleaned_data["message"],
+            recipients=recipients,
+            user=self.request.user,
+            role_filter=role,
+            status_filter=status,
+            send_after=send_after,
+            dispatch=(action != "draft"),
+        )
+        if send_after:
+            messages.success(
+                self.request,
+                ngettext(
+                    "Email scheduled for %(count)d recipient. It stays in the outbox until %(when)s.",
+                    "Email scheduled for %(count)d recipients. It stays in the outbox until %(when)s.",
+                    len(recipients),
+                )
+                % {
+                    "count": len(recipients),
+                    "when": date_format(send_after, "SHORT_DATETIME_FORMAT"),
+                },
+            )
+        elif action == "draft":
+            messages.success(
+                self.request,
+                ngettext(
+                    "Email saved to outbox for %(count)d recipient.",
+                    "Email saved to outbox for %(count)d recipients.",
+                    len(recipients),
+                )
+                % {"count": len(recipients)},
+            )
+        else:
+            messages.success(
+                self.request,
+                ngettext(
+                    "Email queued for %(count)d recipient.",
+                    "Email queued for %(count)d recipients.",
+                    len(recipients),
+                )
+                % {"count": len(recipients)},
+            )
+        return redirect(
+            "plugins:teamshifts:email_outbox",
+            organizer=self.request.organizer.slug,
+            event=event.slug,
+        )
+
+
+class EmailOutboxView(PluginActiveMixin, EventPermissionRequiredMixin, TemplateView):
+    permission = "can_change_event_settings"
+    template_name = "teamshifts/emails/outbox_list.html"
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        event = self.request.event
+        with scope(event=event):
+            queues = list(
+                TeamShiftsEmailQueue.objects.filter(event=event, sent_at__isnull=True, user__isnull=False)
+                .select_related("role_filter", "user")
+                .annotate(recipient_count=Count("recipients"))
+                .order_by("-created")
+            )
+        ctx["mails"] = queues
+        return ctx
+
+
+class EmailSentView(PluginActiveMixin, EventPermissionRequiredMixin, TemplateView):
+    permission = "can_change_event_settings"
+    template_name = "teamshifts/emails/sent_list.html"
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        event = self.request.event
+        with scope(event=event):
+            queues = list(
+                TeamShiftsEmailQueue.objects.filter(event=event, sent_at__isnull=False, user__isnull=False)
+                .select_related("role_filter", "user")
+                .annotate(recipient_count=Count("recipients"))
+                .order_by("-sent_at")
+            )
+        ctx["mails"] = queues
+        return ctx
+
+
+class EmailQueueEditView(PluginActiveMixin, EventPermissionRequiredMixin, View):
+    permission = "can_change_event_settings"
+    template_name = "teamshifts/emails/outbox_form.html"
+
+    def _get_queue(self):
+        with scope(event=self.request.event):
+            queue = get_object_or_404(
+                TeamShiftsEmailQueue.objects.select_related("role_filter"),
+                pk=self.kwargs["pk"],
+                event=self.request.event,
+            )
+        return queue
+
+    def get(self, request, *args, **kwargs):
+        queue = self._get_queue()
+        form = EmailQueueEditForm(instance=queue, event=request.event)
+        return render(request, self.template_name, {"form": form, "queue": queue})
+
+    def post(self, request, *args, **kwargs):
+        queue = self._get_queue()
+        if queue.sent_at:
+            messages.error(request, _("This email has already been sent and cannot be edited."))
+            return redirect(
+                "plugins:teamshifts:email_sent",
+                organizer=request.organizer.slug,
+                event=request.event.slug,
+            )
+        form = EmailQueueEditForm(request.POST, instance=queue, event=request.event)
+        if form.is_valid():
+            with scope(event=request.event):
+                queue = form.save()
+
+            if "send_after" in form.changed_data and not queue.send_after:
+                from .services.email import _dispatch
+
+                _dispatch(request.event.pk, queue.pk, eta=None)
+                messages.success(request, _("Email queued for immediate sending."))
+            else:
+                messages.success(request, _("Email saved."))
+
+            return redirect(
+                "plugins:teamshifts:email_outbox",
+                organizer=request.organizer.slug,
+                event=request.event.slug,
+            )
+        return render(request, self.template_name, {"form": form, "queue": queue})
+
+
+class EmailQueueDeleteView(PluginActiveMixin, EventPermissionRequiredMixin, View):
+    permission = "can_change_event_settings"
+    template_name = "teamshifts/emails/delete_confirmation.html"
+
+    def _get_queue(self):
+        with scope(event=self.request.event):
+            return get_object_or_404(
+                TeamShiftsEmailQueue,
+                pk=self.kwargs["pk"],
+                event=self.request.event,
+            )
+
+    def get(self, request, *args, **kwargs):
+        queue = self._get_queue()
+        return render(request, self.template_name, {"queue": queue})
+
+    def post(self, request, *args, **kwargs):
+        queue = self._get_queue()
+        if queue.sent_at:
+            messages.error(request, _("This email has already been sent and cannot be deleted."))
+        else:
+            with scope(event=request.event):
+                queue.delete()
+            messages.success(request, _("Email deleted."))
+        return redirect(
+            "plugins:teamshifts:email_sent" if queue.sent_at else "plugins:teamshifts:email_outbox",
+            organizer=request.organizer.slug,
+            event=request.event.slug,
+        )
+
+
+class EmailQueueSendNowView(PluginActiveMixin, EventPermissionRequiredMixin, View):
+    permission = "can_change_event_settings"
+
+    def post(self, request, *args, **kwargs):
+        event = request.event
+        with scope(event=event):
+            queue = get_object_or_404(TeamShiftsEmailQueue, pk=kwargs["pk"], event=event)
+            if queue.sent_at:
+                messages.warning(request, _("This email has already been sent."))
+            else:
+                queue.send_after = None
+                queue.save(update_fields=["send_after", "updated"])
+                transaction.on_commit(lambda: send_queued_email.delay(event.pk, queue.pk))
+                messages.success(request, _("Email queued for sending."))
+        return redirect(
+            "plugins:teamshifts:email_outbox",
+            organizer=request.organizer.slug,
+            event=event.slug,
+        )
+
+
+class ShiftLocationListView(PluginActiveMixin, EventPermissionRequiredMixin, View):
+    permission = "can_change_event_settings"
+    template_name = "teamshifts/locations.html"
+
+    def get(self, request, *args, **kwargs):
+        with scope(event=request.event):
+            locations = list(ShiftLocation.objects.filter(event=request.event))
+        return render(request, self.template_name, {"locations": locations})
+
+
+class ShiftLocationCreateView(PluginActiveMixin, EventPermissionRequiredMixin, View):
+    permission = "can_change_event_settings"
+    template_name = "teamshifts/location_edit.html"
+
+    def get(self, request, *args, **kwargs):
+        return render(request, self.template_name, {"form": ShiftLocationForm()})
+
+    def post(self, request, *args, **kwargs):
+        form = ShiftLocationForm(request.POST)
+        form.instance.event = request.event
+        with scope(event=request.event):
+            is_valid = form.is_valid()
+            if is_valid:
+                location = form.save()
+        if is_valid:
+            messages.success(request, _("Location '%s' created.") % location.name)
+            return redirect("plugins:teamshifts:locations", organizer=request.organizer.slug, event=request.event.slug)
+        return render(request, self.template_name, {"form": form})
+
+
+class ShiftLocationUpdateView(PluginActiveMixin, EventPermissionRequiredMixin, View):
+    permission = "can_change_event_settings"
+    template_name = "teamshifts/location_edit.html"
+
+    def get(self, request, *args, **kwargs):
+        with scope(event=request.event):
+            location = get_object_or_404(ShiftLocation, pk=kwargs["pk"], event=request.event)
+        form = ShiftLocationForm(instance=location)
+        return render(request, self.template_name, {"form": form, "location": location})
+
+    def post(self, request, *args, **kwargs):
+        with scope(event=request.event):
+            location = get_object_or_404(ShiftLocation, pk=kwargs["pk"], event=request.event)
+        form = ShiftLocationForm(request.POST, instance=location)
+        with scope(event=request.event):
+            is_valid = form.is_valid()
+            if is_valid:
+                form.save()
+        if is_valid:
+            messages.success(request, _("Location '%s' updated.") % location.name)
+            return redirect("plugins:teamshifts:locations", organizer=request.organizer.slug, event=request.event.slug)
+        return render(request, self.template_name, {"form": form, "location": location})
+
+
+class ShiftLocationDeleteView(PluginActiveMixin, EventPermissionRequiredMixin, View):
+    permission = "can_change_event_settings"
+    template_name = "teamshifts/location_delete.html"
+
+    def get(self, request, *args, **kwargs):
+        with scope(event=request.event):
+            location = get_object_or_404(ShiftLocation, pk=kwargs["pk"], event=request.event)
+        return render(request, self.template_name, {"location": location})
+
+    def post(self, request, *args, **kwargs):
+        with scope(event=request.event):
+            location = get_object_or_404(ShiftLocation, pk=kwargs["pk"], event=request.event)
+            if location.shifts.exists():
+                messages.error(request, _("Cannot delete '%s': it is used by existing shifts.") % location.name)
+            else:
+                name = location.name
+                location.delete()
+                messages.success(request, _("Location '%s' deleted.") % name)
+        return redirect("plugins:teamshifts:locations", organizer=request.organizer.slug, event=request.event.slug)

@@ -48,6 +48,26 @@ urlpatterns = [
         name="role_delete",
     ),
     path(
+        "teamshifts/event/<orgslug:organizer>/<slug:event>/locations/",
+        views.ShiftLocationListView.as_view(),
+        name="locations",
+    ),
+    path(
+        "teamshifts/event/<orgslug:organizer>/<slug:event>/locations/add/",
+        views.ShiftLocationCreateView.as_view(),
+        name="location_create",
+    ),
+    path(
+        "teamshifts/event/<orgslug:organizer>/<slug:event>/locations/<int:pk>/edit/",
+        views.ShiftLocationUpdateView.as_view(),
+        name="location_edit",
+    ),
+    path(
+        "teamshifts/event/<orgslug:organizer>/<slug:event>/locations/<int:pk>/delete/",
+        views.ShiftLocationDeleteView.as_view(),
+        name="location_delete",
+    ),
+    path(
         "teamshifts/event/<orgslug:organizer>/<slug:event>/settings/questions/new/",
         views.QuestionEditView.as_view(),
         name="question_create",
@@ -78,8 +98,53 @@ urlpatterns = [
         name="applications",
     ),
     path(
+        "teamshifts/event/<orgslug:organizer>/<slug:event>/emails/templates/",
+        views.EmailTemplateListView.as_view(),
+        name="email_templates",
+    ),
+    path(
+        "teamshifts/event/<orgslug:organizer>/<slug:event>/emails/templates/<str:role>/edit/",
+        views.EmailTemplateEditView.as_view(),
+        name="email_template_edit",
+    ),
+    path(
         "teamshifts/event/<orgslug:organizer>/<slug:event>/applications/<int:pk>/status/",
         views.ApplicationStatusView.as_view(),
         name="application_status",
+    ),
+    path(
+        "teamshifts/event/<orgslug:organizer>/<slug:event>/emails/compose/",
+        views.EmailComposeView.as_view(),
+        name="email_compose",
+    ),
+    path(
+        "teamshifts/event/<orgslug:organizer>/<slug:event>/emails/outbox/",
+        views.EmailOutboxView.as_view(),
+        name="email_outbox",
+    ),
+    path(
+        "teamshifts/event/<orgslug:organizer>/<slug:event>/emails/sent/",
+        views.EmailSentView.as_view(),
+        name="email_sent",
+    ),
+    path(
+        "teamshifts/event/<orgslug:organizer>/<slug:event>/emails/<int:pk>/edit/",
+        views.EmailQueueEditView.as_view(),
+        name="email_edit",
+    ),
+    path(
+        "teamshifts/event/<orgslug:organizer>/<slug:event>/emails/<int:pk>/delete/",
+        views.EmailQueueDeleteView.as_view(),
+        name="email_delete",
+    ),
+    path(
+        "teamshifts/event/<orgslug:organizer>/<slug:event>/emails/<int:pk>/send/",
+        views.EmailQueueSendNowView.as_view(),
+        name="email_send_now",
+    ),
+    path(
+        "teamshifts/event/<orgslug:organizer>/<slug:event>/applications/<int:pk>/",
+        views.ApplicationDetailView.as_view(),
+        name="application_detail",
     ),
 ]

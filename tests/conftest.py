@@ -13,6 +13,7 @@ def event(db):
         slug="test-event",
         live=True,
         date_from=now(),
+        plugins="teamshifts",
     )
     return event
 

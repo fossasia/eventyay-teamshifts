@@ -1,21 +1,28 @@
-from django.db.models.signals import post_delete
+import logging
+
+from django.core.cache import cache
+from django.db import transaction
 from django.dispatch import receiver
 from django.urls import reverse
 from django.utils.html import format_html
+from django.utils.timezone import now
 from django.utils.translation import gettext_lazy as _
+from django_scopes import scopes_disabled
 from eventyay.base.email import SimpleFunctionalMailTextPlaceholder
-from eventyay.base.models.organizer import Team
 from eventyay.base.signals import register_mail_placeholders
+from eventyay.common.signals import periodic_task
 from eventyay.control.signals import event_dashboard_components, event_dashboard_widgets
 from eventyay.presale.signals import header_nav_tabs
 
-from .models import CallForTeamMembers, TeamRole
-from .permissions import has_any_teamshifts_permission
+from .models import CallForTeamMembers, TeamShiftsEmailQueue
+from .tasks import send_queued_email
+
+logger = logging.getLogger(__name__)
 
 
 @receiver(event_dashboard_widgets, dispatch_uid="teamshifts_dashboard_widget")
 def teamshifts_dashboard_widget(sender, subevent=None, lazy=False, request=None, **kwargs):
-    if request is None or not has_any_teamshifts_permission(request.user, request.organizer, sender, request=request):
+    if request is None or not request.user.has_event_permission(request.organizer, sender, "can_change_event_settings", request=request):
         return []
     return [
         {
@@ -32,7 +39,7 @@ def teamshifts_dashboard_widget(sender, subevent=None, lazy=False, request=None,
 
 @receiver(event_dashboard_components, dispatch_uid="teamshifts_dashboard_component")
 def teamshifts_dashboard_component(sender, request=None, **kwargs):
-    if request is None or not has_any_teamshifts_permission(request.user, request.organizer, sender, request=request):
+    if request is None or not request.user.has_event_permission(request.organizer, sender, "can_change_event_settings", request=request):
         return ""
     url = reverse(
         "plugins:teamshifts:dashboard",
@@ -82,13 +89,35 @@ def teamshifts_mail_placeholders(sender, **kwargs):
             lambda user: (getattr(user, "fullname", "") or user.email) if user else "",
             lambda event: _("Volunteer"),
         ),
+        SimpleFunctionalMailTextPlaceholder(
+            "role_name",
+            ["role"],
+            lambda role: role.name,
+            lambda event: _("Volunteer role"),
+        ),
+        SimpleFunctionalMailTextPlaceholder(
+            "event_name",
+            ["event"],
+            lambda event: str(event.name),
+            lambda event: str(event.name),
+        ),
     ]
 
 
-@receiver(post_delete, sender=TeamRole)
-def team_role_post_delete(sender, instance, **kwargs):
-    teams = Team.objects.filter(organizer=instance.event.organizer)
-    for team in teams:
-        if isinstance(team.limit_teamshifts_roles, list) and instance.pk in team.limit_teamshifts_roles:
-            team.limit_teamshifts_roles.remove(instance.pk)
-            team.save(update_fields=["limit_teamshifts_roles"])
+@receiver(periodic_task, dispatch_uid="teamshifts_dispatch_scheduled_emails")
+@scopes_disabled()
+def dispatch_scheduled_emails(sender, **kwargs):
+    MAIL_SEND_BATCH_SIZE = 50
+    with transaction.atomic():
+        due = list(
+            TeamShiftsEmailQueue.objects.filter(send_after__isnull=False, send_after__lte=now(), sent_at__isnull=True)
+            .select_for_update(skip_locked=True, of=("self",))
+            .order_by("pk")
+            .values("pk", "event_id")[:MAIL_SEND_BATCH_SIZE]
+        )
+    for item in due:
+        cache_key = f"teamshifts_mail_queue_{item['pk']}_enqueued"
+        if not cache.get(cache_key):
+            send_queued_email.delay(item["event_id"], item["pk"])
+            cache.set(cache_key, True, timeout=3600)
+            logger.info("[TeamShifts] Enqueued missed scheduled email queue %s", item["pk"])

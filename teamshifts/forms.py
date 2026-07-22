@@ -2,14 +2,19 @@ from django import forms
 from django.utils.translation import gettext_lazy as _
 from django_countries import countries
 from django_scopes import scopes_disabled
+from eventyay.control.forms import SplitDateTimeField, SplitDateTimePickerWidget
+from i18nfield.forms import I18nFormField, I18nTextarea, I18nTextInput
 
 from .models import (
     CFM_BUILTIN_FIELD_KEYS,
+    ApplicationStatus,
     AskChoices,
     CallForTeamMembers,
     QuestionVariant,
+    ShiftLocation,
     TeamApplicationQuestion,
     TeamRole,
+    TeamShiftsEmailQueue,
     normalize_field_order,
 )
 
@@ -24,11 +29,11 @@ class CallForTeamMembersSettingsForm(forms.ModelForm):
             "deadline",
             "description",
         )
+        field_classes = {
+            "deadline": SplitDateTimeField,
+        }
         widgets = {
-            "deadline": forms.DateTimeInput(
-                attrs={"class": "form-control datetimepicker"},
-                format="%Y-%m-%d %H:%M:%S",
-            ),
+            "deadline": SplitDateTimePickerWidget(),
             "title": forms.TextInput(attrs={"class": "form-control"}),
         }
 
@@ -57,9 +62,19 @@ class TeamRoleForm(forms.ModelForm):
             "description": forms.Textarea(attrs={"class": "form-control", "rows": 3}),
         }
 
+    def clean(self):
+        cleaned_data = super().clean()
+        name = cleaned_data.get("name")
+        if name and self.instance and hasattr(self.instance, "event_id") and self.instance.event_id:
+            qs = TeamRole.objects.filter(event_id=self.instance.event_id, name=name)
+            if self.instance.pk:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                self.add_error("name", _("A role with this name already exists for this event."))
+        return cleaned_data
+
 
 class TeamApplicationQuestionForm(forms.ModelForm):
-    # Declared explicitly to avoid the scoped manager firing at class-definition time.
     role = forms.ModelChoiceField(
         queryset=TeamRole.objects.none(),
         required=False,
@@ -333,11 +348,125 @@ def render_answer_for_review(question: TeamApplicationQuestion, answer_text: str
     return answer_text
 
 
+class EmailTemplateForm(forms.ModelForm):
+    class Meta:
+        from .models import TeamShiftsEmailTemplate
+
+        model = TeamShiftsEmailTemplate
+        fields = ("subject", "body")
+
+    def __init__(self, *args, locales=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if locales:
+            for field_name in ("subject", "body"):
+                self.fields[field_name].widget.enabled_locales = locales
+
+
+class EmailComposeForm(forms.Form):
+    def __init__(self, *args, event=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._event = event
+        locales = list(event.settings.get("locales") or [event.settings.locale])
+
+        self.fields["subject"] = I18nFormField(
+            label=_("Subject"),
+            widget=I18nTextInput,
+            required=True,
+            locales=locales,
+        )
+        self.fields["message"] = I18nFormField(
+            label=_("Message"),
+            widget=I18nTextarea,
+            required=True,
+            locales=locales,
+            widget_kwargs={"attrs": {"rows": 10}},
+        )
+
+        with scopes_disabled():
+            role_qs = TeamRole.objects.filter(event=event)
+        self.fields["role"] = forms.ModelChoiceField(
+            queryset=role_qs,
+            required=False,
+            empty_label=_("All roles"),
+            label=_("Send to role"),
+            widget=forms.Select(attrs={"class": "form-control"}),
+        )
+
+        self.fields["status"] = forms.ChoiceField(
+            choices=[("", _("All statuses"))] + list(ApplicationStatus.choices),
+            required=False,
+            initial=ApplicationStatus.ACCEPTED,
+            label=_("Send to applications with status"),
+            widget=forms.Select(attrs={"class": "form-control"}),
+        )
+
+        self.fields["send_after"] = forms.DateTimeField(
+            required=False,
+            label=_("Schedule for later"),
+            help_text=_("Leave empty to send immediately. Otherwise the message stays in the outbox until the scheduled time."),
+            widget=forms.DateTimeInput(
+                attrs={"class": "form-control", "type": "datetime-local"},
+                format="%Y-%m-%dT%H:%M",
+            ),
+            input_formats=["%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"],
+        )
+
+
+class EmailQueueEditForm(forms.ModelForm):
+    class Meta:
+        model = TeamShiftsEmailQueue
+        fields = ("subject", "message", "send_after")
+        widgets = {
+            "send_after": forms.DateTimeInput(
+                attrs={"class": "form-control", "type": "datetime-local"},
+                format="%Y-%m-%dT%H:%M",
+            ),
+        }
+
+    def __init__(self, *args, event=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._event = event
+        if event is not None:
+            locales = list(event.settings.get("locales") or [event.settings.locale])
+            for field_name in ("subject", "message"):
+                self.fields[field_name].widget.enabled_locales = locales
+        self.fields["send_after"].input_formats = [
+            "%Y-%m-%dT%H:%M",
+            "%Y-%m-%d %H:%M:%S",
+            "%Y-%m-%d %H:%M",
+        ]
+
+
 __all__ = [
     "CallForTeamMembersSettingsForm",
     "CallForTeamMembersApplicationSettingsForm",
     "TeamRoleForm",
     "TeamApplicationQuestionForm",
     "TeamMemberApplicationForm",
+    "EmailTemplateForm",
+    "EmailComposeForm",
+    "EmailQueueEditForm",
     "render_answer_for_review",
+    "ShiftLocationForm",
 ]
+
+
+class ShiftLocationForm(forms.ModelForm):
+    class Meta:
+        model = ShiftLocation
+        fields = ("name", "description")
+        widgets = {
+            "name": forms.TextInput(attrs={"class": "form-control"}),
+            "description": forms.Textarea(attrs={"class": "form-control", "rows": 3}),
+        }
+
+    def clean(self):
+        cleaned_data = super().clean()
+        name = cleaned_data.get("name")
+        if name and self.instance and hasattr(self.instance, "event_id") and self.instance.event_id:
+            qs = ShiftLocation.objects.filter(event_id=self.instance.event_id, name=name)
+            if self.instance.pk:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                self.add_error("name", _("A location with this name already exists for this event."))
+        return cleaned_data

@@ -5,7 +5,7 @@ from django.db import migrations
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("teamshifts", "0010_remove_role_from_application"),
+        ("teamshifts", "0011_remove_role_from_application"),
     ]
 
     operations = [

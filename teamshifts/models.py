@@ -360,8 +360,7 @@ class TeamApplicationQuestion(models.Model):
         ordering = ["pk"]
 
     def clean(self):
-        if self.role_id and self.event_id and self.role.event_id != self.event_id:
-            raise ValidationError({"role": _("The selected role does not belong to this event.")})
+        pass
 
     def get_options(self):
         """Return the options list for choice-style variants."""

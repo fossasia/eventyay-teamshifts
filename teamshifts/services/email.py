@@ -21,15 +21,12 @@ logger = logging.getLogger(__name__)
 def get_recipients(
     event: Event,
     *,
-    role: TeamRole | None = None,
     status: str = ApplicationStatus.ACCEPTED,
 ) -> list[User]:
     with scope(event=event):
         qs = TeamMemberApplication.objects.filter(event=event)
         if status:
             qs = qs.filter(status=status)
-        if role is not None:
-            qs = qs.filter(role=role)
         user_ids = list(qs.values_list("user_id", flat=True).distinct())
     return list(User.objects.filter(pk__in=user_ids))
 

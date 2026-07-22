@@ -482,6 +482,7 @@ class ApplicationListView(PluginActiveMixin, EventPermissionRequiredMixin, Templ
         with scope(event=event):
             qs = TeamMemberApplication.objects.filter(event=event).select_related("user").prefetch_related("answers__question").order_by("-created_at")
             status_filter = self.request.GET.get("status")
+
             search = self.request.GET.get("q", "").strip()
 
             if status_filter in ApplicationStatus.values:
@@ -638,7 +639,7 @@ class ApplicationDetailView(PluginActiveMixin, EventPermissionRequiredMixin, Tem
         event = self.request.event
         with scope(event=event):
             app = get_object_or_404(
-                TeamMemberApplication.objects.select_related("user", "role").prefetch_related("answers__question"),
+                TeamMemberApplication.objects.select_related("user").prefetch_related("answers__question"),
                 pk=kwargs["pk"],
                 event=event,
             )
@@ -689,15 +690,22 @@ class PublicApplyView(FormView):
             return self.form_invalid(form)
         full_name = form.cleaned_data.get("full_name", "").strip()
         with scope(event=event):
-            if TeamMemberApplication.objects.filter(event=event, user=self.request.user).exists():
+            try:
+                application, created = TeamMemberApplication.objects.get_or_create(
+                    event=event,
+                    user=self.request.user,
+                    defaults={
+                        "availability_notes": form.cleaned_data.get("availability_notes", ""),
+                        "phone": form.cleaned_data.get("phone", ""),
+                    },
+                )
+            except IntegrityError:
+                created = False
+                application = TeamMemberApplication.objects.filter(event=event, user=self.request.user).first()
+
+            if not created:
                 messages.error(self.request, _("You have already submitted an application for this event."))
                 return self.form_invalid(form)
-            application = TeamMemberApplication.objects.create(
-                event=event,
-                user=self.request.user,
-                availability_notes=form.cleaned_data.get("availability_notes", ""),
-                phone=form.cleaned_data.get("phone", ""),
-            )
             for question, answer_text in form.get_question_answers():
                 TeamApplicationAnswer.objects.create(application=application, question=question, answer=answer_text)
         if full_name and full_name != self.request.user.fullname:
@@ -774,7 +782,7 @@ class EmailComposeView(PluginActiveMixin, EventPermissionRequiredMixin, FormView
             if role_id:
                 with scopes_disabled():
                     role = TeamRole.objects.filter(pk=role_id, event=event).first()
-            recipients = get_recipients(event, role=role, status=status)
+            recipients = get_recipients(event, status=status)
             self._preview_recipients = recipients
             locales = list(event.settings.get("locales") or [event.settings.locale])
             subject_i18n = LazyI18nString({locales[i]: request.POST.get(f"subject_{i}", "") for i in range(len(locales))})
@@ -798,7 +806,7 @@ class EmailComposeView(PluginActiveMixin, EventPermissionRequiredMixin, FormView
         status = form.cleaned_data.get("status") or ""
         send_after = form.cleaned_data.get("send_after")
 
-        recipients = get_recipients(event, role=role, status=status)
+        recipients = get_recipients(event, status=status)
 
         action = self.request.POST.get("action")
         if action == "preview":

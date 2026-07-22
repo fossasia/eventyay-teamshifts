@@ -540,7 +540,6 @@ class ApplicationListView(PluginActiveMixin, EventPermissionRequiredMixin, Templ
                     else:
                         app_dynamic_values.append(answers_dict.get(key, ""))
                 app.dynamic_values = app_dynamic_values
-                app.rendered_answers = [{"question": a.question, "value": render_answer_for_review(a.question, a.answer)} for a in app.answers.all()]
 
             ctx["applications"] = applications
             ctx["columns"] = columns
@@ -608,7 +607,14 @@ class BulkApplicationStatusView(PluginActiveMixin, EventPermissionRequiredMixin,
 
             new_status = ApplicationStatus.ACCEPTED if action == "accept" else ApplicationStatus.REJECTED
 
-            TeamMemberApplication.objects.filter(pk__in=[a.pk for a in apps]).update(status=new_status, updated_at=now())
+            TeamMemberApplication.objects.filter(
+                event=event,
+                pk__in=[a.pk for a in apps],
+                status=ApplicationStatus.PENDING,
+            ).update(status=new_status, updated_at=now())
+
+            for app in apps:
+                app.status = new_status
 
             if action == "accept":
                 messages.success(request, _("%(count)d applications accepted and emails queued.") % {"count": len(apps)})

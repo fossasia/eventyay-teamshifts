@@ -4,20 +4,32 @@ import django.db.models.deletion
 from django.db import migrations, models
 
 
+def migrate_data(apps, schema_editor):
+    Shift = apps.get_model("teamshifts", "Shift")
+    ShiftRoleAssignment = apps.get_model("teamshifts", "ShiftRoleAssignment")
+    for shift in Shift.objects.all():
+        if shift.role:
+            ShiftRoleAssignment.objects.create(
+                shift=shift,
+                role=shift.role,
+                capacity=shift.capacity or 1
+            )
+
+def reverse_migrate_data(apps, schema_editor):
+    Shift = apps.get_model("teamshifts", "Shift")
+    for shift in Shift.objects.all():
+        assignment = shift.role_assignments.first()
+        if assignment:
+            shift.role = assignment.role
+            shift.capacity = assignment.capacity
+            shift.save()
+
 class Migration(migrations.Migration):
     dependencies = [
         ("teamshifts", "0009_shift_location_text_and_more"),
     ]
 
     operations = [
-        migrations.RemoveField(
-            model_name="shift",
-            name="capacity",
-        ),
-        migrations.RemoveField(
-            model_name="shift",
-            name="role",
-        ),
         migrations.CreateModel(
             name="ShiftRoleAssignment",
             fields=[
@@ -31,5 +43,14 @@ class Migration(migrations.Migration):
                 "verbose_name_plural": "Shift Role Assignments",
                 "unique_together": {("shift", "role")},
             },
+        ),
+        migrations.RunPython(migrate_data, reverse_migrate_data),
+        migrations.RemoveField(
+            model_name="shift",
+            name="capacity",
+        ),
+        migrations.RemoveField(
+            model_name="shift",
+            name="role",
         ),
     ]

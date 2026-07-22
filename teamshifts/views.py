@@ -1113,14 +1113,18 @@ class ShiftCreateView(PluginActiveMixin, EventPermissionRequiredMixin, TemplateV
                     shift.save()
                     shifts_to_create.append(shift)
 
+                assignments_to_create = []
                 for shift in shifts_to_create:
                     for role_form in formset:
                         if role_form.cleaned_data and not role_form.cleaned_data.get("DELETE", False):
                             role = role_form.cleaned_data.get("role")
                             capacity = role_form.cleaned_data.get("capacity", 1)
                             if role:
-                                ShiftRoleAssignment.objects.create(shift=shift, role=role, capacity=capacity)
-
+                                assignments_to_create.append(
+                                    ShiftRoleAssignment(shift=shift, role=role, capacity=capacity)
+                                )
+                if assignments_to_create:
+                    ShiftRoleAssignment.objects.bulk_create(assignments_to_create)
             if mode == "repeating":
                 messages.success(request, _("%(count)d shifts created successfully.") % {"count": len(shifts_to_create)})
                 return render(request, "teamshifts/shift_create_success.html", {"shifts": shifts_to_create})

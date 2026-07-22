@@ -9,11 +9,8 @@ def migrate_data(apps, schema_editor):
     ShiftRoleAssignment = apps.get_model("teamshifts", "ShiftRoleAssignment")
     for shift in Shift.objects.all():
         if shift.role:
-            ShiftRoleAssignment.objects.create(
-                shift=shift,
-                role=shift.role,
-                capacity=shift.capacity or 1
-            )
+            ShiftRoleAssignment.objects.create(shift=shift, role=shift.role, capacity=shift.capacity or 1)
+
 
 def reverse_migrate_data(apps, schema_editor):
     Shift = apps.get_model("teamshifts", "Shift")
@@ -23,6 +20,7 @@ def reverse_migrate_data(apps, schema_editor):
             shift.role = assignment.role
             shift.capacity = assignment.capacity
             shift.save()
+
 
 class Migration(migrations.Migration):
     dependencies = [

@@ -1120,9 +1120,7 @@ class ShiftCreateView(PluginActiveMixin, EventPermissionRequiredMixin, TemplateV
                             role = role_form.cleaned_data.get("role")
                             capacity = role_form.cleaned_data.get("capacity", 1)
                             if role:
-                                assignments_to_create.append(
-                                    ShiftRoleAssignment(shift=shift, role=role, capacity=capacity)
-                                )
+                                assignments_to_create.append(ShiftRoleAssignment(shift=shift, role=role, capacity=capacity))
                 if assignments_to_create:
                     ShiftRoleAssignment.objects.bulk_create(assignments_to_create)
             if mode == "repeating":

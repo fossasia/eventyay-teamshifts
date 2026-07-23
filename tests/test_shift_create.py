@@ -91,8 +91,8 @@ def test_shift_create_repeating_success(orga_client, event, location, team_role)
     }
 
     response = orga_client.post(url, data)
-    assert response.status_code == 200
-    assert b"2 shifts created successfully" in response.content
+    assert response.status_code == 302
+    assert response.url == reverse("plugins:teamshifts:shifts", kwargs={"organizer": event.organizer.slug, "event": event.slug})
 
     with scope(event=event):
         assert Shift.objects.count() == 2

@@ -21,15 +21,12 @@ logger = logging.getLogger(__name__)
 def get_recipients(
     event: Event,
     *,
-    role: TeamRole | None = None,
     status: str = ApplicationStatus.ACCEPTED,
 ) -> list[User]:
     with scope(event=event):
         qs = TeamMemberApplication.objects.filter(event=event)
         if status:
             qs = qs.filter(status=status)
-        if role is not None:
-            qs = qs.filter(role=role)
         user_ids = list(qs.values_list("user_id", flat=True).distinct())
     return list(User.objects.filter(pk__in=user_ids))
 
@@ -73,13 +70,16 @@ def queue_email(
         if rows:
             TeamShiftsEmailQueueRecipient.objects.bulk_create(rows)
 
-    if send_after is None and dispatch:
-        _dispatch(event.pk, queue.pk)
+    if dispatch:
+        _dispatch(event.pk, queue.pk, eta=send_after)
     return queue
 
 
-def _dispatch(event_id: int, queue_id: int) -> None:
-    transaction.on_commit(lambda: send_queued_email.delay(event_id, queue_id))
+def _dispatch(event_id: int, queue_id: int, eta=None) -> None:
+    if eta is not None:
+        transaction.on_commit(lambda: send_queued_email.apply_async(args=[event_id, queue_id], eta=eta))
+    else:
+        transaction.on_commit(lambda: send_queued_email.delay(event_id, queue_id))
 
 
 def queue_lifecycle_email(application, role: str) -> TeamShiftsEmailQueue | None:
@@ -102,6 +102,5 @@ def queue_lifecycle_email(application, role: str) -> TeamShiftsEmailQueue | None
         subject=template.subject,
         message=template.body,
         recipients=[application.user],
-        role_filter=application.role,
         status_filter=application.status,
     )

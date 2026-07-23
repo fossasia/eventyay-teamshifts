@@ -37,7 +37,10 @@ def send_queued_email(self, event_id: int, queue_id: int):
 
     try:
         with scope(event=event):
-            queue = TeamShiftsEmailQueue.objects.select_related("event", "role_filter").get(pk=queue_id, event=event)
+            queue = TeamShiftsEmailQueue.objects.select_related("event", "role_filter").filter(pk=queue_id, event=event).first()
+            if queue is None:
+                logger.debug("[TeamShifts] Queue %s not found or locked", queue_id)
+                return
             if queue.sent_at:
                 return
             if queue.send_after and queue.send_after > now():
@@ -54,27 +57,27 @@ def send_queued_email(self, event_id: int, queue_id: int):
                 )
                 return
             recipients = list(queue.recipients.select_related("user").all())
-    except TeamShiftsEmailQueue.DoesNotExist:
-        logger.error("[TeamShifts] Queue %s not found for event %s", queue_id, event_id)
-        return
 
-    if not recipients:
-        logger.warning("[TeamShifts] Queue %s has no recipients", queue_id)
-        with scope(event=event):
-            queue.sent_at = now()
-            queue.save(update_fields=["sent_at"])
-        return
+            if not recipients:
+                logger.warning("[TeamShifts] Queue %s has no recipients", queue_id)
+                queue.sent_at = now()
+                queue.save(update_fields=["sent_at"])
+                return
 
-    subject = LazyI18nString(queue.subject)
-    message = LazyI18nString(queue.message)
-    locale = queue.locale or event.settings.locale
+            subject = LazyI18nString(queue.subject)
+            message = LazyI18nString(queue.message)
+            locale = queue.locale or event.settings.locale
 
-    partial_send = False
-    try:
-        with scope(event=event):
+            partial_send = False
             for recipient in recipients:
                 if recipient.sent_at:
                     continue
+
+                claimed = type(recipient).objects.filter(pk=recipient.pk, sent_at__isnull=True).update(sent_at=now())
+
+                if not claimed:
+                    continue
+
                 try:
                     ctx_kwargs = {"event": event}
                     if recipient.user:
@@ -95,13 +98,14 @@ def send_queued_email(self, event_id: int, queue_id: int):
                         auto_email=False,
                         sync_send=True,
                     )
-                    recipient.sent_at = now()
                     recipient.error = ""
-                    recipient.save(update_fields=["sent_at", "error"])
-                except SendMailException as exc:
-                    recipient.error = str(exc)
                     recipient.save(update_fields=["error"])
+                except SendMailException as exc:
+                    recipient.sent_at = None
+                    recipient.error = str(exc)
+                    recipient.save(update_fields=["error", "sent_at"])
                     logger.exception("[TeamShifts] Send failed for %s", recipient.email)
+                    partial_send = True
 
             has_unsent = queue.recipients.filter(sent_at__isnull=True).exists()
             if not has_unsent:

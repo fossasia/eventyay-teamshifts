@@ -5,9 +5,9 @@ from django.utils.translation import gettext_lazy as _
 from django_scopes import ScopedManager, scope
 from i18nfield.fields import I18nTextField
 
-CFM_BUILTIN_FIELD_KEYS = ("full_name", "email", "phone", "role", "availability")
+CFM_BUILTIN_FIELD_KEYS = ("full_name", "email", "phone", "availability")
 
-CFM_LOCKED_FIELDS = frozenset({"email", "role"})
+CFM_LOCKED_FIELDS = frozenset({"email"})
 
 
 def normalize_field_order(order: list) -> list:
@@ -84,12 +84,6 @@ class CallForTeamMembers(models.Model):
         default=AskChoices.OPTIONAL,
         verbose_name=_("Phone / Mobile"),
     )
-    ask_role = models.CharField(
-        max_length=20,
-        choices=AskChoices.choices,
-        default=AskChoices.REQUIRED,
-        verbose_name=_("Role"),
-    )
     ask_availability = models.CharField(
         max_length=20,
         choices=AskChoices.choices,
@@ -120,7 +114,6 @@ class CallForTeamMembers(models.Model):
             "full_name": self.ask_full_name,
             "email": self.ask_email,
             "phone": self.ask_phone,
-            "role": self.ask_role,
             "availability": self.ask_availability,
         }
         return mapping.get(field_key, AskChoices.DO_NOT_ASK)
@@ -163,13 +156,34 @@ class TeamRole(models.Model):
     )
     name = models.CharField(max_length=190, verbose_name=_("Role Name"))
     description = models.TextField(blank=True, verbose_name=_("Description"))
-
     objects = ScopedManager(event="event")
 
     class Meta:
         verbose_name = _("Team Role")
         verbose_name_plural = _("Team Roles")
         unique_together = ("event", "name")
+
+    def __str__(self):
+        return f"{self.name} ({self.event.slug})"
+
+
+class ShiftLocation(models.Model):
+    event = models.ForeignKey(
+        "base.Event",
+        on_delete=models.CASCADE,
+        related_name="shift_locations",
+    )
+    name = models.CharField(max_length=190, verbose_name=_("Location Name"))
+    description = models.TextField(blank=True, verbose_name=_("Description"))
+    position = models.IntegerField(default=0)
+
+    objects = ScopedManager(event="event")
+
+    class Meta:
+        verbose_name = _("Shift Location")
+        verbose_name_plural = _("Shift Locations")
+        unique_together = ("event", "name")
+        ordering = ["position", "name"]
 
     def __str__(self):
         return f"{self.name} ({self.event.slug})"
@@ -185,11 +199,6 @@ class TeamMemberApplication(models.Model):
         "base.User",
         on_delete=models.CASCADE,
         related_name="team_member_applications",
-    )
-    role = models.ForeignKey(
-        TeamRole,
-        on_delete=models.CASCADE,
-        related_name="applications",
     )
     status = models.CharField(
         max_length=20,
@@ -222,14 +231,10 @@ class TeamMemberApplication(models.Model):
     class Meta:
         verbose_name = _("Team Member Application")
         verbose_name_plural = _("Team Member Applications")
-        unique_together = ("event", "user", "role")
-
-    def clean(self):
-        if self.role_id and self.event_id and self.role.event_id != self.event_id:
-            raise ValidationError({"role": _("The selected role does not belong to this event.")})
+        unique_together = (("event", "user"),)
 
     def __str__(self):
-        return f"{self.user.email} → {self.role.name} ({self.get_status_display()})"
+        return f"{self.user.email} ({self.get_status_display()})"
 
 
 class Shift(models.Model):
@@ -244,7 +249,8 @@ class Shift(models.Model):
         related_name="shifts",
     )
     name = models.CharField(max_length=190, blank=True, verbose_name=_("Shift Name"))
-    location = models.CharField(max_length=190, blank=True, verbose_name=_("Location"))
+    location_text = models.CharField(max_length=190, blank=True, verbose_name=_("Location Text"))
+    location = models.ForeignKey(ShiftLocation, on_delete=models.SET_NULL, null=True, blank=True, related_name="shifts", verbose_name=_("Location"))
     start_time = models.DateTimeField(verbose_name=_("Start Time"))
     end_time = models.DateTimeField(verbose_name=_("End Time"))
     capacity = models.PositiveIntegerField(default=1, verbose_name=_("Capacity"))
@@ -330,14 +336,6 @@ class TeamApplicationQuestion(models.Model):
         on_delete=models.CASCADE,
         related_name="team_application_questions",
     )
-    role = models.ForeignKey(
-        TeamRole,
-        on_delete=models.CASCADE,
-        null=True,
-        blank=True,
-        related_name="application_questions",
-        help_text=_("Leave blank to ask this question for every role."),
-    )
     question = I18nTextField(verbose_name=_("Question"))
     help_text = I18nTextField(verbose_name=_("Help text"), blank=True, null=True)
     variant = models.CharField(
@@ -360,10 +358,6 @@ class TeamApplicationQuestion(models.Model):
         verbose_name = _("Application Question")
         verbose_name_plural = _("Application Questions")
         ordering = ["pk"]
-
-    def clean(self):
-        if self.role_id and self.event_id and self.role.event_id != self.event_id:
-            raise ValidationError({"role": _("The selected role does not belong to this event.")})
 
     def get_options(self):
         """Return the options list for choice-style variants."""

@@ -30,7 +30,6 @@
                             <th>{% trans "Field" %}</th>
                             <th class="text-center">{% trans "Active" %}</th>
                             <th class="text-center">{% trans "Required" %}</th>
-                            <th>{% trans "Role" %}</th>
                             <th class="action-col-2"></th>
                         </tr>
                     </thead>
@@ -76,7 +75,6 @@
                                             </div>
                                         </td>
                                     {% endif %}
-                                    <td><span class="text-muted">{% trans "All roles" %}</span></td>
                                     <td class="text-right flip dnd-container"></td>
                                 </tr>
                             {% else %}
@@ -104,13 +102,6 @@
                                                     <option value="required" {% if q.required %}selected{% endif %}>{% trans "Required" %}</option>
                                                 </select>
                                             </div>
-                                        </td>
-                                        <td>
-                                            {% if q.role %}
-                                                <span class="label label-info">{{ q.role.name }}</span>
-                                            {% else %}
-                                                <span class="text-muted">{% trans "All roles" %}</span>
-                                            {% endif %}
                                         </td>
                                         <td class="text-right flip dnd-container">
                                             <a class="btn btn-sm btn-info"

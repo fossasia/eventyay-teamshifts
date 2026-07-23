@@ -156,6 +156,11 @@ class TeamRole(models.Model):
     )
     name = models.CharField(max_length=190, verbose_name=_("Role Name"))
     description = models.TextField(blank=True, verbose_name=_("Description"))
+    is_restricted = models.BooleanField(
+        default=False,
+        verbose_name=_("Restricted role"),
+        help_text=_("If checked, volunteers cannot self-claim shifts for this role. It requires manual assignment by an organizer."),
+    )
     objects = ScopedManager(event="event")
 
     class Meta:

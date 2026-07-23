@@ -56,7 +56,7 @@ class CallForTeamMembersApplicationSettingsForm(forms.ModelForm):
 class TeamRoleForm(forms.ModelForm):
     class Meta:
         model = TeamRole
-        fields = ("name", "description")
+        fields = ("name", "description", "is_restricted")
         widgets = {
             "name": forms.TextInput(attrs={"class": "form-control"}),
             "description": forms.Textarea(attrs={"class": "form-control", "rows": 3}),

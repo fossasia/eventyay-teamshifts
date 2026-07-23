@@ -1130,14 +1130,13 @@ class ShiftCreateView(PluginActiveMixin, EventPermissionRequiredMixin, TemplateV
                     ShiftRoleAssignment.objects.bulk_create(assignments_to_create)
             if mode == "repeating":
                 messages.success(request, _("%(count)d shifts created successfully.") % {"count": len(shifts_to_create)})
-                return render(request, "teamshifts/shift_create_success.html", {"shifts": shifts_to_create})
             else:
                 messages.success(request, _("Shift created successfully."))
-                return redirect(
-                    "plugins:teamshifts:shifts",
-                    organizer=request.event.organizer.slug,
-                    event=request.event.slug,
-                )
+            return redirect(
+                "plugins:teamshifts:shifts",
+                organizer=request.event.organizer.slug,
+                event=request.event.slug,
+            )
 
         ctx = self.get_context_data(form=form, formset=formset, has_locations=has_locations)
         return self.render_to_response(ctx)

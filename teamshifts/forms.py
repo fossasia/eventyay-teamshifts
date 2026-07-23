@@ -348,16 +348,6 @@ class EmailComposeForm(forms.Form):
             widget_kwargs={"attrs": {"rows": 10}},
         )
 
-        with scopes_disabled():
-            role_qs = TeamRole.objects.filter(event=event)
-        self.fields["role"] = forms.ModelChoiceField(
-            queryset=role_qs,
-            required=False,
-            empty_label=_("All roles"),
-            label=_("Send to role"),
-            widget=forms.Select(attrs={"class": "form-control"}),
-        )
-
         self.fields["status"] = forms.ChoiceField(
             choices=[("", _("All statuses"))] + list(ApplicationStatus.choices),
             required=False,

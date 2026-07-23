@@ -1,0 +1,53 @@
+{% extends "eventyay_common/base.html" %}
+{% load i18n %}
+{% load eventurl %}
+
+{% block title %}{% translate "My Shifts" %}{% endblock %}
+
+{% block content %}
+    <div class="row">
+        <div class="col-md-8 col-md-offset-2 col-xs-12">
+            <h1 class="page-header">{% translate "My Shifts" %}</h1>
+
+            {% if not shifts_by_day %}
+                <div class="alert alert-info">
+                    {% translate "You have no shifts assigned yet. Browse the shift schedule to claim open slots." %}
+                </div>
+            {% else %}
+                {% for day, assignments in shifts_by_day.items %}
+                    <div class="panel panel-default">
+                        <div class="panel-heading">
+                            <h3 class="panel-title"><strong>{{ day|date:"DATE_FORMAT" }}</strong></h3>
+                        </div>
+                        <div class="list-group">
+                            {% for assignment in assignments %}
+                                <div class="list-group-item">
+                                    <div class="row">
+                                        <div class="col-xs-8 col-sm-9">
+                                            <h4 class="list-group-item-heading">
+                                                {{ assignment.shift.start_time|time:"TIME_FORMAT" }} - {{ assignment.shift.end_time|time:"TIME_FORMAT" }}
+                                                {% if assignment.is_moderator %}
+                                                    <span class="label label-primary">{% translate "Moderator" %}</span>
+                                                {% endif %}
+                                            </h4>
+                                            <p class="list-group-item-text">
+                                                <strong>{{ assignment.shift.role.name }}</strong><br>
+                                                <i class="fa fa-map-marker text-muted"></i> {{ assignment.shift.location|default:"No location" }}<br>
+                                                <span class="text-muted">{{ assignment.shift.event.name }}</span>
+                                            </p>
+                                        </div>
+                                        <div class="col-xs-4 col-sm-3 text-right">
+                                            <a href="{% url 'presale:event.index' event=assignment.shift.event.slug organizer=assignment.shift.event.organizer.slug %}" class="btn btn-default btn-sm">
+                                                {% translate "View Event" %}
+                                            </a>
+                                        </div>
+                                    </div>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        </div>
+    </div>
+{% endblock %}

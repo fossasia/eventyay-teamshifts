@@ -104,6 +104,20 @@ def teamshifts_mail_placeholders(sender, **kwargs):
     ]
 
 
+try:
+    from eventyay.common.signals import user_dropdown_links
+
+    @receiver(user_dropdown_links, dispatch_uid="teamshifts_user_dropdown")
+    def teamshifts_user_dropdown(sender, request=None, **kwargs):
+        return format_html(
+            '<a href="{}" class="dropdown-item" role="menuitem" tabindex="-1"><i class="fa fa-calendar-check-o"></i> {}</a>',
+            reverse("plugins:teamshifts:my_shifts"),
+            str(_("My shifts")),
+        )
+except ImportError:
+    pass
+
+
 @receiver(periodic_task, dispatch_uid="teamshifts_dispatch_scheduled_emails")
 @scopes_disabled()
 def dispatch_scheduled_emails(sender, **kwargs):

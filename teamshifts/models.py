@@ -361,7 +361,6 @@ class TeamApplicationQuestion(models.Model):
         verbose_name_plural = _("Application Questions")
         ordering = ["pk"]
 
-
     def get_options(self):
         """Return the options list for choice-style variants."""
         needs_options = (QuestionVariant.CHOICES, QuestionVariant.CHOICES_DROPDOWN, QuestionVariant.MULTIPLE)

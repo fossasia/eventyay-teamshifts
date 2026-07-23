@@ -148,8 +148,7 @@ class CFMApplicationFormView(PluginActiveMixin, EventPermissionRequiredMixin, Vi
             if q.pk not in present_pks:
                 order.append(q.pk)
 
-        # Remove 'role' from order if it is present from legacy data
-        order = [item for item in order if item != "role"]
+        # (Legacy 'role' removal from order has been moved to a database migration)
 
         label_map = {
             "full_name": _("Full name"),
@@ -760,7 +759,6 @@ class EmailComposeView(PluginActiveMixin, EventPermissionRequiredMixin, FormView
                     return initial
             initial["subject"] = source.subject
             initial["message"] = source.message
-            initial["role"] = source.role_filter_id or None
             initial["status"] = source.status_filter or ""
         return initial
 
@@ -776,12 +774,7 @@ class EmailComposeView(PluginActiveMixin, EventPermissionRequiredMixin, FormView
     def post(self, request, *args, **kwargs):
         if request.POST.get("action") == "preview":
             event = request.event
-            role_id = request.POST.get("role") or None
             status = request.POST.get("status") or ""
-            role = None
-            if role_id:
-                with scopes_disabled():
-                    role = TeamRole.objects.filter(pk=role_id, event=event).first()
             recipients = get_recipients(event, status=status)
             self._preview_recipients = recipients
             locales = list(event.settings.get("locales") or [event.settings.locale])
@@ -790,7 +783,6 @@ class EmailComposeView(PluginActiveMixin, EventPermissionRequiredMixin, FormView
             form = EmailComposeForm(
                 event=event,
                 initial={
-                    "role": role,
                     "status": status,
                     "subject": subject_i18n,
                     "message": message_i18n,
@@ -802,7 +794,6 @@ class EmailComposeView(PluginActiveMixin, EventPermissionRequiredMixin, FormView
 
     def form_valid(self, form):
         event = self.request.event
-        role = form.cleaned_data.get("role")
         status = form.cleaned_data.get("status") or ""
         send_after = form.cleaned_data.get("send_after")
 
@@ -823,7 +814,6 @@ class EmailComposeView(PluginActiveMixin, EventPermissionRequiredMixin, FormView
             message=form.cleaned_data["message"],
             recipients=recipients,
             user=self.request.user,
-            role_filter=role,
             status_filter=status,
             send_after=send_after,
             dispatch=(action != "draft"),

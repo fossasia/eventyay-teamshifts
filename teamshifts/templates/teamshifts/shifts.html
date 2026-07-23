@@ -17,6 +17,7 @@
             <tr>
                 <th>{% trans "Name" %}</th>
                 <th>{% trans "Location" %}</th>
+                <th>{% trans "Roles" %}</th>
                 <th>{% trans "Start" %}</th>
                 <th>{% trans "End" %}</th>
                 <th class="text-right">{% trans "Actions" %}</th>
@@ -25,8 +26,23 @@
             <tbody>
             {% for shift in shifts %}
                 <tr>
-                    <td>{{ shift.name|default:"-" }}</td>
+                    <td>
+                        {% if shift.name %}
+                            {{ shift.name }}
+                        {% else %}
+                            <span class="text-muted">{% trans "No Name" %}</span>
+                        {% endif %}
+                    </td>
                     <td>{{ shift.location.name }}</td>
+                    <td>
+                        {% for assignment in shift.role_assignments.all %}
+                            <span class="label label-info" style="display: inline-block; margin-bottom: 2px;">
+                                {{ assignment.role.name }} ({{ assignment.capacity }})
+                            </span><br>
+                        {% empty %}
+                            <span class="text-muted">-</span>
+                        {% endfor %}
+                    </td>
                     <td>{{ shift.start_time|date:"SHORT_DATETIME_FORMAT" }}</td>
                     <td>{{ shift.end_time|date:"SHORT_DATETIME_FORMAT" }}</td>
                     <td class="text-right">

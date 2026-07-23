@@ -1046,7 +1046,12 @@ class ShiftListView(PluginActiveMixin, EventPermissionRequiredMixin, TemplateVie
         ctx = super().get_context_data(**kwargs)
         event = self.request.event
         with scope(event=event):
-            ctx["shifts"] = list(Shift.objects.filter(event=event).select_related("location").order_by("start_time"))
+            ctx["shifts"] = list(
+                Shift.objects.filter(event=event)
+                .select_related("location")
+                .prefetch_related("role_assignments__role")
+                .order_by("start_time")
+            )
         return ctx
 
 

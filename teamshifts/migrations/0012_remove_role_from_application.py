@@ -33,9 +33,11 @@ def cleanup_legacy_order_role(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
+    atomic = False
+
     dependencies = [
         ("base", "0046_user_show_publicly_default_false"),
-        ("teamshifts", "0009_shift_location_text_and_more"),
+        ("teamshifts", "0011_teammemberapplication_arrived_and_more"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

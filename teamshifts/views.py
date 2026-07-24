@@ -8,6 +8,7 @@ from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.formats import date_format
+from django.utils.timezone import now
 from django.utils.translation import gettext_lazy as _, ngettext
 from django.views.generic import FormView, TemplateView, View
 from django_scopes import scope, scopes_disabled
@@ -538,7 +539,6 @@ class ApplicationListView(PluginActiveMixin, EventPermissionRequiredMixin, Templ
                         app_dynamic_values.append(app.availability_notes)
                     else:
                         app_dynamic_values.append(answers_dict.get(key, ""))
-
                 app.dynamic_values = app_dynamic_values
 
             ctx["applications"] = applications
@@ -575,6 +575,56 @@ class ApplicationStatusView(PluginActiveMixin, EventPermissionRequiredMixin, Vie
                 transaction.on_commit(lambda app=application: queue_lifecycle_email(app, EmailTemplateRoles.APPLICATION_REJECTED))
             else:
                 raise Http404
+        return redirect(reverse("plugins:teamshifts:applications", kwargs={"organizer": event.organizer.slug, "event": event.slug}))
+
+
+class BulkApplicationStatusView(PluginActiveMixin, EventPermissionRequiredMixin, View):
+    permission = "can_change_event_settings"
+
+    def post(self, request, *args, **kwargs):
+        event = request.event
+        with scope(event=event):
+            action = request.POST.get("action")
+            if action not in ("accept", "reject"):
+                raise Http404
+
+            app_ids = request.POST.getlist("application_ids")
+            if not app_ids:
+                messages.warning(request, _("No applications selected."))
+                return redirect(reverse("plugins:teamshifts:applications", kwargs={"organizer": event.organizer.slug, "event": event.slug}))
+
+            apps = list(
+                TeamMemberApplication.objects.filter(
+                    event=event,
+                    pk__in=app_ids,
+                    status=ApplicationStatus.PENDING,
+                ).select_related("user", "role")
+            )
+
+            if not apps:
+                messages.warning(request, _("None of the selected applications were in a pending state."))
+                return redirect(reverse("plugins:teamshifts:applications", kwargs={"organizer": event.organizer.slug, "event": event.slug}))
+
+            new_status = ApplicationStatus.ACCEPTED if action == "accept" else ApplicationStatus.REJECTED
+
+            TeamMemberApplication.objects.filter(
+                event=event,
+                pk__in=[a.pk for a in apps],
+                status=ApplicationStatus.PENDING,
+            ).update(status=new_status, updated_at=now())
+
+            for app in apps:
+                app.status = new_status
+
+            if action == "accept":
+                messages.success(request, _("%(count)d applications accepted and emails queued.") % {"count": len(apps)})
+                for app in apps:
+                    transaction.on_commit(lambda app=app: queue_lifecycle_email(app, EmailTemplateRoles.APPLICATION_ACCEPTED))
+            else:
+                messages.warning(request, _("%(count)d applications rejected and emails queued.") % {"count": len(apps)})
+                for app in apps:
+                    transaction.on_commit(lambda app=app: queue_lifecycle_email(app, EmailTemplateRoles.APPLICATION_REJECTED))
+
         return redirect(reverse("plugins:teamshifts:applications", kwargs={"organizer": event.organizer.slug, "event": event.slug}))
 
 

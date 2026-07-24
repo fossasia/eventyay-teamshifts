@@ -9,10 +9,12 @@
             <div class="navigation-title">
                 <h1>{% trans "Applications" %}</h1>
             </div>
+
         </div>
     </nav>
 
-    <form method="get" class="form-inline" style="margin-bottom: 1em;">
+    <div style="margin-bottom: 1em; overflow: hidden;">
+        <form method="get" class="form-inline pull-left">
         <div class="form-group">
             <input type="text" name="q" value="{{ search|default:'' }}" class="form-control" placeholder="{% trans 'Search by name or email' %}">
         </div>
@@ -34,12 +36,30 @@
         </div>
         <button type="submit" class="btn btn-default">{% trans "Filter" %}</button>
     </form>
+    
+    {% if applications %}
+        <div class="pull-right">
+            <button type="submit" form="bulk-action-form" name="action" value="accept" class="btn btn-success">
+                <span class="fa fa-check"></span> {% trans "Bulk Accept" %}
+            </button>
+            <button type="submit" form="bulk-action-form" name="action" value="reject" class="btn btn-danger">
+                <span class="fa fa-times"></span> {% trans "Bulk Reject" %}
+            </button>
+        </div>
+    {% endif %}
+    </div>
 
     {% if applications %}
+        <form method="post" action="{% url 'plugins:teamshifts:application_bulk_action' organizer=request.organizer.slug event=request.event.slug %}" id="bulk-action-form">
+            {% csrf_token %}
+        </form>
         <div class="table-responsive">
             <table class="table table-hover table-quotas">
                 <thead>
                     <tr>
+                        <th style="width: 40px; padding-right: 0;">
+                            <input type="checkbox" id="select-all" title="{% trans 'Select all' %}" aria-label="{% trans 'Select all' %}">
+                        </th>
                         {% for col in columns %}
                             <th>{{ col.label }}</th>
                         {% endfor %}
@@ -51,6 +71,9 @@
                 <tbody>
                     {% for app in applications %}
                         <tr>
+                            <td style="padding-right: 0;">
+                                <input type="checkbox" name="application_ids" value="{{ app.pk }}" form="bulk-action-form" class="app-checkbox" {% if app.status != 'pending' %}disabled{% endif %}>
+                            </td>
                             {% for val in app.dynamic_values %}
                                 <td>{{ val|default:"—" }}</td>
                             {% endfor %}
@@ -86,6 +109,20 @@
                 </tbody>
             </table>
         </div>
+
+        <script>
+            document.addEventListener("DOMContentLoaded", function() {
+                var selectAll = document.getElementById("select-all");
+                if (selectAll) {
+                    selectAll.addEventListener("change", function() {
+                        var checkboxes = document.querySelectorAll(".app-checkbox:not([disabled])");
+                        for (var i = 0; i < checkboxes.length; i++) {
+                            checkboxes[i].checked = this.checked;
+                        }
+                    });
+                }
+            });
+        </script>
     {% else %}
         <div class="empty-collection">
             <p>{% trans "No applications yet." %}</p>

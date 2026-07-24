@@ -33,9 +33,9 @@ class TeamRoleAdmin(admin.ModelAdmin):
 
 @admin.register(TeamMemberApplication)
 class TeamMemberApplicationAdmin(admin.ModelAdmin):
-    list_display = ("user", "role", "status", "created_at", "updated_at")
-    list_filter = ("status", "role__event__organizer")
-    search_fields = ("user__email", "role__name", "role__event__slug")
+    list_display = ("user", "status", "created_at", "updated_at")
+    list_filter = ("status",)
+    search_fields = ("user__email", "event__slug")
     readonly_fields = ("created_at", "updated_at")
 
 
@@ -63,10 +63,10 @@ class ShiftAssignmentAdmin(admin.ModelAdmin):
 
 @admin.register(TeamApplicationQuestion)
 class TeamApplicationQuestionAdmin(admin.ModelAdmin):
-    list_display = ("event", "role", "variant", "required", "active")
+    list_display = ("event", "variant", "required", "active")
     list_filter = ("variant", "required", "active", "event__organizer")
-    search_fields = ("event__slug", "role__name")
-    ordering = ("event", "role", "pk")
+    search_fields = ("event__slug",)
+    ordering = ("event", "pk")
 
 
 @admin.register(TeamApplicationAnswer)

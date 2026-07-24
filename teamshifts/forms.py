@@ -56,7 +56,7 @@ class CallForTeamMembersApplicationSettingsForm(forms.ModelForm):
 class TeamRoleForm(forms.ModelForm):
     class Meta:
         model = TeamRole
-        fields = ("name", "description")
+        fields = ("name", "description", "is_restricted")
         widgets = {
             "name": forms.TextInput(attrs={"class": "form-control"}),
             "description": forms.Textarea(attrs={"class": "form-control", "rows": 3}),
@@ -75,17 +75,9 @@ class TeamRoleForm(forms.ModelForm):
 
 
 class TeamApplicationQuestionForm(forms.ModelForm):
-    role = forms.ModelChoiceField(
-        queryset=TeamRole.objects.none(),
-        required=False,
-        empty_label=_("All roles"),
-        widget=forms.Select(attrs={"class": "form-control"}),
-        help_text=_("Pick a role to show this question for that role only, or leave blank for every role."),
-    )
-
     class Meta:
         model = TeamApplicationQuestion
-        fields = ("role", "question", "help_text", "variant", "required", "options", "active")
+        fields = ("question", "help_text", "variant", "required", "options", "active")
         widgets = {
             "options": forms.Textarea(
                 attrs={"class": "form-control", "rows": 3, "placeholder": _("One option per line")},
@@ -96,9 +88,6 @@ class TeamApplicationQuestionForm(forms.ModelForm):
     def __init__(self, *args, event=None, locales=None, **kwargs):
         super().__init__(*args, **kwargs)
         self._event = event
-        if event is not None:
-            with scopes_disabled():
-                self.fields["role"].queryset = TeamRole.objects.filter(event=event)
         if locales:
             for field_name in ("question", "help_text"):
                 self.fields[field_name].widget.enabled_locales = locales
@@ -124,7 +113,7 @@ class TeamApplicationQuestionForm(forms.ModelForm):
 class TeamMemberApplicationForm(forms.Form):
     QUESTION_FIELD_PREFIX = "question_"
 
-    def __init__(self, *args, event=None, user=None, applied_role_ids=(), cfm=None, **kwargs):
+    def __init__(self, *args, event=None, user=None, cfm=None, **kwargs):
         super().__init__(*args, **kwargs)
         self._event = event
         self._questions: list[TeamApplicationQuestion] = []
@@ -139,7 +128,6 @@ class TeamMemberApplicationForm(forms.Form):
             return
 
         with scopes_disabled():
-            role_qs = TeamRole.objects.filter(event=event).exclude(pk__in=applied_role_ids)
             self._questions = list(TeamApplicationQuestion.objects.filter(event=event, active=True).order_by("pk"))
 
         question_map: dict[int, TeamApplicationQuestion] = {q.pk: q for q in self._questions}
@@ -163,16 +151,7 @@ class TeamMemberApplicationForm(forms.Form):
                 required = ask_state == AskChoices.REQUIRED
                 self._field_order_keys.append(item)
 
-                if item == "role":
-                    field = forms.ModelChoiceField(
-                        queryset=role_qs,
-                        label=_("Role you are applying for"),
-                        required=True,
-                        empty_label=_("— Select a role —"),
-                        widget=forms.Select(attrs={"class": "form-control", "id": "id_role"}),
-                    )
-                    self.fields["role"] = field
-                elif item == "full_name":
+                if item == "full_name":
                     field = forms.CharField(
                         label=_("Full name"),
                         required=required,
@@ -214,13 +193,8 @@ class TeamMemberApplicationForm(forms.Form):
                     continue
                 self._field_order_keys.append(item)
                 field = self._build_field_for_question(question)
-                role_pk = str(question.role_id) if question.role_id else ""
-                field.widget.attrs["data-question-role"] = role_pk
-                field.widget.attrs["data_question_role"] = role_pk
                 field.widget.attrs["data-question-field"] = "1"
                 field.widget.attrs["data_question_field"] = "1"
-                if question.role_id:
-                    field.required = False
                 self.fields[self._field_name_for(question)] = field
 
     @staticmethod
@@ -288,27 +262,19 @@ class TeamMemberApplicationForm(forms.Form):
     def render_items(self):
         """Yield {field, is_question, role_id} for the template so it can wrap
         role-scoped custom question fields without needing dashed-attr lookup."""
-        question_map = {q.pk: q for q in self._questions}
         for name in self.fields:
             if name.startswith(self.QUESTION_FIELD_PREFIX):
                 try:
-                    pk = int(name[len(self.QUESTION_FIELD_PREFIX) :])
+                    int(name[len(self.QUESTION_FIELD_PREFIX) :])
                 except ValueError:
                     continue
-                question = question_map.get(pk)
-                role_id = str(question.role_id) if question and question.role_id else ""
-                yield {"field": self[name], "is_question": True, "role_id": role_id}
+                yield {"field": self[name], "is_question": True, "role_id": ""}
             else:
                 yield {"field": self[name], "is_question": False, "role_id": ""}
 
     def clean(self):
         cleaned = super().clean()
-        role = cleaned.get("role")
-        if role is None:
-            return cleaned
         for question in self._questions:
-            if question.role_id and question.role_id != role.pk:
-                continue
             if not question.required:
                 continue
             value = cleaned.get(self._field_name_for(question))
@@ -380,16 +346,6 @@ class EmailComposeForm(forms.Form):
             required=True,
             locales=locales,
             widget_kwargs={"attrs": {"rows": 10}},
-        )
-
-        with scopes_disabled():
-            role_qs = TeamRole.objects.filter(event=event)
-        self.fields["role"] = forms.ModelChoiceField(
-            queryset=role_qs,
-            required=False,
-            empty_label=_("All roles"),
-            label=_("Send to role"),
-            widget=forms.Select(attrs={"class": "form-control"}),
         )
 
         self.fields["status"] = forms.ChoiceField(

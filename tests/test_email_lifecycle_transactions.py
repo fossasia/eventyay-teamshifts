@@ -55,7 +55,6 @@ def test_apply_view_queues_received_email(mock_queue, client, event, call_for_te
     url = reverse("plugins:teamshifts:apply", kwargs={"organizer": event.organizer.slug, "event": event.slug})
 
     data = {
-        "role": team_role.pk,
         "full_name": "Applicant Name",
         "email": applicant.email,
         "phone": "+123456789",
@@ -84,7 +83,6 @@ def pending_application(event, team_role, applicant):
         return TeamMemberApplication.objects.create(
             event=event,
             user=applicant,
-            role=team_role,
             status=ApplicationStatus.PENDING,
         )
 

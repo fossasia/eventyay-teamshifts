@@ -33,7 +33,6 @@ def accepted_user(event, role, django_user_model):
         TeamMemberApplication.objects.create(
             event=event,
             user=u,
-            role=role,
             status=ApplicationStatus.ACCEPTED,
         )
     return u
@@ -51,7 +50,6 @@ def pending_user(event, role, django_user_model):
         TeamMemberApplication.objects.create(
             event=event,
             user=u,
-            role=role,
             status=ApplicationStatus.PENDING,
         )
     return u
@@ -60,7 +58,7 @@ def pending_user(event, role, django_user_model):
 @pytest.mark.django_db
 def test_get_recipients_returns_accepted_only(event, role, accepted_user, pending_user):
     """Default status filter returns only accepted applicants."""
-    users = get_recipients(event=event, role=role)
+    users = get_recipients(event=event)
     emails = {u.email for u in users}
     assert emails == {"accepted@example.com"}
 
@@ -68,7 +66,7 @@ def test_get_recipients_returns_accepted_only(event, role, accepted_user, pendin
 @pytest.mark.django_db
 def test_get_recipients_status_filter(event, role, accepted_user, pending_user):
     """Explicit status filter is honoured."""
-    users = get_recipients(event=event, role=role, status=ApplicationStatus.PENDING)
+    users = get_recipients(event=event, status=ApplicationStatus.PENDING)
     emails = {u.email for u in users}
     assert emails == {"pending@example.com"}
 
@@ -78,7 +76,7 @@ def test_get_recipients_no_scope_error(event, role, accepted_user):
     """Regression test: user_ids must be evaluated inside scope() so
     User.objects.filter(pk__in=...) does not trigger a ScopeError."""
     # If user_ids were a lazy QuerySet, this would raise ScopeError.
-    users = get_recipients(event=event, role=role)
+    users = get_recipients(event=event)
     assert len(users) == 1
 
 

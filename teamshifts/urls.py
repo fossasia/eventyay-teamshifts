@@ -68,6 +68,26 @@ urlpatterns = [
         name="location_delete",
     ),
     path(
+        "teamshifts/event/<orgslug:organizer>/<slug:event>/shifts/",
+        views.ShiftListView.as_view(),
+        name="shifts",
+    ),
+    path(
+        "teamshifts/event/<orgslug:organizer>/<slug:event>/shifts/add/",
+        views.ShiftCreateView.as_view(),
+        name="shift_create",
+    ),
+    path(
+        "teamshifts/event/<orgslug:organizer>/<slug:event>/shifts/<int:pk>/edit/",
+        views.ShiftUpdateView.as_view(),
+        name="shift_edit",
+    ),
+    path(
+        "teamshifts/event/<orgslug:organizer>/<slug:event>/shifts/<int:pk>/delete/",
+        views.ShiftDeleteView.as_view(),
+        name="shift_delete",
+    ),
+    path(
         "teamshifts/event/<orgslug:organizer>/<slug:event>/settings/questions/new/",
         views.QuestionEditView.as_view(),
         name="question_create",

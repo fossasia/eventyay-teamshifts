@@ -4,6 +4,7 @@ from .models import (
     CallForTeamMembers,
     Shift,
     ShiftAssignment,
+    ShiftRoleAssignment,
     TeamApplicationAnswer,
     TeamApplicationQuestion,
     TeamMemberApplication,
@@ -41,9 +42,16 @@ class TeamMemberApplicationAdmin(admin.ModelAdmin):
 
 @admin.register(Shift)
 class ShiftAdmin(admin.ModelAdmin):
-    list_display = ("name", "role", "event", "location", "start_time", "end_time", "capacity")
+    list_display = ("name", "event", "location", "start_time", "end_time")
+    list_filter = ("event__organizer",)
+    search_fields = ("name", "event__slug", "location__name", "location_text")
+
+
+@admin.register(ShiftRoleAssignment)
+class ShiftRoleAssignmentAdmin(admin.ModelAdmin):
+    list_display = ("shift", "role", "capacity")
     list_filter = ("role__event__organizer",)
-    search_fields = ("name", "role__name", "event__slug", "location")
+    search_fields = ("shift__name", "role__name")
 
 
 @admin.register(ShiftAssignment)

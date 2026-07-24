@@ -2,6 +2,7 @@ import datetime
 from unittest.mock import patch
 
 import pytest
+from django.core.cache import cache
 from django.utils.timezone import now
 from django_scopes import scope
 
@@ -13,6 +14,7 @@ from teamshifts.models import (
     TeamShiftsEmailQueueRecipient,
 )
 from teamshifts.services.email import get_recipients, queue_email
+from teamshifts.signals import dispatch_scheduled_emails
 
 
 @pytest.fixture
@@ -183,9 +185,7 @@ def test_dispatch_uses_delay_when_no_eta(event, accepted_user):
 
 @pytest.mark.django_db
 def test_dispatch_scheduled_emails_enqueues_due_queues(event):
-    """Periodic handler must call send_queued_email.delay() for each due queue."""
-    from teamshifts.signals import dispatch_scheduled_emails
-
+    cache.clear()
     past = now() - datetime.timedelta(minutes=5)
     with scope(event=event):
         q1 = TeamShiftsEmailQueue.objects.create(event=event, subject="s1", message="m", locale="en", send_after=past)

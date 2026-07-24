@@ -6,7 +6,7 @@ from django.utils.timezone import now
 from django_scopes import scope
 from eventyay.base.models import Event, Organizer, Team
 
-from teamshifts.models import Shift, ShiftLocation, TeamRole
+from teamshifts.models import Shift, ShiftLocation, ShiftRoleAssignment, TeamRole
 
 
 @pytest.fixture
@@ -127,13 +127,13 @@ def test_location_delete_success(orga_client, event, location):
 @pytest.mark.django_db
 def test_location_delete_blocked_when_in_use(orga_client, event, location, team_role):
     with scope(event=event):
-        Shift.objects.create(
+        shift = Shift.objects.create(
             event=event,
-            role=team_role,
             location=location,
             start_time=now(),
             end_time=now() + timedelta(hours=2),
         )
+        ShiftRoleAssignment.objects.create(shift=shift, role=team_role, capacity=1)
     url = reverse(
         "plugins:teamshifts:location_delete",
         kwargs={"organizer": event.organizer.slug, "event": event.slug, "pk": location.pk},

@@ -1,0 +1,145 @@
+{% extends "teamshifts/base.html" %}
+{% load i18n %}
+{% load bootstrap3 %}
+
+{% block content %}
+    <h1>{% trans "Edit Shift" %}</h1>
+    
+    {% if not has_locations %}
+        <div class="alert alert-warning">
+            {% trans "No locations defined yet, add locations first." %}
+            <br>
+            <a href="{% url 'plugins:teamshifts:location_create' organizer=request.event.organizer.slug event=request.event.slug %}" class="btn btn-warning" style="margin-top: 10px;">
+                {% trans "Add Location" %}
+            </a>
+        </div>
+    {% endif %}
+    
+    <form method="post" action="" class="form-horizontal">
+        {% csrf_token %}
+        <input type="hidden" name="mode" value="single">
+        
+        <div class="panel panel-default">
+            <div class="panel-heading">
+                <h3 class="panel-title">{% trans "Shift Details" %}</h3>
+            </div>
+            <div class="panel-body">
+                {% bootstrap_field form.name layout="horizontal" %}
+                {% bootstrap_field form.location layout="horizontal" %}
+                {% bootstrap_field form.start_time layout="horizontal" %}
+                {% bootstrap_field form.end_time layout="horizontal" %}
+                {% bootstrap_field form.description layout="horizontal" %}
+            </div>
+        </div>
+
+        <div class="panel panel-default">
+            <div class="panel-heading">
+                <h3 class="panel-title">{% trans "Roles Needed" %}</h3>
+            </div>
+            <div class="panel-body">
+                {{ formset.management_form }}
+                {% if formset.non_form_errors %}
+                    <div class="alert alert-danger">
+                        {{ formset.non_form_errors }}
+                    </div>
+                {% endif %}
+                <table class="table table-striped" id="roles-table">
+                    <thead>
+                        <tr>
+                            <th>{% trans "Role" %}</th>
+                            <th>{% trans "Capacity" %}</th>
+                            <th>{% trans "Remove" %}</th>
+                        </tr>
+                    </thead>
+                    <tbody id="roles-body">
+                        {% for form in formset %}
+                            <tr class="role-form-row">
+                                <td class="{% if form.role.errors %}has-error{% endif %}">
+                                    {{ form.id }}
+                                    {{ form.role }}
+                                    {% if form.role.errors %}
+                                        <div class="help-block">{{ form.role.errors|striptags }}</div>
+                                    {% endif %}
+                                </td>
+                                <td class="{% if form.capacity.errors %}has-error{% endif %}">
+                                    {{ form.capacity }}
+                                    {% if form.capacity.errors %}
+                                        <div class="help-block">{{ form.capacity.errors|striptags }}</div>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if form.instance.pk %}
+                                        {{ form.DELETE }}
+                                    {% else %}
+                                        <button type="button" class="btn btn-danger btn-sm remove-role-btn"><i class="fa fa-trash"></i></button>
+                                        <span class="delete-checkbox hidden">{{ form.DELETE }}</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                <button type="button" class="btn btn-success" id="add-role-btn">
+                    <i class="fa fa-plus"></i> {% trans "Add Role" %}
+                </button>
+            </div>
+        </div>
+        
+        <div class="form-group submit-group">
+            <button type="submit" class="btn btn-primary btn-save">
+                {% trans "Save" %}
+            </button>
+            <a href="{% url 'plugins:teamshifts:shifts' organizer=request.event.organizer.slug event=request.event.slug %}" class="btn btn-default">
+                {% trans "Cancel" %}
+            </a>
+        </div>
+    </form>
+    
+    <div id="empty-role-form" style="display: none;">
+        <tr class="role-form-row">
+            <td>
+                {{ formset.empty_form.role }}
+            </td>
+            <td>
+                {{ formset.empty_form.capacity }}
+            </td>
+            <td>
+                <button type="button" class="btn btn-danger btn-sm remove-role-btn"><i class="fa fa-trash"></i></button>
+                <span class="delete-checkbox hidden">{{ formset.empty_form.DELETE }}</span>
+            </td>
+        </tr>
+    </div>
+
+{% endblock %}
+
+{% block scripts %}
+    {{ block.super }}
+    <script>
+        $(function () {
+            // Add Role functionality
+            var $addRoleBtn = $('#add-role-btn');
+            var $rolesBody = $('#roles-body');
+            var $emptyFormTemplate = $('#empty-role-form tr').clone();
+            var totalFormsInput = $('#id_roles-TOTAL_FORMS');
+            
+            $addRoleBtn.on('click', function () {
+                var currentFormCount = parseInt(totalFormsInput.val(), 10);
+                var $newForm = $emptyFormTemplate.clone();
+                
+                $newForm.html($newForm.html().replace(/__prefix__/g, currentFormCount));
+                
+                $newForm.find('.remove-role-btn').on('click', function() {
+                    $(this).closest('tr').remove();
+                });
+                
+                $rolesBody.append($newForm);
+                totalFormsInput.val(currentFormCount + 1);
+            });
+            
+            // Remove Role functionality for non-saved forms
+            $('.remove-role-btn').on('click', function() {
+                $(this).closest('tr').remove();
+            });
+        });
+    </script>
+{% endblock %}

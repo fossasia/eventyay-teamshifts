@@ -1,6 +1,11 @@
+import logging
+
+from django.db.models.signals import post_migrate
 from django.utils.translation import gettext_lazy as _
 
 from . import __version__
+
+logger = logging.getLogger(__name__)
 
 try:
     from eventyay.base.plugins import PluginConfig
@@ -22,5 +27,23 @@ class TeamShiftsApp(PluginConfig):
         category = "FEATURE"
 
     def ready(self):
-        from . import signals  # NOQA
-        from . import tasks  # NOQA
+        from . import signals, tasks  # noqa: F401 — registers signal receivers and celery tasks
+
+        post_migrate.connect(self._ensure_beat_schedule, sender=self)
+
+    @staticmethod
+    def _ensure_beat_schedule(sender, **kwargs):
+        from django_celery_beat.models import IntervalSchedule, PeriodicTask
+
+        try:
+            schedule, _ = IntervalSchedule.objects.get_or_create(every=60, period=IntervalSchedule.SECONDS)
+            PeriodicTask.objects.update_or_create(
+                name="teamshifts-dispatch-scheduled-emails",
+                defaults={
+                    "task": "teamshifts.dispatch_scheduled_emails",
+                    "interval": schedule,
+                    "enabled": True,
+                },
+            )
+        except Exception:
+            logger.exception("[TeamShifts] Failed to register beat schedule for dispatch_scheduled_emails")

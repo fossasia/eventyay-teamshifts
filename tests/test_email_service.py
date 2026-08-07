@@ -142,24 +142,21 @@ def test_queue_email_send_after_persists(event, accepted_user):
 
 
 @pytest.mark.django_db
-def test_dispatch_uses_apply_async_when_eta_given(event, accepted_user):
-    """When send_after is provided, _dispatch must call apply_async with eta."""
+def test_dispatch_does_not_enqueue_when_eta_given(event, accepted_user):
+    """When send_after is provided, _dispatch returns early (periodic poller handles it)."""
     when = datetime.datetime(2099, 6, 1, tzinfo=datetime.UTC)
     with (
         patch("teamshifts.services.email.send_queued_email") as mock_task,
         patch("teamshifts.services.email.transaction.on_commit", side_effect=lambda fn: fn()),
     ):
-        queue = queue_email(
+        queue_email(
             event=event,
             subject="s",
             message="m",
             recipients=[accepted_user],
             send_after=when,
         )
-        mock_task.apply_async.assert_called_once()
-        _, kwargs = mock_task.apply_async.call_args
-        assert kwargs["eta"] == when
-        assert queue.pk in kwargs["args"]
+        mock_task.apply_async.assert_not_called()
         mock_task.delay.assert_not_called()
 
 
@@ -204,7 +201,7 @@ def test_dispatch_scheduled_emails_enqueues_due_queues(event):
             sent_at=now(),
         )
 
-    with patch("teamshifts.signals.send_queued_email") as mock_task:
+    with patch("teamshifts.tasks.send_queued_email") as mock_task:
         dispatch_scheduled_emails(sender=None)
 
     enqueued_queue_ids = {call.args[1] for call in mock_task.delay.call_args_list}

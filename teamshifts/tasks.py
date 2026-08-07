@@ -1,8 +1,10 @@
 import logging
 
 from celery.exceptions import MaxRetriesExceededError
+from django.core.cache import cache
+from django.db import transaction
 from django.utils.timezone import now
-from django_scopes import scope
+from django_scopes import scope, scopes_disabled
 from eventyay.base.email import get_email_context
 from eventyay.base.models import Event
 from eventyay.base.services.mail import SendMailException, mail
@@ -13,6 +15,30 @@ from i18nfield.strings import LazyI18nString
 from .models import TeamShiftsEmailQueue
 
 logger = logging.getLogger(__name__)
+
+SCHEDULED_EMAIL_BATCH_SIZE = 50
+
+
+@app.task(name="teamshifts.dispatch_scheduled_emails")
+def dispatch_scheduled_emails_task():
+    with scopes_disabled():
+        with transaction.atomic():
+            due = list(
+                TeamShiftsEmailQueue.objects.filter(
+                    send_after__isnull=False,
+                    send_after__lte=now(),
+                    sent_at__isnull=True,
+                )
+                .select_for_update(skip_locked=True)
+                .order_by("pk")
+                .values_list("pk", "event_id")[:SCHEDULED_EMAIL_BATCH_SIZE]
+            )
+
+    for queue_pk, event_id in due:
+        cache_key = f"teamshifts_mail_queue_{queue_pk}_enqueued"
+        if cache.add(cache_key, True, timeout=300):
+            send_queued_email.delay(event_id, queue_pk)
+            logger.info("[TeamShifts] Dispatched scheduled email queue %s", queue_pk)
 
 
 @app.task(
@@ -44,17 +70,7 @@ def send_queued_email(self, event_id: int, queue_id: int):
             if queue.sent_at:
                 return
             if queue.send_after and queue.send_after > now():
-                delay_seconds = max(int((queue.send_after - now()).total_seconds()), 1)
-                logger.info(
-                    "[TeamShifts] Queue %s not yet due (send_after=%s), rescheduling in %d seconds",
-                    queue_id,
-                    queue.send_after,
-                    delay_seconds,
-                )
-                send_queued_email.apply_async(
-                    args=[original_event_id, queue_id],
-                    countdown=delay_seconds,
-                )
+                logger.debug("[TeamShifts] Queue %s not yet due, skipping", queue_id)
                 return
             recipients = list(queue.recipients.select_related("user").all())
 

@@ -43,22 +43,15 @@ def queue(event, django_user_model):
 
 
 @pytest.mark.django_db
-def test_send_after_in_future_reschedules(event, queue):
-    """When send_after > now, task reschedules via apply_async and does not send."""
+def test_send_after_in_future_skips(event, queue):
+    """When send_after > now, task returns early without sending or rescheduling."""
     with scope(event=event):
         queue.send_after = now() + timedelta(hours=1)
         queue.save(update_fields=["send_after"])
 
-    with (
-        patch("teamshifts.tasks.mail") as mock_mail,
-        patch.object(send_queued_email, "apply_async") as mock_apply,
-    ):
+    with patch("teamshifts.tasks.mail") as mock_mail:
         send_queued_email.run(event_id=event.pk, queue_id=queue.pk)
 
-    mock_apply.assert_called_once()
-    _, kwargs = mock_apply.call_args
-    assert kwargs["args"] == [event.pk, queue.pk]
-    assert kwargs["countdown"] >= 1
     mock_mail.assert_not_called()
 
 

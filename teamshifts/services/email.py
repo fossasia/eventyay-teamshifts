@@ -77,9 +77,8 @@ def queue_email(
 
 def _dispatch(event_id: int, queue_id: int, eta=None) -> None:
     if eta is not None:
-        transaction.on_commit(lambda: send_queued_email.apply_async(args=[event_id, queue_id], eta=eta))
-    else:
-        transaction.on_commit(lambda: send_queued_email.delay(event_id, queue_id))
+        return
+    transaction.on_commit(lambda: send_queued_email.delay(event_id, queue_id))
 
 
 def queue_lifecycle_email(application, role: str) -> TeamShiftsEmailQueue | None:

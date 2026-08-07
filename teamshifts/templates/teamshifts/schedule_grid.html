@@ -1,0 +1,27 @@
+{% extends "teamshifts/base.html" %}
+
+{% load compress %}
+{% load event_tags %}
+{% load i18n %}
+{% load phrases %}
+{% load static %}
+{% load vite %}
+
+{% block custom_header %}
+    {{ block.super }}
+    {% vite_hmr %}
+    {% vite_asset "src/main.ts" %}
+{% endblock %}
+
+{% block title %}{% trans "Shift Schedule" %} :: {{ request.event.name }}{% endblock %}
+
+{% block content %}
+    <h1>
+        {% trans "Shift Schedule" %}
+        <a href="{% url 'plugins:teamshifts:shift_create' organizer=request.event.organizer.slug event=request.event.slug %}" class="btn btn-primary pull-right">
+            <i class="fa fa-plus"></i> {% trans "Create Shift" %}
+        </a>
+    </h1>
+
+    <div id="app" data-gettext="{{ gettext_language }}" data-mode="shifts" data-csrf-token="{{ csrf_token }}"></div>
+{% endblock %}

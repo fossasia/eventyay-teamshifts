@@ -305,6 +305,13 @@ class ShiftAssignment(models.Model):
         on_delete=models.CASCADE,
         related_name="shift_assignments",
     )
+    role = models.ForeignKey(
+        TeamRole,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="member_assignments",
+    )
     assigned_by = models.ForeignKey(
         "base.User",
         on_delete=models.SET_NULL,

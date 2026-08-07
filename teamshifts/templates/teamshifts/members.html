@@ -61,7 +61,21 @@
                         {% if can_view_email %}
                             <td>{{ member.user.email }}</td>
                         {% endif %}
-                        <td>{{ member.role.name|default:"-" }}</td>
+                        <td>
+                            {% if member.user.event_assignments %}
+                                {% for assignment in member.user.event_assignments %}
+                                    {% if assignment.role %}
+                                        {% ifchanged assignment.role.id %}
+                                            <span class="label label-default">{{ assignment.role.name }}</span>
+                                        {% endifchanged %}
+                                    {% endif %}
+                                {% endfor %}
+                            {% elif member.role %}
+                                {{ member.role.name }}
+                            {% else %}
+                                -
+                            {% endif %}
+                        </td>
                         <td>{{ member.shifts_assigned }}</td>
                         <td>
                             {% if member.hours_scheduled %}

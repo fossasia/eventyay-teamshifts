@@ -879,6 +879,21 @@ class EmailComposeView(PluginActiveMixin, EventPermissionRequiredMixin, FormView
                 )
                 % {"count": len(recipients)},
             )
+        elif action == "send":
+            messages.success(
+                self.request,
+                ngettext(
+                    "Email sent to %(count)d recipient.",
+                    "Email sent to %(count)d recipients.",
+                    len(recipients),
+                )
+                % {"count": len(recipients)},
+            )
+            return redirect(
+                "plugins:teamshifts:email_sent",
+                organizer=self.request.organizer.slug,
+                event=event.slug,
+            )
         else:
             messages.success(
                 self.request,
@@ -889,6 +904,7 @@ class EmailComposeView(PluginActiveMixin, EventPermissionRequiredMixin, FormView
                 )
                 % {"count": len(recipients)},
             )
+
         return redirect(
             "plugins:teamshifts:email_outbox",
             organizer=self.request.organizer.slug,

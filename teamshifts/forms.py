@@ -389,8 +389,6 @@ class EmailComposeForm(forms.Form):
             ),
             input_formats=["%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"],
         )
-        if self._event:
-            self.fields["send_after"].initial = format_datetime_local(get_event_local_now(self._event))
 
 
 class EmailQueueEditForm(forms.ModelForm):
@@ -414,8 +412,6 @@ class EmailQueueEditForm(forms.ModelForm):
             locales = list(event.settings.get("locales") or [event.settings.locale])
             for field_name in ("subject", "message"):
                 self.fields[field_name].widget.enabled_locales = locales
-            if not self.instance.pk or not self.instance.send_after:
-                self.fields["send_after"].initial = format_datetime_local(get_event_local_now(event))
         self.fields["send_after"].input_formats = [
             "%Y-%m-%dT%H:%M",
             "%Y-%m-%d %H:%M:%S",

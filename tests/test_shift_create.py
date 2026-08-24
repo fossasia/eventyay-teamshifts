@@ -127,6 +127,33 @@ def test_shift_create_repeating_rejects_more_than_cap(orga_client, event, locati
 
 
 @pytest.mark.django_db
+def test_shift_create_repeating_allows_exactly_cap(orga_client, event, location, team_role):
+    url = reverse("plugins:teamshifts:shift_create", kwargs={"organizer": event.organizer.slug, "event": event.slug})
+    start = now() + timedelta(days=1)
+    end = start + timedelta(hours=50)  # 50 one-hour shifts
+
+    data = {
+        "mode": "repeating",
+        "name": "At cap",
+        "location": location.pk,
+        "start_time": start.strftime("%Y-%m-%dT%H:%M"),
+        "end_time": end.strftime("%Y-%m-%dT%H:%M"),
+        "shift_length_minutes": "60",
+        "roles-TOTAL_FORMS": "1",
+        "roles-INITIAL_FORMS": "0",
+        "roles-MIN_NUM_FORMS": "0",
+        "roles-MAX_NUM_FORMS": "1000",
+        "roles-0-role": team_role.pk,
+        "roles-0-capacity": "1",
+    }
+
+    response = orga_client.post(url, data)
+    assert response.status_code == 302
+    with scope(event=event):
+        assert Shift.objects.count() == 50
+
+
+@pytest.mark.django_db
 def test_shift_create_repeating_invalid_remainder(orga_client, event, location, team_role):
     url = reverse("plugins:teamshifts:shift_create", kwargs={"organizer": event.organizer.slug, "event": event.slug})
     start = now() + timedelta(days=1)

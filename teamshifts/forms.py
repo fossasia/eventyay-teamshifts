@@ -519,6 +519,9 @@ class ShiftLocationForm(forms.ModelForm):
         return cleaned_data
 
 
+MAX_REPEATING_SHIFTS_PER_ACTION = 50
+
+
 class ShiftForm(forms.ModelForm):
     mode = forms.ChoiceField(
         choices=[("single", _("Single shift")), ("repeating", _("Repeating shifts"))],
@@ -589,6 +592,14 @@ class ShiftForm(forms.ModelForm):
                 duration_seconds = int((end_time - start_time).total_seconds())
                 if duration_seconds % (shift_length * 60) != 0:
                     self.add_error("shift_length_minutes", _("The shift length must divide evenly into the total duration between start and end time."))
+                else:
+                    count = duration_seconds // (shift_length * 60)
+                    if count > MAX_REPEATING_SHIFTS_PER_ACTION:
+                        self.add_error(
+                            "shift_length_minutes",
+                            _("The maximum allowed is %(max)d per action. Please adjust the interval or date range.")
+                            % {"max": MAX_REPEATING_SHIFTS_PER_ACTION},
+                        )
         return cleaned_data
 
 

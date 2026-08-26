@@ -1380,7 +1380,7 @@ class ShiftListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Pagina
     def get_queryset(self):
         event = self.request.event
         with scope(event=event):
-            return Shift.objects.filter(event=event).select_related("location").prefetch_related("role_assignments__role").order_by("start_time")
+            return Shift.objects.filter(event=event).select_related("location").prefetch_related("role_assignments__role").order_by("start_time", "pk")
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)

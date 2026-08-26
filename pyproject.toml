@@ -64,11 +64,11 @@ testpaths = ["tests"]
 
 [tool.pytest_env]
 EVY_RUNNING_ENVIRONMENT = "testing"
-EVY_POSTGRES_HOST = "eventyay-next-db"
+EVY_POSTGRES_HOST = "localhost"
 EVY_POSTGRES_PORT = "5432"
-EVY_POSTGRES_USER = "eventyay_dev_user"
-EVY_POSTGRES_PASSWORD = "eventyay_dev_pass"
-EVY_POSTGRES_DB = "eventyay_dev"
+EVY_POSTGRES_USER = "postgres"
+EVY_POSTGRES_PASSWORD = "postgres"
+EVY_POSTGRES_DB = "eventyay"
 
 [tool.ruff]
 line-length = 160

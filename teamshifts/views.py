@@ -1370,16 +1370,73 @@ class ShiftLocationDeleteView(PluginActiveMixin, TeamShiftsPermissionRequiredMix
         return redirect("plugins:teamshifts:locations", organizer=request.organizer.slug, event=request.event.slug)
 
 
-class ShiftListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, TemplateView):
+class ShiftListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, PaginationMixin, ListView):
     permission = "can_teamshifts_create_shifts"
     template_name = "teamshifts/shifts.html"
+    context_object_name = "shifts"
+    paginate_by = 50
+    DEFAULT_PAGINATION = 50
+
+    def get_queryset(self):
+        event = self.request.event
+        with scope(event=event):
+            return Shift.objects.filter(event=event).select_related("location").prefetch_related("role_assignments__role").order_by("start_time")
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         event = self.request.event
         with scope(event=event):
-            ctx["shifts"] = list(Shift.objects.filter(event=event).select_related("location").prefetch_related("role_assignments__role").order_by("start_time"))
+            ctx["total_shift_count"] = Shift.objects.filter(event=event).count()
+        ctx["can_manage_shifts"] = has_teamshifts_permission(
+            self.request.user, self.request.organizer, event, "can_teamshifts_create_shifts", request=self.request
+        )
         return ctx
+
+
+class BulkShiftDeleteView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):
+    permission = "can_teamshifts_create_shifts"
+
+    def post(self, request, *args, **kwargs):
+        event = request.event
+        with scope(event=event):
+            shift_ids = request.POST.getlist("shift_ids")
+            if not shift_ids:
+                messages.warning(request, _("No shifts selected."))
+                return redirect(
+                    reverse(
+                        "plugins:teamshifts:shifts",
+                        kwargs={"organizer": event.organizer.slug, "event": event.slug},
+                    )
+                )
+
+            with transaction.atomic():
+                shifts = Shift.objects.filter(event=event, pk__in=shift_ids)
+                count = shifts.count()
+                if count == 0:
+                    messages.warning(request, _("No shifts selected."))
+                    return redirect(
+                        reverse(
+                            "plugins:teamshifts:shifts",
+                            kwargs={"organizer": event.organizer.slug, "event": event.slug},
+                        )
+                    )
+                shifts.delete()
+
+            messages.success(
+                request,
+                ngettext(
+                    "%(count)d shift deleted.",
+                    "%(count)d shifts deleted.",
+                    count,
+                )
+                % {"count": count},
+            )
+            return redirect(
+                reverse(
+                    "plugins:teamshifts:shifts",
+                    kwargs={"organizer": event.organizer.slug, "event": event.slug},
+                )
+            )
 
 
 class ShiftCreateView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, TemplateView):

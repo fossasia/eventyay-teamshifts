@@ -1,22 +1,50 @@
 {% extends "teamshifts/base.html" %}
 {% load i18n %}
+{% load static %}
+
+{% block custom_header %}
+    {{ block.super }}
+    <script type="module" src="{% static 'teamshifts/shifts.js' %}"></script>
+{% endblock %}
 
 {% block title %}{% trans "Shifts" %} :: {{ request.event.name }}{% endblock %}
 
 {% block teamshifts_header %}
-  <h1>{% trans "Shifts" %}</h1>
+  <h1>
+    {% trans "Shifts" %}
+    {% if total_shift_count is not None %}
+      <span class="badge">{{ total_shift_count }}</span>
+    {% endif %}
+  </h1>
 {% endblock %}
 
 {% block teamshifts_content %}
-  <p class="text-right">
-    <a href="{% url 'plugins:teamshifts:shift_create' organizer=request.event.organizer.slug event=request.event.slug %}" class="btn btn-primary">
-      <i class="fa fa-plus"></i> {% trans "Create Shift" %}
-    </a>
-  </p>
-  <div class="table-responsive">
+  <div class="teamshifts-filter-bar clearfix">
+    <div class="pull-right">
+      {% if shifts and can_manage_shifts %}
+        <button type="submit" form="bulk-action-form" class="btn btn-danger teamshifts-bulk-delete-btn">
+          <span class="fa fa-trash"></span> {% trans "Delete selected" %}
+        </button>
+      {% endif %}
+      <a href="{% url 'plugins:teamshifts:shift_create' organizer=request.event.organizer.slug event=request.event.slug %}" class="btn btn-primary">
+        <i class="fa fa-plus"></i> {% trans "Create Shift" %}
+      </a>
+    </div>
+  </div>
+
+  {% if shifts %}
+    <form method="post" action="{% url 'plugins:teamshifts:shift_bulk_delete' organizer=request.organizer.slug event=request.event.slug %}" id="bulk-action-form">
+      {% csrf_token %}
+    </form>
+    <div class="table-responsive">
         <table class="table table-hover table-striped">
             <thead>
             <tr>
+                <th class="teamshifts-select-all-col">
+                    {% if can_manage_shifts %}
+                    <input type="checkbox" id="select-all" title="{% trans 'Select all' %}" aria-label="{% trans 'Select all' %}">
+                    {% endif %}
+                </th>
                 <th>{% trans "Name" %}</th>
                 <th>{% trans "Location" %}</th>
                 <th>{% trans "Roles" %}</th>
@@ -28,6 +56,11 @@
             <tbody>
             {% for shift in shifts %}
                 <tr>
+                    <td class="teamshifts-checkbox-cell">
+                        {% if can_manage_shifts %}
+                        <input type="checkbox" name="shift_ids" value="{{ shift.pk }}" form="bulk-action-form" class="shift-checkbox" aria-label="{% trans 'Select shift' %}">
+                        {% endif %}
+                    </td>
                     <td>
                         {% if shift.name %}
                             {{ shift.name }}
@@ -58,10 +91,16 @@
                 </tr>
             {% empty %}
                 <tr>
-                    <td colspan="5" class="text-center">{% trans "No shifts created yet." %}</td>
+                    <td colspan="7" class="text-center">{% trans "No shifts created yet." %}</td>
                 </tr>
             {% endfor %}
             </tbody>
         </table>
     </div>
+    {% include "pretixcontrol/pagination.html" %}
+  {% else %}
+    <div class="empty-collection">
+        <p>{% trans "No shifts created yet." %}</p>
+    </div>
+  {% endif %}
 {% endblock %}

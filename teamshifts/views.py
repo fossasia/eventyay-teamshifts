@@ -1399,7 +1399,7 @@ class BulkShiftDeleteView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, 
     def post(self, request, *args, **kwargs):
         event = request.event
         with scope(event=event):
-            shift_ids = request.POST.getlist("shift_ids")
+            shift_ids = [int(v) for v in request.POST.getlist("shift_ids") if str(v).strip().isdigit()]
             if not shift_ids:
                 messages.warning(request, _("No shifts selected."))
                 return redirect(

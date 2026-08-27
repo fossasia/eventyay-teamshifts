@@ -164,3 +164,22 @@ def test_shifts_list_pagination(orga_client, event, location):
     assert len(response.context["shifts"]) == 50
     assert response.context["is_paginated"] is True
     assert response.context["total_shift_count"] == 55
+
+
+@pytest.mark.django_db
+def test_bulk_delete_invalid_shift_ids_are_ignored(orga_client, event, shifts):
+    """Non-integer shift_id values must not cause a 500 error; they should be
+    treated as if no valid IDs were submitted, triggering the "no selection" path."""
+    url = reverse(
+        "plugins:teamshifts:shift_bulk_delete",
+        kwargs={"organizer": event.organizer.slug, "event": event.slug},
+    )
+    # Mix of non-integers that would cause ValueError if fed directly to pk__in
+    response = orga_client.post(url, {"shift_ids": ["abc", "", "1.5", "<script>"]}, follow=True)
+
+    # Must not 500; page renders after redirect
+    assert response.status_code == 200
+
+    # All shifts must remain untouched
+    with scope(event=event):
+        assert Shift.objects.filter(event=event).count() == 5

@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("teamshifts", "0017_cfm_private_secret_link"),
+        ("teamshifts", "0018_cfm_shift_schedule_published"),
     ]
 
     operations = [

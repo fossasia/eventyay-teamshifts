@@ -12,8 +12,8 @@
 {% block teamshifts_header %}
   <h1>
     {% trans "Shifts" %}
-    {% if total_shift_count is not None %}
-      <span class="badge">{{ total_shift_count }}</span>
+    {% if page_obj.paginator.count is not None %}
+      <span class="badge">{{ page_obj.paginator.count }}</span>
     {% endif %}
   </h1>
 {% endblock %}
@@ -88,10 +88,6 @@
                             <i class="fa fa-trash"></i>
                         </a>
                     </td>
-                </tr>
-            {% empty %}
-                <tr>
-                    <td colspan="7" class="text-center">{% trans "No shifts created yet." %}</td>
                 </tr>
             {% endfor %}
             </tbody>

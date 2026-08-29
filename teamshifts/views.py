@@ -1374,7 +1374,6 @@ class ShiftListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Pagina
     permission = "can_teamshifts_create_shifts"
     template_name = "teamshifts/shifts.html"
     context_object_name = "shifts"
-    paginate_by = 50
     DEFAULT_PAGINATION = 50
 
     def get_queryset(self):
@@ -1384,11 +1383,8 @@ class ShiftListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Pagina
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
-        event = self.request.event
-        with scope(event=event):
-            ctx["total_shift_count"] = Shift.objects.filter(event=event).count()
         ctx["can_manage_shifts"] = has_teamshifts_permission(
-            self.request.user, self.request.organizer, event, "can_teamshifts_create_shifts", request=self.request
+            self.request.user, self.request.organizer, self.request.event, "can_teamshifts_create_shifts", request=self.request
         )
         return ctx
 

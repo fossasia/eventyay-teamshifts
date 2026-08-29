@@ -163,7 +163,7 @@ def test_shifts_list_pagination(orga_client, event, location):
     assert response.status_code == 200
     assert len(response.context["shifts"]) == 50
     assert response.context["is_paginated"] is True
-    assert response.context["total_shift_count"] == 55
+    assert response.context["page_obj"].paginator.count == 55
 
 
 @pytest.mark.django_db

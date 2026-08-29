@@ -1383,8 +1383,9 @@ class ShiftListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Pagina
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
+        event = self.request.event
         ctx["can_manage_shifts"] = has_teamshifts_permission(
-            self.request.user, self.request.organizer, self.request.event, "can_teamshifts_create_shifts", request=self.request
+            self.request.user, self.request.organizer, event, "can_teamshifts_create_shifts", request=self.request
         )
         return ctx
 

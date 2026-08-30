@@ -106,6 +106,16 @@ label .optional {
     padding-right: 0;
 }
 
+.teamshifts-selected-count {
+    margin: 0 0 6px 0;
+    color: #555;
+    font-size: 13px;
+}
+
+.teamshifts-dialog-cancel-hidden {
+    display: none !important;
+}
+
 .teamshifts-detail-header-container {
     margin-bottom: 20px;
 }

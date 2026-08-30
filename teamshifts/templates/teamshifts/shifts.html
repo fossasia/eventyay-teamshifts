@@ -10,12 +10,7 @@
 {% block title %}{% trans "Shifts" %} :: {{ request.event.name }}{% endblock %}
 
 {% block teamshifts_header %}
-  <h1>
-    {% trans "Shifts" %}
-    {% if page_obj.paginator.count is not None %}
-      <span class="badge">{{ page_obj.paginator.count }}</span>
-    {% endif %}
-  </h1>
+  <h1>{% trans "Shifts" %}</h1>
 {% endblock %}
 
 {% block teamshifts_content %}
@@ -36,6 +31,9 @@
     <form method="post" action="{% url 'plugins:teamshifts:shift_bulk_delete' organizer=request.organizer.slug event=request.event.slug %}" id="bulk-action-form">
       {% csrf_token %}
     </form>
+    {% if can_manage_shifts %}
+      <p class="teamshifts-selected-count text-muted" data-shift-selected-count hidden></p>
+    {% endif %}
     <div class="table-responsive">
         <table class="table table-hover table-striped">
             <thead>
@@ -99,4 +97,11 @@
         <p>{% trans "No shifts created yet." %}</p>
     </div>
   {% endif %}
+
+  <div data-teamshifts-shifts-i18n
+       data-confirm-title="{% trans 'Please confirm' %}"
+       data-ok-label="{% trans 'OK' %}"
+       data-select-one="{% trans 'Please select at least one shift.' %}"
+       data-selected="{% trans 'selected' %}"
+       hidden></div>
 {% endblock %}

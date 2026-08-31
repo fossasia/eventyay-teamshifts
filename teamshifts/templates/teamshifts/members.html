@@ -1,123 +1,172 @@
-{% extends "teamshifts/base.html" %}
+{% extends 'teamshifts/base.html' %}
 {% load i18n %}
 {% load bootstrap3 %}
 {% load static %}
 
 {% block custom_header %}
-    {{ block.super }}
-    <script type="module" src="{% static 'teamshifts/members.js' %}"></script>
+  {{ block.super }}
+  <script type='module' src='{% static "teamshifts/members.js" %}'></script>
 {% endblock %}
-{% block title %}{% trans "Members" %} :: {{ request.event.name }}{% endblock %}
+{% block title %}{% trans 'Members' %} :: {{ request.event.name }}{% endblock %}
 
 {% block teamshifts_header %}
-        <h1>{% trans "Members" %}</h1>
+  <h1>{% trans 'Members' %}</h1>
 {% endblock %}
 
 {% block teamshifts_content %}
-    <div class="teamshifts-filter-bar clearfix">
-        <form method="get" class="form-inline pull-left">
-            <div class="form-group">
-                <input type="text" name="q" value="{{ request.GET.q|default:'' }}" class="form-control" placeholder="{% trans 'Search by name or email' %}">
-            </div>
-            <div class="form-group">
-                <select name="role" class="form-control">
-                    <option value="">{% trans "All roles" %}</option>
-                    {% for r in roles %}
-                        <option value="{{ r.pk }}" {% if request.GET.role == r.pk|stringformat:'s' %}selected{% endif %}>{{ r.name }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-            <button type="submit" class="btn btn-default">{% trans "Filter" %}</button>
-        </form>
+  <div class='teamshifts-filter-bar clearfix'>
+    <form method='get' class='form-inline pull-left'>
+      <div class='form-group'>
+        <input type='text' name='q' value='{{ request.GET.q|default:"" }}' class='form-control' placeholder='{% trans "Search by name or email" %}'>
+      </div>
+      <div class='form-group'>
+        <select name='role' class='form-control'>
+          <option value=''>{% trans 'All roles' %}</option>
+          {% for r in roles %}
+            <option value='{{ r.pk }}' {% if request.GET.role == r.pk|stringformat:'s' %}selected{% endif %}>{{ r.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <button type='submit' class='btn btn-default'>{% trans 'Filter' %}</button>
+    </form>
 
-        {% if can_add_member %}
-            <div class="pull-right">
-                <a href="{% url 'plugins:teamshifts:member_add' organizer=request.organizer.slug event=request.event.slug %}" class="btn btn-primary">
-                    <i class="fa fa-plus"></i> {% trans "Add member" %}
-                </a>
-            </div>
-        {% endif %}
-    </div>
-
-    {% if members %}
-        <div class="table-responsive">
-            <table class="table table-hover table-quotas">
-            <thead>
-                <tr>
-                    <th>{% trans "Name" %}</th>
-                    {% if can_view_email %}
-                        <th>{% trans "Email" %}</th>
-                    {% endif %}
-                    <th>{% trans "Role" %}</th>
-                    <th>{% trans "Shifts assigned" %}</th>
-                    <th>{% trans "Hours scheduled" %}</th>
-                    <th>{% trans "Arrived" %}</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for member in members %}
-                    <tr>
-                        <td>
-                            <strong>
-                                <a href="{% url 'plugins:teamshifts:application_detail' organizer=request.organizer.slug event=request.event.slug pk=member.pk %}">
-                                    {{ member.user.fullname|default:member.user.email }}
-                                </a>
-                            </strong>
-                        </td>
-                        {% if can_view_email %}
-                            <td>{{ member.user.email }}</td>
-                        {% endif %}
-                        <td>
-                            {% if member.user.event_assignments %}
-                                {% for assignment in member.user.event_assignments %}
-                                    {% if assignment.role %}
-                                        {% ifchanged assignment.role.id %}
-                                            <span class="label label-default">{{ assignment.role.name }}</span>
-                                        {% endifchanged %}
-                                    {% endif %}
-                                {% endfor %}
-                            {% elif member.role %}
-                                {{ member.role.name }}
-                            {% else %}
-                                -
-                            {% endif %}
-                        </td>
-                        <td>{{ member.shifts_assigned }}</td>
-                        <td>
-                            {% if member.hours_scheduled %}
-                                {{ member.hours_scheduled }}
-                            {% else %}
-                                -
-                            {% endif %}
-                        </td>
-                        <td>
-                            <form method="post" action="{% url 'plugins:teamshifts:member_toggle_arrived' organizer=request.organizer.slug event=request.event.slug pk=member.pk %}" class="toggle-arrived-form">
-                                {% csrf_token %}
-                                <button type="submit" class="btn btn-sm {% if member.arrived %}btn-success{% else %}btn-default{% endif %}">
-                                    {% if member.arrived %}
-                                        <i class="fa fa-check"></i> {% trans "Arrived" %}
-                                    {% else %}
-                                        <i class="fa fa-times"></i> {% trans "Not arrived" %}
-                                    {% endif %}
-                                </button>
-                            </form>
-                        </td>
-                    </tr>
-                {% endfor %}
-            </tbody>
-            </table>
-        </div>
-        {% include "pretixcontrol/pagination.html" %}
-    {% else %}
-        <div class="empty-collection">
-            <p>
-                {% trans "No team members found." %}
-            </p>
-            {% if can_add_member %}
-                <a href="{% url 'plugins:teamshifts:member_add' organizer=request.organizer.slug event=request.event.slug %}" class="btn btn-primary btn-lg">
-                    <i class="fa fa-plus"></i> {% trans "Add member" %}
-                </a>
-            {% endif %}
-        </div>
+    {% if can_add_member %}
+      <div class='pull-right'>
+        <a href='{% url "plugins:teamshifts:member_add" organizer=request.organizer.slug event=request.event.slug %}' class='btn btn-primary'>
+          <i class='fa fa-plus'></i> {% trans 'Add member' %}
+        </a>
+      </div>
     {% endif %}
+  </div>
+
+  {% if members %}
+    <form method='post' action='{% url "plugins:teamshifts:bulk_send_vouchers" organizer=request.organizer.slug event=request.event.slug %}' id='bulk-voucher-form'>
+      {% csrf_token %}
+
+      {% if vouchers_enabled %}
+        <div class='bulk-action-bar' id='bulk-action-bar' style='display:none;'>
+          <span id='selected-count'>0</span> {% trans 'selected' %} —
+          {% if voucher_batch_empty %}
+            <button type='submit' class='btn btn-sm btn-warning' disabled title='{% trans "Voucher batch is empty. Add more codes in Tickets → Vouchers." %}'>
+              <i class='fa fa-ticket'></i> {% trans 'Send voucher' %}
+            </button>
+          {% else %}
+            <button type='submit' class='btn btn-sm btn-success'>
+              <i class='fa fa-ticket'></i> {% trans 'Send voucher' %}
+            </button>
+          {% endif %}
+        </div>
+      {% endif %}
+
+      <div class='table-responsive'>
+        <table class='table table-hover table-quotas'>
+          <thead>
+            <tr>
+              {% if vouchers_enabled %}
+                <th class='checkbox-column'>
+                  <input type='checkbox' id='select-all' title='{% trans "Select all" %}'>
+                </th>
+              {% endif %}
+              <th>{% trans 'Name' %}</th>
+              {% if can_view_email %}
+                <th>{% trans 'Email' %}</th>
+              {% endif %}
+              <th>{% trans 'Role' %}</th>
+              <th>{% trans 'Shifts assigned' %}</th>
+              <th>{% trans 'Hours scheduled' %}</th>
+              {% if vouchers_enabled %}
+                <th>{% trans 'Voucher' %}</th>
+              {% endif %}
+              <th>{% trans 'Arrived' %}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for member in members %}
+              <tr>
+                {% if vouchers_enabled %}
+                  <td class='checkbox-column'>
+                    <input type='checkbox' name='member_ids' value='{{ member.pk }}' class='member-checkbox'>
+                  </td>
+                {% endif %}
+                <td>
+                  <strong>
+                    <a href='{% url "plugins:teamshifts:application_detail" organizer=request.organizer.slug event=request.event.slug pk=member.pk %}'>
+                      {{ member.user.fullname|default:member.user.email }}
+                    </a>
+                  </strong>
+                </td>
+                {% if can_view_email %}
+                  <td>{{ member.user.email }}</td>
+                {% endif %}
+                <td>
+                  {% if member.user.event_assignments %}
+                    {% for assignment in member.user.event_assignments %}
+                      {% if assignment.role %}
+                        {% ifchanged assignment.role.id %}
+                          <span class='label label-default'>{{ assignment.role.name }}</span>
+                        {% endifchanged %}
+                      {% endif %}
+                    {% endfor %}
+                  {% elif member.role %}
+                    {{ member.role.name }}
+                  {% else %}
+                    -
+                  {% endif %}
+                </td>
+                <td>{{ member.shifts_assigned }}</td>
+                <td>
+                  {% if member.hours_scheduled %}
+                    {{ member.hours_scheduled }}
+                  {% else %}
+                    -
+                  {% endif %}
+                </td>
+                {% if vouchers_enabled %}
+                  <td>
+                    {% with va=member.voucher_assignment %}
+                      {% if va %}
+                        {% if va.status == 'claimed' %}
+                          <span class='label label-success'>{% trans 'Claimed' %}</span>
+                        {% elif va.status == 'sent' %}
+                          <span class='label label-info'>{% trans 'Sent — not claimed' %}</span>
+                        {% else %}
+                          <span class='label label-default'>{% trans 'Not sent' %}</span>
+                        {% endif %}
+                      {% else %}
+                        <span class='label label-default'>{% trans 'Not sent' %}</span>
+                      {% endif %}
+                    {% endwith %}
+                  </td>
+                {% endif %}
+                <td>
+                  <form method='post' action='{% url "plugins:teamshifts:member_toggle_arrived" organizer=request.organizer.slug event=request.event.slug pk=member.pk %}' class='toggle-arrived-form'>
+                    {% csrf_token %}
+                    <button type='submit' class='btn btn-sm {% if member.arrived %}btn-success{% else %}btn-default{% endif %}'>
+                      {% if member.arrived %}
+                        <i class='fa fa-check'></i> {% trans 'Arrived' %}
+                      {% else %}
+                        <i class='fa fa-times'></i> {% trans 'Not arrived' %}
+                      {% endif %}
+                    </button>
+                  </form>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </form>
+    {% include 'pretixcontrol/pagination.html' %}
+  {% else %}
+    <div class='empty-collection'>
+      <p>
+        {% trans 'No team members found.' %}
+      </p>
+      {% if can_add_member %}
+        <a href='{% url "plugins:teamshifts:member_add" organizer=request.organizer.slug event=request.event.slug %}' class='btn btn-primary btn-lg'>
+          <i class='fa fa-plus'></i> {% trans 'Add member' %}
+        </a>
+      {% endif %}
+    </div>
+  {% endif %}
 {% endblock %}

@@ -538,6 +538,7 @@ class EmailTemplateRoles(models.TextChoices):
     APPLICATION_ACCEPTED = "teamshifts.application.accepted", _("Application accepted")
     APPLICATION_REJECTED = "teamshifts.application.rejected", _("Application rejected")
     MEMBER_ADDED_BY_ORGANIZER = "teamshifts.member.added_by_organizer", _("Added as volunteer by organizer")
+    VOUCHER_SENT = "teamshifts.voucher.sent", _("Voucher sent to volunteer")
 
 
 class TeamShiftsEmailTemplate(models.Model):
@@ -584,3 +585,106 @@ class TeamShiftsCustomEmailTemplate(models.Model):
 
     def __str__(self):
         return f"{self.event.slug} · {self.name}"
+
+
+class VoucherStatus(models.TextChoices):
+    NOT_SENT = "not_sent", _("Not sent")
+    SENT = "sent", _("Sent — not claimed")
+    CLAIMED = "claimed", _("Claimed")
+
+
+class VolunteerVoucherSettings(models.Model):
+    event = models.OneToOneField(
+        "base.Event",
+        on_delete=models.CASCADE,
+        related_name="volunteer_voucher_settings",
+    )
+    enabled = models.BooleanField(
+        default=False,
+        verbose_name=_("Enable volunteer vouchers"),
+        help_text=_("Allow sending ticket vouchers to accepted team members."),
+    )
+    voucher_tag = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        verbose_name=_("Voucher batch (tag)"),
+        help_text=_("The tag that identifies the voucher batch in Tickets → Vouchers."),
+    )
+
+    objects = ScopedManager(event="event")
+
+    class Meta:
+        verbose_name = _("Volunteer voucher settings")
+        verbose_name_plural = _("Volunteer voucher settings")
+
+    def __str__(self):
+        return f"Voucher settings for {self.event.slug}"
+
+    def get_available_vouchers(self):
+        from eventyay.base.models import Voucher
+
+        if not self.voucher_tag:
+            return Voucher.objects.none()
+        assigned_voucher_ids = MemberVoucher.objects.filter(
+            application__event=self.event,
+        ).values_list("voucher_id", flat=True)
+        return Voucher.objects.filter(
+            event=self.event,
+            tag=self.voucher_tag,
+            redeemed=0,
+        ).exclude(pk__in=assigned_voucher_ids)
+
+    def batch_total_count(self) -> int:
+        from eventyay.base.models import Voucher
+
+        if not self.voucher_tag:
+            return 0
+        return Voucher.objects.filter(event=self.event, tag=self.voucher_tag).count()
+
+    def batch_remaining_count(self) -> int:
+        return self.get_available_vouchers().count()
+
+
+class MemberVoucher(models.Model):
+    application = models.OneToOneField(
+        TeamMemberApplication,
+        on_delete=models.CASCADE,
+        related_name="voucher_assignment",
+    )
+    voucher = models.OneToOneField(
+        "base.Voucher",
+        on_delete=models.CASCADE,
+        related_name="teamshifts_member_link",
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=VoucherStatus.choices,
+        default=VoucherStatus.NOT_SENT,
+        verbose_name=_("Voucher status"),
+    )
+    sent_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name=_("Sent at"),
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = ScopedManager(event="application__event")
+
+    class Meta:
+        verbose_name = _("Member voucher")
+        verbose_name_plural = _("Member vouchers")
+
+    def __str__(self):
+        return f"{self.application.user.email} → {self.voucher.code}"
+
+    def refresh_claimed_status(self) -> bool:
+        if self.status == VoucherStatus.CLAIMED:
+            return False
+        self.voucher.refresh_from_db(fields=["redeemed"])
+        if self.voucher.redeemed > 0:
+            self.status = VoucherStatus.CLAIMED
+            self.save(update_fields=["status"])
+            return True
+        return False

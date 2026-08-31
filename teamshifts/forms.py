@@ -674,3 +674,37 @@ class ShiftRoleAssignmentForm(forms.ModelForm):
 
             with scopes_disabled():
                 self.fields["role"].queryset = TeamRole.objects.filter(event=event)
+
+
+class VoucherSettingsForm(forms.Form):
+    enabled = forms.BooleanField(
+        required=False,
+        label=_("Enable volunteer vouchers"),
+        help_text=_("When enabled, organisers can send ticket vouchers to accepted team members from the Members page."),
+    )
+    voucher_tag = forms.ChoiceField(
+        required=False,
+        label=_("Voucher batch"),
+        help_text=_("Select the voucher batch (tag) created in Tickets → Vouchers."),
+        widget=forms.Select(attrs={"class": "form-control"}),
+    )
+
+    def __init__(self, *args, event=None, **kwargs):
+        initial = kwargs.get("initial", {})
+        self.event = event
+        super().__init__(*args, **kwargs)
+
+        tag_choices = [("", _("— Select voucher batch —"))]
+        if event is not None:
+            from eventyay.base.models import Voucher
+
+            tags = (
+                Voucher.objects.filter(event=event)
+                .exclude(tag="")
+                .values_list("tag", flat=True)
+                .distinct()
+                .order_by("tag")
+            )
+            tag_choices += [(t, t) for t in tags]
+
+        self.fields["voucher_tag"].choices = tag_choices

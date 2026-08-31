@@ -53,6 +53,22 @@ MEMBER_ADDED_BY_ORGANIZER_TEXT = LazyI18nString.from_gettext(
     )
 )
 
+VOUCHER_SENT_SUBJECT = LazyI18nString.from_gettext(_("Your ticket voucher — {event_name}"))
+VOUCHER_SENT_TEXT = LazyI18nString.from_gettext(
+    _(
+        "Hi {full_name},\n\n"
+        "Here is your ticket voucher for {event_name}.\n\n"
+        "Voucher code: {voucher_code}\n"
+        "Claim your ticket here: {ticket_claim_url}\n\n"
+        "This voucher is valid for one ticket and can only be used once.\n\n"
+        "If you haven't yet claimed your shifts, please visit the shift "
+        "schedule to sign up:\n"
+        "{shift_schedule_url}\n\n"
+        "See you at the event!\n"
+        "Your {event_name} team"
+    )
+)
+
 
 def get_default_template(role: str) -> tuple[LazyI18nString, LazyI18nString]:
     from ..models import EmailTemplateRoles
@@ -62,5 +78,6 @@ def get_default_template(role: str) -> tuple[LazyI18nString, LazyI18nString]:
         EmailTemplateRoles.APPLICATION_ACCEPTED: (ACCEPTED_SUBJECT, ACCEPTED_TEXT),
         EmailTemplateRoles.APPLICATION_REJECTED: (REJECTED_SUBJECT, REJECTED_TEXT),
         EmailTemplateRoles.MEMBER_ADDED_BY_ORGANIZER: (MEMBER_ADDED_BY_ORGANIZER_SUBJECT, MEMBER_ADDED_BY_ORGANIZER_TEXT),
+        EmailTemplateRoles.VOUCHER_SENT: (VOUCHER_SENT_SUBJECT, VOUCHER_SENT_TEXT),
     }
     return mapping[role]

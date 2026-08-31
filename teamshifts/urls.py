@@ -173,6 +173,16 @@ urlpatterns = [
         name="member_toggle_arrived",
     ),
     path(
+        "teamshifts/event/<orgslug:organizer>/<slug:event>/members/send-vouchers/",
+        views.BulkSendVouchersView.as_view(),
+        name="bulk_send_vouchers",
+    ),
+    path(
+        "teamshifts/event/<orgslug:organizer>/<slug:event>/voucher-settings/",
+        views.VoucherSettingsView.as_view(),
+        name="voucher_settings",
+    ),
+    path(
         "teamshifts/event/<orgslug:organizer>/<slug:event>/emails/templates/",
         views.EmailTemplateListView.as_view(),
         name="email_templates",

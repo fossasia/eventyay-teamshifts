@@ -1,0 +1,54 @@
+{% extends 'teamshifts/base.html' %}
+{% load i18n %}
+{% load bootstrap3 %}
+
+{% block title %}{% trans 'Ticket Vouchers' %} :: {{ request.event.name }}{% endblock %}
+
+{% block teamshifts_header %}
+  <h1>{% trans 'Ticket Vouchers' %}</h1>
+{% endblock %}
+
+{% block teamshifts_content %}
+  <p>
+    {% blocktrans trimmed %}
+      Configure free or discounted tickets for team members.
+      Select a voucher batch created in Tickets → Vouchers, then send
+      individual codes to members from the Members page.
+    {% endblocktrans %}
+  </p>
+
+  <form method='post' class='form-horizontal'>
+    {% csrf_token %}
+    {% bootstrap_form_errors form %}
+
+    <fieldset>
+      <legend>{% trans 'Voucher batch' %}</legend>
+
+      {% bootstrap_field form.enabled layout='horizontal' %}
+      {% bootstrap_field form.voucher_tag layout='horizontal' %}
+
+      {% if voucher_settings.voucher_tag %}
+        <div class='form-group'>
+          <label class='col-md-3 control-label'>{% trans 'Vouchers remaining' %}</label>
+          <div class='col-md-9'>
+            <p class='form-control-static'>
+              {{ voucher_settings.batch_remaining_count }} / {{ voucher_settings.batch_total_count }}
+            </p>
+          </div>
+        </div>
+      {% endif %}
+    </fieldset>
+
+    <div class='form-group'>
+      <div class='col-md-9 col-md-offset-3'>
+        <button type='submit' class='btn btn-primary'>
+          <i class='fa fa-save'></i> {% trans 'Save' %}
+        </button>
+        <a class='btn btn-default'
+           href='{% url "control:event.vouchers" organizer=request.organizer.slug event=request.event.slug %}'>
+          <i class='fa fa-plus'></i> {% trans 'Create a voucher batch in Tickets →' %}
+        </a>
+      </div>
+    </div>
+  </form>
+{% endblock %}

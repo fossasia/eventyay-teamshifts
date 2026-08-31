@@ -65,3 +65,36 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     });
 });
+
+
+function updateBulkActionBar() {
+    const bar = document.getElementById("bulk-action-bar");
+    const countEl = document.getElementById("selected-count");
+    if (!bar || !countEl) return;
+
+    const checked = document.querySelectorAll(".member-checkbox:checked");
+    countEl.textContent = checked.length;
+    bar.style.display = checked.length > 0 ? "" : "none";
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+    const selectAll = document.getElementById("select-all");
+    const checkboxes = document.querySelectorAll(".member-checkbox");
+
+    if (!selectAll || checkboxes.length === 0) return;
+
+    selectAll.addEventListener("change", () => {
+        checkboxes.forEach((cb) => {
+            cb.checked = selectAll.checked;
+        });
+        updateBulkActionBar();
+    });
+
+    checkboxes.forEach((cb) => {
+        cb.addEventListener("change", () => {
+            const allChecked = Array.from(checkboxes).every((c) => c.checked);
+            selectAll.checked = allChecked;
+            updateBulkActionBar();
+        });
+    });
+});

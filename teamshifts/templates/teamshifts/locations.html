@@ -2,6 +2,12 @@
 {% load i18n %}
 {% load bootstrap3 %}
 {% load rich_text %}
+{% load static %}
+
+{% block custom_header %}
+  {{ block.super }}
+  <script defer src="{% static 'orga/js/dragsort.js' %}"></script>
+{% endblock %}
 
 {% block title %}{% trans "Locations" %} :: {{ request.event.name }}{% endblock %}
 
@@ -21,7 +27,7 @@
     </div>
   {% else %}
     <div class='table-responsive'>
-      <table class='table table-hover table-quotas'>
+      <table class='table table-hover table-quotas dragsort-table'>
         <thead>
           <tr>
             <th>{% trans "Name" %}</th>
@@ -29,9 +35,9 @@
             <th class='text-right'>{% trans "Actions" %}</th>
           </tr>
         </thead>
-        <tbody>
+        <tbody dragsort-url="{% url 'plugins:teamshifts:location_reorder' organizer=request.organizer.slug event=request.event.slug %}">
           {% for location in locations %}
-            <tr>
+           <tr dragsort-id="{{ location.pk }}">
               <td><strong>{{ location.name }}</strong></td>
               <td class='text-muted'>{% if location.description %}{{ location.description|rich_text }}{% else %}—{% endif %}</td>
               <td class='text-right flip'>
@@ -41,6 +47,11 @@
                 <a href='{% url "plugins:teamshifts:location_delete" organizer=request.organizer.slug event=request.event.slug pk=location.pk %}' class='btn btn-danger btn-sm'>
                   <span class='fa fa-trash'></span> {% trans "Delete" %}
                 </a>
+                <button type='button' draggable='true' class='btn btn-primary btn-sm dragsort-button'
+          title="{% trans 'Move location' %}" aria-label="{% trans 'Move location' %}"
+          data-toggle='tooltip'>
+          <span class='fa fa-arrows'></span>
+           </button>
               </td>
             </tr>
           {% endfor %}

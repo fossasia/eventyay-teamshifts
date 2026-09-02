@@ -2,6 +2,7 @@ import json
 import logging
 import re
 import secrets
+from collections import defaultdict
 from datetime import timedelta
 
 import dateutil.parser
@@ -16,15 +17,16 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.decorators import method_decorator
 from django.utils.formats import date_format
+from django.utils.html import escape
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.timezone import now
 from django.utils.translation import get_language, get_language_info, gettext_lazy as _, ngettext
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.generic import DeleteView, FormView, ListView, TemplateView, View
 from django_scopes import scope, scopes_disabled
-from eventyay.base.i18n import LazyI18nString
+from eventyay.base.i18n import LazyI18nString, language
 from eventyay.base.models import User
-from eventyay.base.templatetags.rich_text import rich_text
+from eventyay.base.templatetags.rich_text import compile_email_body, rich_text
 from eventyay.control.views import PaginationMixin
 
 from .forms import (
@@ -351,10 +353,7 @@ class EmailTemplateListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin
         event = request.event
         locales = event.settings.locales
         with scope(event=event):
-            try:
-                cfm = event.call_for_team_members
-            except CallForTeamMembers.DoesNotExist:
-                raise Http404 from None
+            cfm, _created = CallForTeamMembers.objects.get_or_create(event=event)
 
         from .mail.default_templates import get_default_template
 
@@ -478,15 +477,8 @@ class EmailTemplatePreviewView(PluginActiveMixin, TeamShiftsPermissionRequiredMi
     permission = "can_teamshifts_send_emails"
 
     def post(self, request, *args, **kwargs):
-        from collections import defaultdict
-
-        from eventyay.base.i18n import language
-        from eventyay.base.templatetags.rich_text import markdown_compile_email
-
         event = request.event
         event_locales = list(event.settings.locales)
-        from django.utils.html import escape
-
         region = event.settings.region
 
         sample_values = defaultdict(
@@ -507,7 +499,7 @@ class EmailTemplatePreviewView(PluginActiveMixin, TeamShiftsPermissionRequiredMi
                 lambda m: f'<span class="placeholder">{escape(sample_values.get(m.group(1), m.group(0)))}</span>',
                 text,
             )
-            return markdown_compile_email(highlighted)
+            return compile_email_body(highlighted)
 
         body_values = request.POST.getlist("body")
         previews = {}

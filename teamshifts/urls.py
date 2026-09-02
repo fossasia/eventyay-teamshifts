@@ -93,9 +93,9 @@ urlpatterns = [
         name="locations",
     ),
     path(
-    "teamshifts/event/<orgslug:organizer>/<slug:event>/locations/reorder/",
-    views.ShiftLocationReorderView.as_view(),
-    name="location_reorder",
+        "teamshifts/event/<orgslug:organizer>/<slug:event>/locations/reorder/",
+        views.ShiftLocationReorderView.as_view(),
+        name="location_reorder",
     ),
     path(
         "teamshifts/event/<orgslug:organizer>/<slug:event>/locations/add/",

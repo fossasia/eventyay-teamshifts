@@ -1313,18 +1313,19 @@ class ShiftLocationReorderView(PluginActiveMixin, TeamShiftsPermissionRequiredMi
     permission = "can_teamshifts_create_shifts"
 
     def post(self, request, *args, **kwargs):
-        order_param = request.POST.get("order")
+        try:
+            data = json.loads(request.body.decode("utf-8"))
+            raw_ids = data.get("ids", [])
+        except (json.JSONDecodeError, ValueError, AttributeError):
+            return HttpResponseBadRequest("Invalid reorder request.")
+        
+        if not all(
+            isinstance(pk, int) or (isinstance(pk, str) and pk.isdigit())
+            for pk in raw_ids
+        ):
+            return HttpResponseBadRequest("Invalid location ID.")
 
-        if not order_param:
-            return HttpResponse(status=400)
-
-        location_ids = order_param.split(",")
-
-        if not all(pk.strip().isdigit() for pk in location_ids):
-            return HttpResponse(status=400)
-
-        location_ids = [int(pk) for pk in location_ids]
-
+        location_ids = [int(pk) for pk in raw_ids]
         with scope(event=request.event):
             locations = {
                 location.pk: location
@@ -1337,7 +1338,7 @@ class ShiftLocationReorderView(PluginActiveMixin, TeamShiftsPermissionRequiredMi
                 len(location_ids) != len(set(location_ids))
                 or set(location_ids) != set(locations)
             ):
-                return HttpResponse(status=400)
+                return HttpResponseBadRequest("Invalid location order.")
 
             reordered_locations = []
 
@@ -1354,7 +1355,7 @@ class ShiftLocationReorderView(PluginActiveMixin, TeamShiftsPermissionRequiredMi
 
         return HttpResponse(status=204)
 
-        
+
 class ShiftLocationCreateView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):
     permission = "can_teamshifts_create_shifts"
     template_name = "teamshifts/location_edit.html"

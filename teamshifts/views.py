@@ -1319,13 +1319,24 @@ class ShiftLocationReorderView(PluginActiveMixin, TeamShiftsPermissionRequiredMi
         except (json.JSONDecodeError, ValueError, AttributeError):
             return HttpResponseBadRequest("Invalid reorder request.")
         
-        if not all(
-            isinstance(pk, int) or (isinstance(pk, str) and pk.isdigit())
-            for pk in raw_ids
-        ):
+        if not isinstance(raw_ids, list):
+            return HttpResponseBadRequest("Invalid location IDs.")
+        
+        try:
+            location_ids = []
+            for pk in raw_ids:
+                if isinstance(pk, bool):
+                    raise ValueError
+                if isinstance(pk, int):
+                    location_ids.append(pk)
+                elif isinstance(pk, str) and pk.isascii() and pk.isdigit():
+                    location_ids.append(int(pk))
+                else:
+                    raise ValueError
+        except ValueError:
             return HttpResponseBadRequest("Invalid location ID.")
 
-        location_ids = [int(pk) for pk in raw_ids]
+        
         with scope(event=request.event):
             locations = {
                 location.pk: location

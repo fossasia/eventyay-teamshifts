@@ -179,3 +179,62 @@ def test_location_list_renders_tiptap_html_description(orga_client, event):
     assert response.status_code == 200
     assert b"&lt;p&gt;" not in response.content
     assert b"<strong>check-in</strong>" in response.content
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "ids",
+    [
+        None,
+        1,
+        True,
+        ["²"],
+    ],
+)
+def test_location_reorder_rejects_invalid_ids(orga_client, event, ids):
+    url = reverse(
+        "plugins:teamshifts:location_reorder",
+        kwargs={
+            "organizer": event.organizer.slug,
+            "event": event.slug,
+        },
+    )
+    response = orga_client.post(
+        url,
+        data={"ids": ids},
+        content_type="application/json",
+    )
+    assert response.status_code == 400
+
+
+@pytest.mark.django_db
+def test_location_reorder_updates_positions(orga_client, event):
+    with scope(event=event):
+        first = ShiftLocation.objects.create(
+            event=event,
+            name="First",
+        )
+        second = ShiftLocation.objects.create(
+            event=event,
+            name="Second",
+        )
+
+    url = reverse(
+        "plugins:teamshifts:location_reorder",
+        kwargs={
+            "organizer": event.organizer.slug,
+            "event": event.slug,
+        },
+    )
+    response = orga_client.post(
+        url,
+        data={"ids": [second.pk, first.pk]},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 204
+
+    with scope(event=event):
+        first.refresh_from_db()
+        second.refresh_from_db()
+        assert second.position == 0
+        assert first.position == 1

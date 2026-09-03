@@ -605,7 +605,7 @@ class QuestionEditView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Vie
                 messages.success(request, _("Question '%s' added.") % saved.question)
             else:
                 messages.success(request, _("Question saved."))
-            return redirect("plugins:teamshifts:cfm_settings", organizer=request.organizer.slug, event=request.event.slug)
+            return redirect("plugins:teamshifts:cfm_application_form", organizer=request.organizer.slug, event=request.event.slug)
         return render(request, self.template_name, {"form": form, "question": instance})
 
 
@@ -626,7 +626,7 @@ class QuestionDeleteView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, V
             except CallForTeamMembers.DoesNotExist:
                 pass
         messages.success(request, _("Question '%s' deleted.") % label)
-        return redirect("plugins:teamshifts:cfm_settings", organizer=request.organizer.slug, event=event.slug)
+        return redirect("plugins:teamshifts:cfm_application_form", organizer=request.organizer.slug, event=event.slug)
 
 
 class QuestionReorderView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):

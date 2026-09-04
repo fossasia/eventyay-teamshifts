@@ -334,3 +334,37 @@ def test_location_create_after_deletion_gets_next_position(
         assert second.position == 0
         assert third.position == 1
         assert fourth.position == 2
+
+@pytest.mark.django_db
+def test_location_create_after_single_zero_position(
+    orga_client,
+    event,
+):
+    with scope(event=event):
+        first = ShiftLocation.objects.create(
+            event=event,
+            name="First",
+            position=0,
+        )
+
+    create_url = reverse(
+        "plugins:teamshifts:location_create",
+        kwargs={
+            "organizer": event.organizer.slug,
+            "event": event.slug,
+        },
+    )
+
+    response = orga_client.post(
+        create_url,
+        {"name": "Second", "description": ""},
+    )
+
+    assert response.status_code == 302
+
+    with scope(event=event):
+        first.refresh_from_db()
+        second = ShiftLocation.objects.get(name="Second")
+
+        assert first.position == 0
+        assert second.position == 1

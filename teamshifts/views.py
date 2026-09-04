@@ -1383,11 +1383,12 @@ class ShiftLocationCreateView(PluginActiveMixin, TeamShiftsPermissionRequiredMix
                         pk=request.event.pk
                     )
                     form.instance.event = event
+                    max_position = ShiftLocation.objects.filter(event=event).aggregate(
+                        max_position=Max("position"),
+                    )["max_position"]
+
                     form.instance.position = (
-                        ShiftLocation.objects.filter(event=event).aggregate(
-                            max_position=Max("position"),
-                        )["max_position"]
-                        or -1
+                        max_position if max_position is not None else -1
                     ) + 1
 
                     location = form.save()

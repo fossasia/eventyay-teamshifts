@@ -28,6 +28,7 @@ from django_scopes import scope, scopes_disabled
 from eventyay.base.i18n import LazyI18nString
 from eventyay.base.models import User
 from eventyay.base.templatetags.rich_text import rich_text
+from eventyay.common.text.phrases import phrases
 from eventyay.control.views import PaginationMixin
 
 from .forms import (
@@ -612,6 +613,33 @@ class QuestionEditView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Vie
 
 class QuestionDeleteView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):
     permission = "can_teamshifts_manage_applicants"
+    template_name = "teamshifts/question_delete.html"
+
+    def get_generic_title(self, question):
+        return _("Custom field") + f" {phrases.base.quotation_open}{question.question}{phrases.base.quotation_close}"
+
+    def get_back_url(self, request):
+        return reverse(
+            "plugins:teamshifts:cfm_application_form",
+            kwargs={
+                "organizer": request.organizer.slug,
+                "event": request.event.slug,
+            },
+        )
+
+    def get(self, request, *args, **kwargs):
+        event = request.event
+        with scope(event=event):
+            question = get_object_or_404(TeamApplicationQuestion, pk=kwargs["pk"], event=event)
+        return render(
+            request,
+            self.template_name,
+            {
+                "question": question,
+                "generic_title": self.get_generic_title(question),
+                "back_url": self.get_back_url(request),
+            },
+        )
 
     def post(self, request, *args, **kwargs):
         event = request.event

@@ -1,0 +1,45 @@
+{% extends "teamshifts/base.html" %}
+{% load i18n %}
+{% load static %}
+
+{% block custom_header %}
+    {{ block.super }}
+    <style>
+        .submit-group {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background-color: #f5f5f5;
+            padding: 16px;
+            margin-top: 20px;
+            margin-bottom: 20px;
+        }
+        .submit-group .btn-outline-info {
+            background-color: #fff;
+            color: #2185d0;
+            border: 1px solid #2185d0;
+        }
+        .submit-group .btn-outline-info:hover,
+        .submit-group .btn-outline-info:focus {
+            background-color: #2185d0;
+            color: #fff;
+        }
+        .submit-group .btn-danger {
+            background-color: #2185d0;
+            border-color: #2185d0;
+            color: #fff;
+        }
+        .submit-group .btn-danger:hover,
+        .submit-group .btn-danger:focus {
+            background-color: #1a69a4;
+            border-color: #1a69a4;
+            color: #fff;
+        }
+    </style>
+{% endblock %}
+
+{% block title %}{{ generic_title }} :: {{ request.event.name }}{% endblock %}
+
+{% block content %}
+    {% include "common/includes/action_confirm.html" with action_object_name=generic_title action_back_url=back_url %}
+{% endblock %}

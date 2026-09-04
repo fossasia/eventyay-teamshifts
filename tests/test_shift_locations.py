@@ -169,7 +169,7 @@ def test_location_delete_other_event_returns_404(orga_client, event, user, setti
 @pytest.mark.django_db
 def test_location_list_renders_tiptap_html_description(orga_client, event):
     with scope(event=event):
-        loc = ShiftLocation.objects.create(
+        ShiftLocation.objects.create(
             event=event,
             name="Tiptap Hall",
             description="<p>Assist attendees with <strong>check-in</strong>.</p>",

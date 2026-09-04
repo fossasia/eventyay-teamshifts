@@ -1,10 +1,13 @@
 from datetime import timedelta
+
 import pytest
 from django.urls import reverse
 from django.utils.timezone import now
 from django_scopes import scope
 from eventyay.base.models import Event, Organizer, Team
+
 from teamshifts.models import Shift, ShiftLocation, ShiftRoleAssignment, TeamRole
+
 
 @pytest.fixture
 def orga_client(client, event, user, settings):
@@ -177,6 +180,7 @@ def test_location_list_renders_tiptap_html_description(orga_client, event):
     assert b"&lt;p&gt;" not in response.content
     assert b"<strong>check-in</strong>" in response.content
 
+
 @pytest.mark.django_db
 @pytest.mark.parametrize(
     "ids",
@@ -334,6 +338,7 @@ def test_location_create_after_deletion_gets_next_position(
         assert second.position == 0
         assert third.position == 1
         assert fourth.position == 2
+
 
 @pytest.mark.django_db
 def test_location_create_after_single_zero_position(

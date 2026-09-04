@@ -3,6 +3,7 @@ import logging
 import re
 import secrets
 from datetime import timedelta
+
 import dateutil.parser
 from django.conf import settings as django_settings
 from django.contrib import messages
@@ -22,9 +23,10 @@ from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.generic import DeleteView, FormView, ListView, TemplateView, View
 from django_scopes import scope, scopes_disabled
 from eventyay.base.i18n import LazyI18nString
+from eventyay.base.models import Event, User
 from eventyay.base.templatetags.rich_text import rich_text
 from eventyay.control.views import PaginationMixin
-from eventyay.base.models import Event, User
+
 from .forms import (
     BaseShiftRoleFormSet,
     CallForTeamMembersApplicationSettingsForm,
@@ -1307,6 +1309,7 @@ class ShiftLocationListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin
             locations = list(ShiftLocation.objects.filter(event=request.event))
         return render(request, self.template_name, {"locations": locations})
 
+
 class ShiftLocationReorderView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):
     permission = "can_teamshifts_create_shifts"
 
@@ -1316,10 +1319,10 @@ class ShiftLocationReorderView(PluginActiveMixin, TeamShiftsPermissionRequiredMi
             raw_ids = data.get("ids", [])
         except (json.JSONDecodeError, ValueError, AttributeError):
             return HttpResponseBadRequest("Invalid reorder request.")
-        
+
         if not isinstance(raw_ids, list):
             return HttpResponseBadRequest("Invalid location IDs.")
-        
+
         try:
             location_ids = []
             for pk in raw_ids:
@@ -1334,7 +1337,6 @@ class ShiftLocationReorderView(PluginActiveMixin, TeamShiftsPermissionRequiredMi
         except ValueError:
             return HttpResponseBadRequest("Invalid location ID.")
 
-        
         with scope(event=request.event):
             locations = {
                 location.pk: location
@@ -1343,10 +1345,7 @@ class ShiftLocationReorderView(PluginActiveMixin, TeamShiftsPermissionRequiredMi
                 )
             }
 
-            if (
-                len(location_ids) != len(set(location_ids))
-                or set(location_ids) != set(locations)
-            ):
+            if len(location_ids) != len(set(location_ids)) or set(location_ids) != set(locations):
                 return HttpResponseBadRequest("Invalid location order.")
 
             reordered_locations = []
@@ -1379,17 +1378,13 @@ class ShiftLocationCreateView(PluginActiveMixin, TeamShiftsPermissionRequiredMix
             is_valid = form.is_valid()
             if is_valid:
                 with transaction.atomic():
-                    event = Event.objects.select_for_update().get(
-                        pk=request.event.pk
-                    )
+                    event = Event.objects.select_for_update().get(pk=request.event.pk)
                     form.instance.event = event
                     max_position = ShiftLocation.objects.filter(event=event).aggregate(
                         max_position=Max("position"),
                     )["max_position"]
 
-                    form.instance.position = (
-                        max_position if max_position is not None else -1
-                    ) + 1
+                    form.instance.position = (max_position if max_position is not None else -1) + 1
 
                     location = form.save()
         if is_valid:
@@ -1434,9 +1429,7 @@ class ShiftLocationDeleteView(PluginActiveMixin, TeamShiftsPermissionRequiredMix
     def post(self, request, *args, **kwargs):
         with scope(event=request.event):
             with transaction.atomic():
-                event = Event.objects.select_for_update().get(
-                    pk=request.event.pk
-                )
+                event = Event.objects.select_for_update().get(pk=request.event.pk)
 
                 location = get_object_or_404(
                     ShiftLocation,
@@ -1447,8 +1440,7 @@ class ShiftLocationDeleteView(PluginActiveMixin, TeamShiftsPermissionRequiredMix
                 if location.shifts.exists():
                     messages.error(
                         request,
-                        _("Cannot delete '%s': it is used by existing shifts.")
-                        % location.name,
+                        _("Cannot delete '%s': it is used by existing shifts.") % location.name,
                     )
                 else:
                     name = location.name
@@ -1461,9 +1453,7 @@ class ShiftLocationDeleteView(PluginActiveMixin, TeamShiftsPermissionRequiredMix
                         )
                     )
 
-                    for position, remaining_location in enumerate(
-                        remaining_locations
-                    ):
+                    for position, remaining_location in enumerate(remaining_locations):
                         remaining_location.position = position
 
                     ShiftLocation.objects.bulk_update(
@@ -1481,6 +1471,7 @@ class ShiftLocationDeleteView(PluginActiveMixin, TeamShiftsPermissionRequiredMix
             organizer=request.organizer.slug,
             event=request.event.slug,
         )
+
 
 class ShiftListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, PaginationMixin, ListView):
     permission = "can_teamshifts_create_shifts"

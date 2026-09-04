@@ -1,13 +1,10 @@
 from datetime import timedelta
-
 import pytest
 from django.urls import reverse
 from django.utils.timezone import now
 from django_scopes import scope
 from eventyay.base.models import Event, Organizer, Team
-
 from teamshifts.models import Shift, ShiftLocation, ShiftRoleAssignment, TeamRole
-
 
 @pytest.fixture
 def orga_client(client, event, user, settings):
@@ -238,3 +235,102 @@ def test_location_reorder_updates_positions(orga_client, event):
         second.refresh_from_db()
         assert second.position == 0
         assert first.position == 1
+
+
+@pytest.mark.django_db
+def test_location_delete_renumbers_remaining_locations(
+    orga_client,
+    event,
+):
+    with scope(event=event):
+        first = ShiftLocation.objects.create(
+            event=event,
+            name="First",
+            position=0,
+        )
+        second = ShiftLocation.objects.create(
+            event=event,
+            name="Second",
+            position=1,
+        )
+        third = ShiftLocation.objects.create(
+            event=event,
+            name="Third",
+            position=2,
+        )
+
+    delete_url = reverse(
+        "plugins:teamshifts:location_delete",
+        kwargs={
+            "organizer": event.organizer.slug,
+            "event": event.slug,
+            "pk": second.pk,
+        },
+    )
+    response = orga_client.post(delete_url)
+
+    assert response.status_code == 302
+
+    with scope(event=event):
+        first.refresh_from_db()
+        third.refresh_from_db()
+
+        assert first.position == 0
+        assert third.position == 1
+        assert not ShiftLocation.objects.filter(pk=second.pk).exists()
+
+
+@pytest.mark.django_db
+def test_location_create_after_deletion_gets_next_position(
+    orga_client,
+    event,
+):
+    with scope(event=event):
+        first = ShiftLocation.objects.create(
+            event=event,
+            name="First",
+            position=0,
+        )
+        second = ShiftLocation.objects.create(
+            event=event,
+            name="Second",
+            position=1,
+        )
+        third = ShiftLocation.objects.create(
+            event=event,
+            name="Third",
+            position=2,
+        )
+
+    delete_url = reverse(
+        "plugins:teamshifts:location_delete",
+        kwargs={
+            "organizer": event.organizer.slug,
+            "event": event.slug,
+            "pk": first.pk,
+        },
+    )
+    response = orga_client.post(delete_url)
+    assert response.status_code == 302
+
+    create_url = reverse(
+        "plugins:teamshifts:location_create",
+        kwargs={
+            "organizer": event.organizer.slug,
+            "event": event.slug,
+        },
+    )
+    response = orga_client.post(
+        create_url,
+        {"name": "Fourth", "description": ""},
+    )
+    assert response.status_code == 302
+
+    with scope(event=event):
+        second.refresh_from_db()
+        third.refresh_from_db()
+        fourth = ShiftLocation.objects.get(name="Fourth")
+
+        assert second.position == 0
+        assert third.position == 1
+        assert fourth.position == 2

@@ -3,13 +3,12 @@ import logging
 import re
 import secrets
 from datetime import timedelta
-
 import dateutil.parser
 from django.conf import settings as django_settings
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
-from django.db.models import Count, DurationField, ExpressionWrapper, F, Prefetch, Q, Sum
+from django.db.models import Count, DurationField, ExpressionWrapper, F, Max, Prefetch, Q, Sum
 from django.forms import inlineformset_factory
 from django.http import Http404, HttpResponse, HttpResponseBadRequest, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -23,10 +22,9 @@ from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.generic import DeleteView, FormView, ListView, TemplateView, View
 from django_scopes import scope, scopes_disabled
 from eventyay.base.i18n import LazyI18nString
-from eventyay.base.models import User
 from eventyay.base.templatetags.rich_text import rich_text
 from eventyay.control.views import PaginationMixin
-
+from eventyay.base.models import Event, User
 from .forms import (
     BaseShiftRoleFormSet,
     CallForTeamMembersApplicationSettingsForm,
@@ -1380,10 +1378,19 @@ class ShiftLocationCreateView(PluginActiveMixin, TeamShiftsPermissionRequiredMix
         with scope(event=request.event):
             is_valid = form.is_valid()
             if is_valid:
-                form.instance.position = ShiftLocation.objects.filter(
-                    event=request.event,
-                ).count()
-                location = form.save()
+                with transaction.atomic():
+                    event = Event.objects.select_for_update().get(
+                        pk=request.event.pk
+                    )
+                    form.instance.event = event
+                    form.instance.position = (
+                        ShiftLocation.objects.filter(event=event).aggregate(
+                            max_position=Max("position"),
+                        )["max_position"]
+                        or -1
+                    ) + 1
+
+                    location = form.save()
         if is_valid:
             messages.success(request, _("Location '%s' created.") % location.name)
             return redirect("plugins:teamshifts:locations", organizer=request.organizer.slug, event=request.event.slug)
@@ -1425,15 +1432,54 @@ class ShiftLocationDeleteView(PluginActiveMixin, TeamShiftsPermissionRequiredMix
 
     def post(self, request, *args, **kwargs):
         with scope(event=request.event):
-            location = get_object_or_404(ShiftLocation, pk=kwargs["pk"], event=request.event)
-            if location.shifts.exists():
-                messages.error(request, _("Cannot delete '%s': it is used by existing shifts.") % location.name)
-            else:
-                name = location.name
-                location.delete()
-                messages.success(request, _("Location '%s' deleted.") % name)
-        return redirect("plugins:teamshifts:locations", organizer=request.organizer.slug, event=request.event.slug)
+            with transaction.atomic():
+                event = Event.objects.select_for_update().get(
+                    pk=request.event.pk
+                )
 
+                location = get_object_or_404(
+                    ShiftLocation,
+                    pk=kwargs["pk"],
+                    event=event,
+                )
+
+                if location.shifts.exists():
+                    messages.error(
+                        request,
+                        _("Cannot delete '%s': it is used by existing shifts.")
+                        % location.name,
+                    )
+                else:
+                    name = location.name
+                    location.delete()
+
+                    remaining_locations = list(
+                        ShiftLocation.objects.filter(event=event).order_by(
+                            "position",
+                            "pk",
+                        )
+                    )
+
+                    for position, remaining_location in enumerate(
+                        remaining_locations
+                    ):
+                        remaining_location.position = position
+
+                    ShiftLocation.objects.bulk_update(
+                        remaining_locations,
+                        ["position"],
+                    )
+
+                    messages.success(
+                        request,
+                        _("Location '%s' deleted.") % name,
+                    )
+
+        return redirect(
+            "plugins:teamshifts:locations",
+            organizer=request.organizer.slug,
+            event=request.event.slug,
+        )
 
 class ShiftListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, PaginationMixin, ListView):
     permission = "can_teamshifts_create_shifts"
@@ -2537,7 +2583,6 @@ class ShiftWithdrawView(PublicShiftScheduleMixin, View):
 
 
 def _notify_organizers_shift_dropped(event, volunteer, shift):
-    from eventyay.base.models import User
 
     try:
         cfm = event.call_for_team_members

@@ -1380,6 +1380,9 @@ class ShiftLocationCreateView(PluginActiveMixin, TeamShiftsPermissionRequiredMix
         with scope(event=request.event):
             is_valid = form.is_valid()
             if is_valid:
+                form.instance.position = ShiftLocation.objects.filter(
+                    event=request.event,
+                ).count()
                 location = form.save()
         if is_valid:
             messages.success(request, _("Location '%s' created.") % location.name)

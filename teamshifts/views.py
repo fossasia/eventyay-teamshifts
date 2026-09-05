@@ -616,7 +616,11 @@ class QuestionDeleteView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, V
     template_name = "teamshifts/question_delete.html"
 
     def get_generic_title(self, question):
-        return _("Custom field") + f" {phrases.base.quotation_open}{question.question}{phrases.base.quotation_close}"
+        return _("Custom field %(open)s%(question)s%(close)s") % {
+            "open": phrases.base.quotation_open,
+            "question": question.question,
+            "close": phrases.base.quotation_close,
+        }
 
     def get_back_url(self, request):
         return reverse(

@@ -1,48 +1,57 @@
 from django.urls import path
 from eventyay.common.urls import OrganizerSlugConverter  # noqa: F401
+from eventyay.multidomain import event_url
 
 from . import certificate_views, views
 
 event_patterns = [
-    path(
-        "teamshifts/apply/",
+    event_url(
+        r"^teamshifts/apply/$",
         views.PublicApplyView.as_view(),
         name="apply",
+        require_live=False,
     ),
-    path(
-        "teamshifts/apply/thanks/",
+    event_url(
+        r"^teamshifts/apply/thanks/$",
         views.PublicApplyThanksView.as_view(),
         name="apply_thanks",
+        require_live=False,
     ),
-    path(
-        "teamshifts/apply/s/<str:secret>/",
+    event_url(
+        r"^teamshifts/apply/s/(?P<secret>[^/]+)/$",
         views.PublicApplySecretView.as_view(),
         name="apply_secret",
+        require_live=False,
     ),
-    path(
-        "teamshifts/shifts/",
+    event_url(
+        r"^teamshifts/shifts/$",
         views.PublicShiftScheduleView.as_view(),
         name="public_shift_schedule",
+        require_live=False,
     ),
-    path(
-        "teamshifts/shifts/api/",
+    event_url(
+        r"^teamshifts/shifts/api/$",
         views.PublicShiftScheduleAPIView.as_view(),
         name="public_shift_schedule_api",
+        require_live=False,
     ),
-    path(
-        "teamshifts/shifts/<int:pk>/",
+    event_url(
+        r"^teamshifts/shifts/(?P<pk>\d+)/$",
         views.ShiftDetailView.as_view(),
         name="public_shift_detail",
+        require_live=False,
     ),
-    path(
-        "teamshifts/shifts/<int:pk>/claim/",
+    event_url(
+        r"^teamshifts/shifts/(?P<pk>\d+)/claim/$",
         views.ShiftClaimView.as_view(),
         name="public_shift_claim",
+        require_live=False,
     ),
-    path(
-        "teamshifts/shifts/<int:pk>/withdraw/",
+    event_url(
+        r"^teamshifts/shifts/(?P<pk>\d+)/withdraw/$",
         views.ShiftWithdrawView.as_view(),
         name="public_shift_withdraw",
+        require_live=False,
     ),
     path(
         "teamshifts/my-shifts/",

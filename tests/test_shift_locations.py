@@ -169,7 +169,7 @@ def test_location_delete_other_event_returns_404(orga_client, event, user, setti
 @pytest.mark.django_db
 def test_location_list_renders_tiptap_html_description(orga_client, event):
     with scope(event=event):
-        loc = ShiftLocation.objects.create(
+        ShiftLocation.objects.create(
             event=event,
             name="Tiptap Hall",
             description="<p>Assist attendees with <strong>check-in</strong>.</p>",
@@ -179,3 +179,197 @@ def test_location_list_renders_tiptap_html_description(orga_client, event):
     assert response.status_code == 200
     assert b"&lt;p&gt;" not in response.content
     assert b"<strong>check-in</strong>" in response.content
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "ids",
+    [
+        None,
+        1,
+        True,
+        ["²"],
+    ],
+)
+def test_location_reorder_rejects_invalid_ids(orga_client, event, ids):
+    url = reverse(
+        "plugins:teamshifts:location_reorder",
+        kwargs={
+            "organizer": event.organizer.slug,
+            "event": event.slug,
+        },
+    )
+    response = orga_client.post(
+        url,
+        data={"ids": ids},
+        content_type="application/json",
+    )
+    assert response.status_code == 400
+
+
+@pytest.mark.django_db
+def test_location_reorder_updates_positions(orga_client, event):
+    with scope(event=event):
+        first = ShiftLocation.objects.create(
+            event=event,
+            name="First",
+        )
+        second = ShiftLocation.objects.create(
+            event=event,
+            name="Second",
+        )
+
+    url = reverse(
+        "plugins:teamshifts:location_reorder",
+        kwargs={
+            "organizer": event.organizer.slug,
+            "event": event.slug,
+        },
+    )
+    response = orga_client.post(
+        url,
+        data={"ids": [second.pk, first.pk]},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 204
+
+    with scope(event=event):
+        first.refresh_from_db()
+        second.refresh_from_db()
+        assert second.position == 0
+        assert first.position == 1
+
+
+@pytest.mark.django_db
+def test_location_delete_renumbers_remaining_locations(
+    orga_client,
+    event,
+):
+    with scope(event=event):
+        first = ShiftLocation.objects.create(
+            event=event,
+            name="First",
+            position=0,
+        )
+        second = ShiftLocation.objects.create(
+            event=event,
+            name="Second",
+            position=1,
+        )
+        third = ShiftLocation.objects.create(
+            event=event,
+            name="Third",
+            position=2,
+        )
+
+    delete_url = reverse(
+        "plugins:teamshifts:location_delete",
+        kwargs={
+            "organizer": event.organizer.slug,
+            "event": event.slug,
+            "pk": second.pk,
+        },
+    )
+    response = orga_client.post(delete_url)
+
+    assert response.status_code == 302
+
+    with scope(event=event):
+        first.refresh_from_db()
+        third.refresh_from_db()
+
+        assert first.position == 0
+        assert third.position == 1
+        assert not ShiftLocation.objects.filter(pk=second.pk).exists()
+
+
+@pytest.mark.django_db
+def test_location_create_after_deletion_gets_next_position(
+    orga_client,
+    event,
+):
+    with scope(event=event):
+        first = ShiftLocation.objects.create(
+            event=event,
+            name="First",
+            position=0,
+        )
+        second = ShiftLocation.objects.create(
+            event=event,
+            name="Second",
+            position=1,
+        )
+        third = ShiftLocation.objects.create(
+            event=event,
+            name="Third",
+            position=2,
+        )
+
+    delete_url = reverse(
+        "plugins:teamshifts:location_delete",
+        kwargs={
+            "organizer": event.organizer.slug,
+            "event": event.slug,
+            "pk": first.pk,
+        },
+    )
+    response = orga_client.post(delete_url)
+    assert response.status_code == 302
+
+    create_url = reverse(
+        "plugins:teamshifts:location_create",
+        kwargs={
+            "organizer": event.organizer.slug,
+            "event": event.slug,
+        },
+    )
+    response = orga_client.post(
+        create_url,
+        {"name": "Fourth", "description": ""},
+    )
+    assert response.status_code == 302
+
+    with scope(event=event):
+        second.refresh_from_db()
+        third.refresh_from_db()
+        fourth = ShiftLocation.objects.get(name="Fourth")
+
+        assert second.position == 0
+        assert third.position == 1
+        assert fourth.position == 2
+
+
+@pytest.mark.django_db
+def test_location_create_after_single_zero_position(
+    orga_client,
+    event,
+):
+    with scope(event=event):
+        first = ShiftLocation.objects.create(
+            event=event,
+            name="First",
+            position=0,
+        )
+
+    create_url = reverse(
+        "plugins:teamshifts:location_create",
+        kwargs={
+            "organizer": event.organizer.slug,
+            "event": event.slug,
+        },
+    )
+
+    response = orga_client.post(
+        create_url,
+        {"name": "Second", "description": ""},
+    )
+
+    assert response.status_code == 302
+
+    with scope(event=event):
+        first.refresh_from_db()
+        second = ShiftLocation.objects.get(name="Second")
+
+        assert first.position == 0
+        assert second.position == 1

@@ -29,12 +29,12 @@
             <th class='text-right'>{% trans "Actions" %}</th>
           </tr>
         </thead>
-        <tbody>
+         <tbody data-dnd-url="{% url 'plugins:teamshifts:location_reorder' organizer=request.organizer.slug event=request.event.slug %}">
           {% for location in locations %}
-            <tr>
+           <tr data-dnd-id="{{ location.pk }}">
               <td><strong>{{ location.name }}</strong></td>
               <td class='text-muted'>{% if location.description %}{{ location.description|rich_text }}{% else %}—{% endif %}</td>
-              <td class='text-right flip'>
+              <td class='text-right flip dnd-container'>
                 <a href='{% url "plugins:teamshifts:location_edit" organizer=request.organizer.slug event=request.event.slug pk=location.pk %}' class='btn btn-default btn-sm'>
                   <span class='fa fa-edit'></span> {% trans "Edit" %}
                 </a>

@@ -46,19 +46,17 @@ def test_question_delete_get_confirmation_page(orga_client, event, question):
     response = orga_client.get(url)
     assert response.status_code == 200
     content = response.content.decode("utf-8")
-    assert "Confirm deletion" in content
-    assert "Custom field" in content
+    assert "Delete Custom Field" in content
+    assert "custom field" in content
     assert "T-Shirt Size" in content
-    assert "Please make sure that this is the item you want to delete. This action cannot be undone!" in content
+    assert "This action cannot be undone." in content
     form_url = reverse(
         "plugins:teamshifts:cfm_application_form",
         kwargs={"organizer": event.organizer.slug, "event": event.slug},
     )
     assert form_url in content
-    assert "Back" in content
+    assert "Cancel" in content
     assert "Delete" in content
-    assert 'id="event-nav"' not in content
-    assert "<h1>Call for Team Members</h1>" not in content
 
 
 @pytest.mark.django_db

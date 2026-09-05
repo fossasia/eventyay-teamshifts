@@ -105,14 +105,11 @@
                                                title="{% trans 'Edit' %}">
                                                 <i class="fa fa-edit"></i>
                                             </a>
-                                            <button type="submit"
-                                                    formaction="{% url 'plugins:teamshifts:question_delete' organizer=request.organizer.slug event=request.event.slug pk=q.pk %}"
-                                                    class="btn btn-sm btn-danger"
-                                                    data-no-loading
-                                                    title="{% trans 'Delete' %}"
-                                                    data-confirm="{% blocktrans trimmed with name=q.question %}Delete question &quot;{{ name }}&quot;?{% endblocktrans %}">
+                                            <a href="{% url 'plugins:teamshifts:question_delete' organizer=request.organizer.slug event=request.event.slug pk=q.pk %}"
+                                               class="btn btn-sm btn-danger"
+                                               title="{% trans 'Delete' %}">
                                                 <i class="fa fa-trash"></i>
-                                            </button>
+                                            </a>
                                         </td>
                                     </tr>
                                 {% endwith %}

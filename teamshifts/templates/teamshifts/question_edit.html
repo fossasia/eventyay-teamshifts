@@ -28,10 +28,16 @@
             <button type='submit' class='btn btn-primary btn-save'>
                 {% trans "Save" %}
             </button>
-            <a href='{% url "plugins:teamshifts:cfm_settings" organizer=request.organizer.slug event=request.event.slug %}'
+            <a href='{% url "plugins:teamshifts:cfm_application_form" organizer=request.organizer.slug event=request.event.slug %}'
                class='btn btn-default btn-lg'>
                 {% trans "Cancel" %}
             </a>
+            {% if question %}
+                <a href='{% url "plugins:teamshifts:question_delete" organizer=request.organizer.slug event=request.event.slug pk=question.pk %}'
+                   class='btn btn-danger btn-lg pull-right flip'>
+                    <span class="fa fa-trash"></span> {% trans "Delete" %}
+                </a>
+            {% endif %}
         </div>
     </form>
 {% endblock %}

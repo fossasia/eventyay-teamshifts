@@ -1,0 +1,40 @@
+{% extends "teamshifts/base.html" %}
+{% load i18n %}
+{% load bootstrap3 %}
+
+{% block title %}{% trans "Delete Custom Field" %}{% endblock %}
+
+{% block teamshifts_header %}
+  <h1>{% trans "Delete Custom Field" %}</h1>
+{% endblock %}
+
+{% block teamshifts_content %}
+    <form action="" method="post" class="form-horizontal">
+        {% csrf_token %}
+        <div class="panel panel-danger">
+            <div class="panel-heading">
+                <h3 class="panel-title">{% trans "Delete Custom Field" %}</h3>
+            </div>
+            <div class="panel-body">
+                <p>
+                    {% blocktrans trimmed with name=question.question %}
+                        Are you sure you want to delete the custom field "<strong>{{ name }}</strong>"?
+                    {% endblocktrans %}
+                </p>
+                <p>
+                    <em>{% trans "This action cannot be undone." %}</em>
+                </p>
+            </div>
+            <div class="panel-footer">
+                <div class="form-group submit-group">
+                    <a href='{% url "plugins:teamshifts:cfm_application_form" organizer=request.organizer.slug event=request.event.slug %}' class="btn btn-default">
+                        {% trans "Cancel" %}
+                    </a>
+                    <button type="submit" class="btn btn-danger btn-save">
+                        <span class="fa fa-trash"></span> {% trans "Delete" %}
+                    </button>
+                </div>
+            </div>
+        </div>
+    </form>
+{% endblock %}

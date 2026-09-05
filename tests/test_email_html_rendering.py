@@ -19,7 +19,6 @@ from teamshifts.services.email import html_to_plain_text, looks_like_email_html,
 from teamshifts.signals import teamshifts_email_plain_text_body
 from teamshifts.tasks import send_queued_email
 
-
 TIPTAP_BODY = (
     "<p>Hi {full_name},</p>"
     "<p>Thank you for your interest in joining the {event_name} team.</p>"
@@ -86,6 +85,13 @@ def test_html_to_plain_text_preserves_paragraphs_without_tags():
     assert "\n" in plain
 
 
+def test_looks_like_email_html_detects_headings_only():
+    """Issue #116 regresion: a body containing only heading tags must be
+    detected as HTML so the plain-text MIME part is stripped."""
+    assert looks_like_email_html("<h1>Title</h1><h2>Subtitle</h2>") is True
+    assert "<p>" not in html_to_plain_text("<h1>Title</h1><h2>Subtitle</h2>")
+
+
 def test_sanitize_i18n_email_html_strips_unsafe_tags():
     dirty = LazyI18nString({"en": '<p>Hello</p><script>alert(1)</script><p onclick="x">World</p>'})
     cleaned = sanitize_i18n_email_html(dirty)
@@ -142,7 +148,7 @@ def test_email_compose_form_uses_sanitizing_body_field(event):
     locales = list(event.settings.locales) or ["en"]
     form = EmailComposeForm(
         data={
-            **_i18n_post(locales, subject="Hello", message='<p>Hi</p><script>alert(1)</script>'),
+            **_i18n_post(locales, subject="Hello", message="<p>Hi</p><script>alert(1)</script>"),
             "status": ApplicationStatus.ACCEPTED,
         },
         event=event,

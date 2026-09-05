@@ -20,7 +20,7 @@ from ..tasks import send_queued_email
 
 logger = logging.getLogger(__name__)
 
-_HTML_BODY_RE = re.compile(r"(?i)</?(p|br|div|ul|ol|li|strong|b|em|i|u|span|a|blockquote)\b")
+_HTML_BODY_RE = re.compile(r"(?i)</?(p|br|div|ul|ol|li|strong|b|em|i|u|span|a|blockquote|h[1-6])\b")
 
 
 def looks_like_email_html(value: str) -> bool:

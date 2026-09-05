@@ -498,6 +498,9 @@ class EmailComposeForm(forms.Form):
             input_formats=["%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"],
         )
 
+    def clean_message(self):
+        return sanitize_i18n_email_html(self.cleaned_data.get("message"))
+
 
 class EmailQueueEditForm(forms.ModelForm):
     class Meta:
@@ -520,7 +523,7 @@ class EmailQueueEditForm(forms.ModelForm):
                 label=_("Message"),
                 widget=I18nEmailEditorWidget,
                 widget_kwargs={"placeholders": EMAIL_PLACEHOLDERS},
-                required=False,
+                required=True,
                 locales=locales,
                 initial=self.initial.get("message", getattr(self.instance, "message", None)),
             )

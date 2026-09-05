@@ -11,7 +11,7 @@ from django.utils.translation import gettext_lazy as _
 from django_scopes import scope, scopes_disabled
 from eventyay.base.email import SimpleFunctionalMailTextPlaceholder
 from eventyay.base.models.organizer import Team
-from eventyay.base.signals import register_mail_placeholders
+from eventyay.base.signals import email_filter, register_mail_placeholders
 from eventyay.common.signals import periodic_task, user_menu_items
 from eventyay.control.signals import event_dashboard_components, event_dashboard_widgets, nav_global
 from eventyay.multidomain.urlreverse import build_absolute_uri
@@ -19,6 +19,7 @@ from eventyay.presale.signals import header_nav_tabs
 
 from .models import ApplicationStatus, CallForTeamMembers, ShiftAssignment, TeamMemberApplication, TeamRole, TeamShiftsEmailQueue
 from .permissions import has_any_teamshifts_permission
+from .services.email import html_to_plain_text, looks_like_email_html
 from .tasks import send_queued_email
 
 logger = logging.getLogger(__name__)
@@ -109,6 +110,15 @@ def teamshifts_public_schedule_nav_tab(sender, request=None, **kwargs):
         "active" if is_active else "",
         _("Shift Schedule"),
     )
+
+
+@receiver(email_filter, dispatch_uid="teamshifts_email_plain_text_body")
+def teamshifts_email_plain_text_body(sender, message, order=None, user=None, **kwargs):
+    """Keep the text/plain MIME part free of raw Tiptap HTML tags (#116)."""
+    body = getattr(message, "body", None) or ""
+    if looks_like_email_html(body):
+        message.body = html_to_plain_text(body)
+    return message
 
 
 @receiver(register_mail_placeholders, dispatch_uid="teamshifts_mail_placeholders")

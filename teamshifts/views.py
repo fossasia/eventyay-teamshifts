@@ -482,7 +482,7 @@ class EmailTemplatePreviewView(PluginActiveMixin, TeamShiftsPermissionRequiredMi
         from collections import defaultdict
 
         from eventyay.base.i18n import language
-        from eventyay.base.templatetags.rich_text import markdown_compile_email
+        from eventyay.base.templatetags.rich_text import compile_email_body
 
         event = request.event
         event_locales = list(event.settings.locales)
@@ -508,7 +508,7 @@ class EmailTemplatePreviewView(PluginActiveMixin, TeamShiftsPermissionRequiredMi
                 lambda m: f'<span class="placeholder">{escape(sample_values.get(m.group(1), m.group(0)))}</span>',
                 text,
             )
-            return markdown_compile_email(highlighted)
+            return compile_email_body(highlighted)
 
         body_values = request.POST.getlist("body")
         previews = {}

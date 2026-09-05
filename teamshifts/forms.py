@@ -7,9 +7,12 @@ from django_countries import countries
 from django_scopes import scopes_disabled
 from django_scopes.forms import SafeModelChoiceField
 from eventyay.base.models import Event
+from eventyay.common.forms.fields import I18nEmailBodyFormField
 from eventyay.common.forms.widgets import I18nEmailEditorWidget, RichTextWidget
+from eventyay.common.sanitizers import sanitize_email_html
 from eventyay.control.forms import SplitDateTimeField, SplitDateTimePickerWidget
 from i18nfield.forms import I18nFormField, I18nTextInput
+from i18nfield.strings import LazyI18nString
 
 from .models import (
     CFM_BUILTIN_FIELD_KEYS,
@@ -41,6 +44,18 @@ def format_datetime_local(dt):
 
 
 EMAIL_PLACEHOLDERS = ["full_name", "event_name", "role_name", "event_dates", "event_location", "shift_schedule_url"]
+
+
+def sanitize_i18n_email_html(value):
+    """Sanitize Tiptap/email HTML stored in i18n string fields."""
+    if isinstance(value, LazyI18nString):
+        if isinstance(value.data, dict):
+            return LazyI18nString({locale: sanitize_email_html(text) if text else text for locale, text in value.data.items()})
+        if isinstance(value.data, str):
+            return LazyI18nString(sanitize_email_html(value.data) if value.data else value.data)
+    if isinstance(value, str):
+        return sanitize_email_html(value) if value else value
+    return value
 
 
 class CallForTeamMembersSettingsForm(forms.ModelForm):
@@ -392,13 +407,19 @@ class EmailTemplateForm(forms.ModelForm):
         self.fields["body"].required = False
         if locales:
             self.fields["subject"].widget = I18nTextInput(locales=locales, field=self.fields["subject"])
-            self.fields["body"].widget = I18nEmailEditorWidget(
+            self.fields["body"] = I18nEmailBodyFormField(
+                label=_("Body"),
+                widget=I18nEmailEditorWidget,
+                widget_kwargs={"placeholders": EMAIL_PLACEHOLDERS},
+                required=False,
                 locales=locales,
-                field=self.fields["body"],
-                placeholders=EMAIL_PLACEHOLDERS,
+                initial=self.initial.get("body", getattr(self.instance, "body", None)),
             )
             for field_name in ("subject", "body"):
                 self.fields[field_name].widget.enabled_locales = locales
+
+    def clean_body(self):
+        return sanitize_i18n_email_html(self.cleaned_data.get("body"))
 
 
 class CustomEmailTemplateForm(forms.ModelForm):
@@ -415,13 +436,19 @@ class CustomEmailTemplateForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         if locales:
             self.fields["subject"].widget = I18nTextInput(locales=locales, field=self.fields["subject"])
-            self.fields["body"].widget = I18nEmailEditorWidget(
+            self.fields["body"] = I18nEmailBodyFormField(
+                label=_("Body"),
+                widget=I18nEmailEditorWidget,
+                widget_kwargs={"placeholders": EMAIL_PLACEHOLDERS},
+                required=False,
                 locales=locales,
-                field=self.fields["body"],
-                placeholders=EMAIL_PLACEHOLDERS,
+                initial=self.initial.get("body", getattr(self.instance, "body", None)),
             )
             for field_name in ("subject", "body"):
                 self.fields[field_name].widget.enabled_locales = locales
+
+    def clean_body(self):
+        return sanitize_i18n_email_html(self.cleaned_data.get("body"))
 
 
 class EmailComposeForm(forms.Form):
@@ -436,7 +463,7 @@ class EmailComposeForm(forms.Form):
             required=True,
             locales=locales,
         )
-        self.fields["message"] = I18nFormField(
+        self.fields["message"] = I18nEmailBodyFormField(
             label=_("Message"),
             widget=I18nEmailEditorWidget,
             required=True,
@@ -489,10 +516,13 @@ class EmailQueueEditForm(forms.ModelForm):
         self._event = event
         if event is not None:
             locales = list(event.settings.get("locales") or [event.settings.locale])
-            self.fields["message"].widget = I18nEmailEditorWidget(
+            self.fields["message"] = I18nEmailBodyFormField(
+                label=_("Message"),
+                widget=I18nEmailEditorWidget,
+                widget_kwargs={"placeholders": EMAIL_PLACEHOLDERS},
+                required=False,
                 locales=locales,
-                field=self.fields["message"],
-                placeholders=EMAIL_PLACEHOLDERS,
+                initial=self.initial.get("message", getattr(self.instance, "message", None)),
             )
             for field_name in ("subject", "message"):
                 self.fields[field_name].widget.enabled_locales = locales
@@ -508,6 +538,9 @@ class EmailQueueEditForm(forms.ModelForm):
             "%Y-%m-%d %H:%M:%S",
             "%Y-%m-%d %H:%M",
         ]
+
+    def clean_message(self):
+        return sanitize_i18n_email_html(self.cleaned_data.get("message"))
 
 
 __all__ = [

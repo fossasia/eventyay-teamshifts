@@ -1,7 +1,10 @@
 import logging
+import re
 from collections.abc import Iterable
+from html import unescape
 
 from django.db import transaction
+from django.utils.html import strip_tags
 from django_scopes import scope
 from eventyay.base.models import Event, User
 
@@ -16,6 +19,31 @@ from ..models import (
 from ..tasks import send_queued_email
 
 logger = logging.getLogger(__name__)
+
+_HTML_BODY_RE = re.compile(r"(?i)</?(p|br|div|ul|ol|li|strong|b|em|i|u|span|a|blockquote)\b")
+
+
+def looks_like_email_html(value: str) -> bool:
+    """Return True when *value* looks like Tiptap/email HTML rather than plain text."""
+    if not value or "<" not in value:
+        return False
+    return bool(_HTML_BODY_RE.search(value))
+
+
+def html_to_plain_text(html: str) -> str:
+    """Convert email HTML to a readable plain-text MIME body."""
+    if not html:
+        return ""
+    text = re.sub(r"(?i)<br\s*/?>", "\n", html)
+    text = re.sub(r"(?i)</p\s*>", "\n\n", text)
+    text = re.sub(r"(?i)</div\s*>", "\n", text)
+    text = re.sub(r"(?i)</li\s*>", "\n", text)
+    text = re.sub(r"(?i)</h[1-6]\s*>", "\n\n", text)
+    text = strip_tags(text)
+    text = unescape(text)
+    text = re.sub(r"[ \t]+\n", "\n", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
 
 
 def get_recipients(

@@ -1997,6 +1997,15 @@ class ShiftScheduleAssignmentsAPIView(PluginActiveMixin, TeamShiftsPermissionReq
 
             shift = get_object_or_404(Shift, pk=shift_id, event=event)
 
+            if role_id and not can_act_on_role(
+                request.user,
+                request.organizer,
+                event,
+                role_id,
+                request=request,
+            ):
+                return HttpResponseBadRequest("You cannot assign members to this role.")
+
             if not TeamMemberApplication.objects.filter(event=event, status=ApplicationStatus.ACCEPTED, user_id=user_id).exists():
                 return HttpResponseBadRequest("User is not an accepted team member for this event.")
             user = get_object_or_404(User, pk=user_id)
@@ -2040,8 +2049,18 @@ class ShiftScheduleAssignmentsAPIView(PluginActiveMixin, TeamShiftsPermissionReq
             shift_id = request.GET.get("shift_id")
             user_id = request.GET.get("user_id")
             role_id = request.GET.get("role_id")
+            if role_id:
+                role_id = int(role_id)
 
             shift = get_object_or_404(Shift, pk=shift_id, event=event)
+            if role_id and not can_act_on_role(
+                request.user,
+                request.organizer,
+                event,
+                role_id,
+                request=request,
+            ):
+                return HttpResponseBadRequest("You cannot unassign members from this role.")
             assignment = ShiftAssignment.objects.filter(shift=shift, team_member_id=user_id, role_id=role_id).first()
             if assignment:
                 assignment.delete()

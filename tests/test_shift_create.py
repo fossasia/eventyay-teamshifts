@@ -1,12 +1,22 @@
+import json
 from datetime import timedelta
 
 import pytest
+from django.test import Client
 from django.urls import reverse
 from django.utils.timezone import now
 from django_scopes import scope
-from eventyay.base.models import Team
+from eventyay.base.models import Team, User
 
-from teamshifts.models import Shift, ShiftLocation, TeamRole
+from teamshifts.models import (
+    ApplicationStatus,
+    Shift,
+    ShiftAssignment,
+    ShiftLocation,
+    ShiftRoleAssignment,
+    TeamMemberApplication,
+    TeamRole,
+)
 
 
 @pytest.fixture
@@ -210,3 +220,306 @@ def test_shift_create_missing_role(orga_client, event, location, team_role):
 
     with scope(event=event):
         assert Shift.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_team_lead_can_assign_member_within_scope(event, user, team_role, settings):
+    settings.SITE_URL = "https://testserver"
+    lead = User.objects.create_user(
+        email="lead@example.com",
+        password="secret",
+    )
+    member = User.objects.create_user(
+        email="member@example.com",
+        password="secret",
+    )
+
+    with scope(event=event):
+        TeamMemberApplication.objects.create(
+            event=event,
+            user=member,
+            status=ApplicationStatus.ACCEPTED,
+        )
+
+        Team.objects.create(
+            organizer=event.organizer,
+            name="Lead Team",
+            teamshifts_role="lead",
+            all_events=True,
+            limit_teamshifts_roles=[team_role.pk],
+        ).members.add(lead)
+
+        shift = Shift.objects.create(
+            event=event,
+            name="Test Shift",
+            start_time=now() + timedelta(days=1),
+            end_time=now() + timedelta(days=1, hours=2),
+        )
+        ShiftRoleAssignment.objects.create(
+            shift=shift,
+            role=team_role,
+            capacity=1,
+        )
+
+    client = Client()
+    client.force_login(lead)
+
+    url = reverse(
+        "plugins:teamshifts:api_assignments",
+        kwargs={
+            "organizer": event.organizer.slug,
+            "event": event.slug,
+        },
+    )
+
+    response = client.post(
+        url,
+        data=json.dumps(
+            {
+                "shift_id": shift.pk,
+                "user_id": member.pk,
+                "role_id": team_role.pk,
+            }
+        ),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200
+
+    with scope(event=event):
+        assert ShiftAssignment.objects.filter(
+            shift=shift,
+            team_member=member,
+            role=team_role,
+        ).exists()
+
+
+@pytest.mark.django_db
+def test_team_lead_cannot_assign_member_outside_scope(event, user, settings):
+    settings.SITE_URL = "https://testserver"
+    lead = User.objects.create_user(
+        email="lead@example.com",
+        password="secret",
+    )
+    member = User.objects.create_user(
+        email="member@example.com",
+        password="secret",
+    )
+
+    with scope(event=event):
+        allowed_role = TeamRole.objects.create(
+            event=event,
+            name="Allowed Role",
+        )
+        restricted_role = TeamRole.objects.create(
+            event=event,
+            name="Restricted Role",
+        )
+
+        TeamMemberApplication.objects.create(
+            event=event,
+            user=member,
+            status=ApplicationStatus.ACCEPTED,
+        )
+
+        Team.objects.create(
+            organizer=event.organizer,
+            name="Lead Team",
+            teamshifts_role="lead",
+            all_events=True,
+            limit_teamshifts_roles=[allowed_role.pk],
+        ).members.add(lead)
+
+        shift = Shift.objects.create(
+            event=event,
+            name="Test Shift",
+            start_time=now() + timedelta(days=1),
+            end_time=now() + timedelta(days=1, hours=2),
+        )
+        ShiftRoleAssignment.objects.create(
+            shift=shift,
+            role=restricted_role,
+            capacity=1,
+        )
+
+    client = Client()
+    client.force_login(lead)
+
+    url = reverse(
+        "plugins:teamshifts:api_assignments",
+        kwargs={
+            "organizer": event.organizer.slug,
+            "event": event.slug,
+        },
+    )
+
+    response = client.post(
+        url,
+        data=json.dumps(
+            {
+                "shift_id": shift.pk,
+                "user_id": member.pk,
+                "role_id": restricted_role.pk,
+            }
+        ),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert b"You cannot assign members to this role." in response.content
+
+    with scope(event=event):
+        assert not ShiftAssignment.objects.filter(
+            shift=shift,
+            team_member=member,
+        ).exists()
+
+
+@pytest.mark.django_db
+def test_team_lead_can_unassign_member_within_scope(event, user, team_role, settings):
+    settings.SITE_URL = "https://testserver"
+
+    lead = User.objects.create_user(
+        email="lead@example.com",
+        password="secret",
+    )
+    member = User.objects.create_user(
+        email="member@example.com",
+        password="secret",
+    )
+
+    with scope(event=event):
+        TeamMemberApplication.objects.create(
+            event=event,
+            user=member,
+            status=ApplicationStatus.ACCEPTED,
+        )
+        Team.objects.create(
+            organizer=event.organizer,
+            name="Lead Team",
+            teamshifts_role="lead",
+            all_events=True,
+            limit_teamshifts_roles=[team_role.pk],
+        ).members.add(lead)
+
+        shift = Shift.objects.create(
+            event=event,
+            name="Test Shift",
+            start_time=now() + timedelta(days=1),
+            end_time=now() + timedelta(days=1, hours=2),
+        )
+        ShiftRoleAssignment.objects.create(
+            shift=shift,
+            role=team_role,
+            capacity=1,
+        )
+        ShiftAssignment.objects.create(
+            shift=shift,
+            team_member=member,
+            role=team_role,
+            assigned_by=lead,
+        )
+
+    client = Client()
+    client.force_login(lead)
+
+    url = reverse(
+        "plugins:teamshifts:api_assignments",
+        kwargs={
+            "organizer": event.organizer.slug,
+            "event": event.slug,
+        },
+    )
+
+    response = client.delete(
+        f"{url}?shift_id={shift.pk}&user_id={member.pk}&role_id={team_role.pk}",
+    )
+
+    assert response.status_code == 200
+
+    with scope(event=event):
+        assert not ShiftAssignment.objects.filter(
+            shift=shift,
+            team_member=member,
+            role=team_role,
+        ).exists()
+
+
+@pytest.mark.django_db
+def test_team_lead_cannot_unassign_member_outside_scope(event, user, settings):
+    settings.SITE_URL = "https://testserver"
+
+    lead = User.objects.create_user(
+        email="lead@example.com",
+        password="secret",
+    )
+    member = User.objects.create_user(
+        email="member@example.com",
+        password="secret",
+    )
+
+    with scope(event=event):
+        allowed_role = TeamRole.objects.create(
+            event=event,
+            name="Allowed Role",
+        )
+        restricted_role = TeamRole.objects.create(
+            event=event,
+            name="Restricted Role",
+        )
+
+        TeamMemberApplication.objects.create(
+            event=event,
+            user=member,
+            status=ApplicationStatus.ACCEPTED,
+        )
+        Team.objects.create(
+            organizer=event.organizer,
+            name="Lead Team",
+            teamshifts_role="lead",
+            all_events=True,
+            limit_teamshifts_roles=[allowed_role.pk],
+        ).members.add(lead)
+
+        shift = Shift.objects.create(
+            event=event,
+            name="Test Shift",
+            start_time=now() + timedelta(days=1),
+            end_time=now() + timedelta(days=1, hours=2),
+        )
+        ShiftRoleAssignment.objects.create(
+            shift=shift,
+            role=restricted_role,
+            capacity=1,
+        )
+        ShiftAssignment.objects.create(
+            shift=shift,
+            team_member=member,
+            role=restricted_role,
+            assigned_by=lead,
+        )
+
+    client = Client()
+    client.force_login(lead)
+
+    url = reverse(
+        "plugins:teamshifts:api_assignments",
+        kwargs={
+            "organizer": event.organizer.slug,
+            "event": event.slug,
+        },
+    )
+
+    response = client.delete(
+        f"{url}?shift_id={shift.pk}&user_id={member.pk}&role_id={restricted_role.pk}",
+    )
+
+    assert response.status_code == 400
+    assert b"You cannot unassign members from this role." in response.content
+
+    with scope(event=event):
+        assert ShiftAssignment.objects.filter(
+            shift=shift,
+            team_member=member,
+            role=restricted_role,
+        ).exists()

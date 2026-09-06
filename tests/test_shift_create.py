@@ -523,3 +523,131 @@ def test_team_lead_cannot_unassign_member_outside_scope(event, user, settings):
             team_member=member,
             role=restricted_role,
         ).exists()
+
+
+@pytest.mark.django_db
+def test_team_lead_cannot_assign_member_with_invalid_role_id(event, user, team_role, settings):
+    settings.SITE_URL = "https://testserver"
+
+    lead = User.objects.create_user(
+        email="lead@example.com",
+        password="secret",
+    )
+    member = User.objects.create_user(
+        email="member@example.com",
+        password="secret",
+    )
+
+    with scope(event=event):
+        TeamMemberApplication.objects.create(
+            event=event,
+            user=member,
+            status=ApplicationStatus.ACCEPTED,
+        )
+
+        Team.objects.create(
+            organizer=event.organizer,
+            name="Lead Team",
+            teamshifts_role="lead",
+            all_events=True,
+            limit_teamshifts_roles=[team_role.pk],
+        ).members.add(lead)
+
+        shift = Shift.objects.create(
+            event=event,
+            name="Test Shift",
+            start_time=now() + timedelta(days=1),
+            end_time=now() + timedelta(days=1, hours=2),
+        )
+
+        ShiftRoleAssignment.objects.create(
+            shift=shift,
+            role=team_role,
+            capacity=1,
+        )
+
+    client = Client()
+    client.force_login(lead)
+
+    url = reverse(
+        "plugins:teamshifts:api_assignments",
+        kwargs={
+            "organizer": event.organizer.slug,
+            "event": event.slug,
+        },
+    )
+
+    response = client.post(
+        url,
+        data=json.dumps(
+            {
+                "shift_id": shift.pk,
+                "user_id": member.pk,
+                "role_id": "abc",
+            }
+        ),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert b"Invalid role_id." in response.content
+
+
+@pytest.mark.django_db
+def test_team_lead_cannot_unassign_member_with_invalid_role_id(event, user, team_role, settings):
+    settings.SITE_URL = "https://testserver"
+
+    lead = User.objects.create_user(
+        email="lead@example.com",
+        password="secret",
+    )
+    member = User.objects.create_user(
+        email="member@example.com",
+        password="secret",
+    )
+
+    with scope(event=event):
+        TeamMemberApplication.objects.create(
+            event=event,
+            user=member,
+            status=ApplicationStatus.ACCEPTED,
+        )
+
+        Team.objects.create(
+            organizer=event.organizer,
+            name="Lead Team",
+            teamshifts_role="lead",
+            all_events=True,
+            limit_teamshifts_roles=[team_role.pk],
+        ).members.add(lead)
+
+        shift = Shift.objects.create(
+            event=event,
+            name="Test Shift",
+            start_time=now() + timedelta(days=1),
+            end_time=now() + timedelta(days=1, hours=2),
+        )
+
+        ShiftRoleAssignment.objects.create(
+            shift=shift,
+            role=team_role,
+            capacity=1,
+        )
+
+    client = Client()
+    client.force_login(lead)
+
+    url = reverse(
+        "plugins:teamshifts:api_assignments",
+        kwargs={
+            "organizer": event.organizer.slug,
+            "event": event.slug,
+        },
+    )
+
+    response = client.delete(
+        f"{url}?shift_id={shift.pk}&user_id={member.pk}&role_id=abc",
+    )
+
+    assert response.status_code == 400
+    assert b"Invalid role_id." in response.content

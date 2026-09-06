@@ -1994,6 +1994,11 @@ class ShiftScheduleAssignmentsAPIView(PluginActiveMixin, TeamShiftsPermissionReq
             shift_id = data.get("shift_id")
             user_id = data.get("user_id")
             role_id = data.get("role_id")
+            if role_id:
+                try:
+                    role_id = int(role_id)
+                except ValueError:
+                    return HttpResponseBadRequest("Invalid role_id.")
 
             shift = get_object_or_404(Shift, pk=shift_id, event=event)
 
@@ -2050,7 +2055,10 @@ class ShiftScheduleAssignmentsAPIView(PluginActiveMixin, TeamShiftsPermissionReq
             user_id = request.GET.get("user_id")
             role_id = request.GET.get("role_id")
             if role_id:
-                role_id = int(role_id)
+                try:
+                    role_id = int(role_id)
+                except ValueError:
+                    return HttpResponseBadRequest("Invalid role_id.")
 
             shift = get_object_or_404(Shift, pk=shift_id, event=event)
             if role_id and not can_act_on_role(

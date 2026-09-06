@@ -591,6 +591,12 @@ def test_team_lead_cannot_assign_member_with_invalid_role_id(event, user, team_r
 
     assert response.status_code == 400
     assert b"Invalid role_id." in response.content
+    with scope(event=event):
+        assert not ShiftAssignment.objects.filter(
+            shift=shift,
+            team_member=member,
+            role=team_role,
+        ).exists()
 
 
 @pytest.mark.django_db
@@ -633,6 +639,12 @@ def test_team_lead_cannot_unassign_member_with_invalid_role_id(event, user, team
             role=team_role,
             capacity=1,
         )
+        ShiftAssignment.objects.create(
+            shift=shift,
+            team_member=member,
+            role=team_role,
+            assigned_by=lead,
+        )
 
     client = Client()
     client.force_login(lead)
@@ -651,3 +663,9 @@ def test_team_lead_cannot_unassign_member_with_invalid_role_id(event, user, team
 
     assert response.status_code == 400
     assert b"Invalid role_id." in response.content
+    with scope(event=event):
+        assert ShiftAssignment.objects.filter(
+            shift=shift,
+            team_member=member,
+            role=team_role,
+        ).exists()

@@ -29,7 +29,12 @@ ROLE_LEVELS = {  # empty string = no teamshifts access (matches model default)
 
 def _get_teamshifts_role(user, organizer, event, request=None):
     """Return the highest teamshifts_role the user holds for this event."""
-    if user.has_event_permission(organizer, event, "can_change_event_settings", request=request):
+    if not Team.objects.filter(
+        organizer=organizer,
+        members=user,
+    ).filter(Q(all_events=True) | Q(limit_events=event)).exclude(teamshifts_role="").exists() and user.has_event_permission(
+        organizer, event, "can_change_event_settings", request=request
+    ):
         return "coordinator"
     with scopes_disabled():
         teams = (

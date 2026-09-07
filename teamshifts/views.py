@@ -1996,11 +1996,11 @@ class ShiftScheduleAssignmentsAPIView(PluginActiveMixin, TeamShiftsPermissionReq
         with scope(event=event):
             shift_id = data.get("shift_id")
             user_id = data.get("user_id")
+            role_id_provided = "role_id" in data
             role_id = data.get("role_id")
-            if role_id:
-                try:
-                    role_id = int(role_id)
-                except ValueError:
+
+            if role_id_provided:
+                if isinstance(role_id, bool) or not isinstance(role_id, int):
                     return JsonResponse(
                         {"detail": "Invalid role_id."},
                         status=400,
@@ -2008,7 +2008,7 @@ class ShiftScheduleAssignmentsAPIView(PluginActiveMixin, TeamShiftsPermissionReq
 
             shift = get_object_or_404(Shift, pk=shift_id, event=event)
 
-            if role_id and not can_act_on_role(
+            if role_id_provided and not can_act_on_role(
                 request.user,
                 request.organizer,
                 event,
@@ -2027,14 +2027,14 @@ class ShiftScheduleAssignmentsAPIView(PluginActiveMixin, TeamShiftsPermissionReq
                 )
             user = get_object_or_404(User, pk=user_id)
 
-            if role_id and not shift.role_assignments.filter(role_id=role_id).exists():
+            if role_id_provided and not shift.role_assignments.filter(role_id=role_id).exists():
                 return JsonResponse(
                     {"detail": "Role is not configured for this shift."},
                     status=400,
                 )
 
             # Capacity check: ensure assignment won't exceed role capacity
-            if role_id:
+            if role_id_provided:
                 role_assignment = shift.role_assignments.filter(role_id=role_id).first()
                 if role_assignment:
                     current_count = ShiftAssignment.objects.filter(shift=shift, role_id=role_id).exclude(team_member=user).count()
@@ -2075,17 +2075,19 @@ class ShiftScheduleAssignmentsAPIView(PluginActiveMixin, TeamShiftsPermissionReq
             shift_id = request.GET.get("shift_id")
             user_id = request.GET.get("user_id")
             role_id = request.GET.get("role_id")
-            if role_id:
+            role_id_provided = role_id is not None
+
+            if role_id_provided:
                 try:
                     role_id = int(role_id)
-                except ValueError:
+                except (TypeError, ValueError):
                     return JsonResponse(
                         {"detail": "Invalid role_id."},
                         status=400,
                     )
 
             shift = get_object_or_404(Shift, pk=shift_id, event=event)
-            if role_id and not can_act_on_role(
+            if role_id_provided and not can_act_on_role(
                 request.user,
                 request.organizer,
                 event,

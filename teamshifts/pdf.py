@@ -40,11 +40,6 @@ CERTIFICATE_PLACEHOLDERS = (
 CERTIFICATE_DEFAULT_STATIC = "teamshifts/certificates/certificate_default.pdf"
 
 
-def hex_to_rgba(hex_color: str) -> list:
-    hex_color = hex_color.lstrip("#")
-    return [int(hex_color[i : i + 2], 16) for i in (0, 2, 4)] + [1]
-
-
 NAVY = [27, 54, 93, 1]
 
 DEFAULT_CERTIFICATE_LAYOUT = [
@@ -169,7 +164,6 @@ def preview_context(event):
     from django.utils.translation import gettext
 
     location = str(event.location) if event.location else "Berlin, Germany"
-    event_color = event.visible_primary_color or "#c0392b"
     return {
         "certificate_title": gettext("Certificate of Appreciation"),
         "certificate_intro": gettext("presents this"),
@@ -193,7 +187,6 @@ def preview_context(event):
         "assigned_shift_count": "3",
         "roles": "Registration, Info desk",
         "issued_date": gettext("Date Issued: %(date)s") % {"date": "24 August 2026"},
-        "_event_color": event_color,
     }
 
 
@@ -338,13 +331,6 @@ class CertificateRenderer(Renderer):
         )
 
     def draw_page(self, canvas: Canvas, order=None, op=None, show_page=True):
-        event_color = self.context.get("_event_color")
-        if event_color:
-            color_rgba = hex_to_rgba(event_color)
-            for obj in self.layout:
-                if obj.get("type") == "textarea" and obj.get("content") in ("certificate_title", "member_name"):
-                    obj["color"] = color_rgba
-
         allowed = {"textarea", "poweredby", "imagearea"}
         layout = [obj for obj in self.layout if obj.get("type") in allowed]
         original = self.layout

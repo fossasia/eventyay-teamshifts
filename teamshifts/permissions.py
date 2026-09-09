@@ -26,13 +26,18 @@ ROLE_LEVELS = {  # empty string = no teamshifts access (matches model default)
     "": 0,
 }
 
+
 def _has_explicit_teamshifts_team(user, organizer, event):
-    return Team.objects.filter(
-        organizer=organizer,
-        members=user,
-    ).filter(Q(all_events=True) | Q(limit_events=event)).exclude(
-        teamshifts_role=""
-    ).exists()
+    return (
+        Team.objects.filter(
+            organizer=organizer,
+            members=user,
+        )
+        .filter(Q(all_events=True) | Q(limit_events=event))
+        .exclude(teamshifts_role="")
+        .exists()
+    )
+
 
 def _get_teamshifts_role(user, organizer, event, request=None):
     """Return the highest teamshifts_role the user holds for this event."""

@@ -2000,7 +2000,19 @@ class ShiftScheduleAssignmentsAPIView(PluginActiveMixin, TeamShiftsPermissionReq
             role_id = data.get("role_id")
 
             if role_id_provided:
-                if isinstance(role_id, bool) or not isinstance(role_id, int):
+                if isinstance(role_id, bool):
+                    return JsonResponse(
+                        {"detail": "Invalid role_id."},
+                        status=400,
+                    )
+                if isinstance(role_id, str):
+                    if not role_id.isascii() or not role_id.isdigit():
+                        return JsonResponse(
+                            {"detail": "Invalid role_id."},
+                            status=400,
+                        )
+                    role_id = int(role_id)
+                elif not isinstance(role_id, int):
                     return JsonResponse(
                         {"detail": "Invalid role_id."},
                         status=400,

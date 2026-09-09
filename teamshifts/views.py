@@ -1338,30 +1338,33 @@ class ShiftLocationReorderView(PluginActiveMixin, TeamShiftsPermissionRequiredMi
             return HttpResponseBadRequest("Invalid location ID.")
 
         with scope(event=request.event):
-            locations = {
-                location.pk: location
-                for location in ShiftLocation.objects.filter(
-                    event=request.event,
-                )
-            }
+            with transaction.atomic():
+                event = Event.objects.select_for_update().get(pk=request.event.pk)
 
-            if len(location_ids) != len(set(location_ids)) or set(location_ids) != set(locations):
-                return HttpResponseBadRequest("Invalid location order.")
+                locations = {
+                    location.pk: location
+                    for location in ShiftLocation.objects.filter(
+                        event=event,
+                    )
+                }
 
-            reordered_locations = []
+                if len(location_ids) != len(set(location_ids)) or set(location_ids) != set(locations):
+                    return HttpResponseBadRequest("Invalid location order.")
 
-            for position, pk in enumerate(location_ids):
-                location = locations[pk]
-                location.position = position
-                reordered_locations.append(location)
+                reordered_locations = []
 
-            if reordered_locations:
-                ShiftLocation.objects.bulk_update(
-                    reordered_locations,
-                    ["position"],
-                )
+                for position, pk in enumerate(location_ids):
+                    location = locations[pk]
+                    location.position = position
+                    reordered_locations.append(location)
 
-        return HttpResponse(status=204)
+                if reordered_locations:
+                    ShiftLocation.objects.bulk_update(
+                        reordered_locations,
+                        ["position"],
+                    )
+
+            return HttpResponse(status=204)
 
 
 class ShiftLocationCreateView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):

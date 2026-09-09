@@ -10,6 +10,7 @@
 {% endblock %}
 
 {% block teamshifts_content %}
+  {% csrf_token %}
   <p class="text-right">
     <a href='{% url "plugins:teamshifts:location_create" organizer=request.organizer.slug event=request.event.slug %}' class='btn btn-primary'>
       <span class='fa fa-plus'></span> {% trans "Add location" %}

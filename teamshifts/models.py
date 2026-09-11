@@ -6,7 +6,7 @@ from django.utils import timezone
 from django.utils.crypto import get_random_string
 from django.utils.translation import gettext_lazy as _
 from django_scopes import ScopedManager, scope
-from i18nfield.fields import I18nTextField
+from i18nfield.fields import I18nCharField, I18nTextField
 
 
 def generate_cfm_secret():
@@ -432,10 +432,28 @@ class TeamApplicationQuestion(models.Model):
         needs_options = (QuestionVariant.CHOICES, QuestionVariant.CHOICES_DROPDOWN, QuestionVariant.MULTIPLE)
         if self.variant not in needs_options:
             return []
-        return [line.strip() for line in (self.options or "").splitlines() if line.strip()]
+        return [str(option.answer) for option in self.option_records.all()]
 
     def __str__(self):
         return f"{self.question} ({self.get_variant_display()})"
+
+
+class TeamApplicationQuestionOption(models.Model):
+    question = models.ForeignKey(
+        "TeamApplicationQuestion",
+        related_name="option_records",
+        on_delete=models.CASCADE,
+    )
+    answer = I18nCharField(verbose_name=_("Answer"))
+    position = models.IntegerField(default=0)
+
+    def __str__(self):
+        return str(self.answer)
+
+    class Meta:
+        verbose_name = _("Application question option")
+        verbose_name_plural = _("Application question options")
+        ordering = ("position", "id")
 
 
 class TeamApplicationAnswer(models.Model):

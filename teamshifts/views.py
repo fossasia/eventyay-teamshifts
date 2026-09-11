@@ -43,6 +43,7 @@ from .forms import (
     ShiftLocationForm,
     ShiftRoleAssignmentForm,
     TeamApplicationQuestionForm,
+    TeamApplicationQuestionOptionFormSet,
     TeamMemberApplicationForm,
     TeamRoleForm,
     render_answer_for_review,
@@ -59,6 +60,7 @@ from .models import (
     ShiftRoleAssignment,
     TeamApplicationAnswer,
     TeamApplicationQuestion,
+    TeamApplicationQuestionOption,
     TeamMemberApplication,
     TeamRole,
     TeamShiftsCustomEmailTemplate,
@@ -584,15 +586,64 @@ class QuestionEditView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Vie
 
     def get(self, request, *args, **kwargs):
         instance = self._get_instance(request, kwargs.get("pk"))
-        form = TeamApplicationQuestionForm(instance=instance, event=request.event, locales=request.event.settings.locales)
-        return render(request, self.template_name, {"form": form, "question": instance})
+        form = TeamApplicationQuestionForm(
+            instance=instance,
+            event=request.event,
+            locales=request.event.settings.locales,
+        )
+        option_formset = TeamApplicationQuestionOptionFormSet(
+            instance=instance,
+            event=request.event,
+        )
+        return render(
+            request,
+            self.template_name,
+            {
+                "form": form,
+                "option_formset": option_formset,
+                "question": instance,
+            },
+        )
 
     def post(self, request, *args, **kwargs):
         instance = self._get_instance(request, kwargs.get("pk"))
-        form = TeamApplicationQuestionForm(request.POST, instance=instance, event=request.event, locales=request.event.settings.locales)
-        if form.is_valid():
-            with scope(event=request.event):
-                saved = form.save()
+        form = TeamApplicationQuestionForm(
+            request.POST,
+            instance=instance,
+            event=request.event,
+            locales=request.event.settings.locales,
+        )
+        option_formset = TeamApplicationQuestionOptionFormSet(
+            request.POST,
+            instance=instance,
+            event=request.event,
+            variant=request.POST.get("variant"),
+        )
+        if form.is_valid() and option_formset.is_valid():
+            with transaction.atomic():
+                with scope(event=request.event):
+                    saved = form.save()
+
+                    if saved.variant not in ("choices", "choices_dropdown", "multiple_choice"):
+                        TeamApplicationQuestionOption.objects.filter(question=saved).delete()
+
+                    option_formset.instance = saved
+                    options = option_formset.save(commit=False)
+
+                    for option in options:
+                        option.question = saved
+
+                    deleted_options = option_formset.deleted_objects
+                    for option in deleted_options:
+                        option.delete()
+
+                    ordered_forms = option_formset.ordered_forms
+                    for position, option_form in enumerate(ordered_forms):
+                        option = option_form.instance
+                        option.question = saved
+                        option.position = position
+                        option.save()
+
             if instance is None:
                 with scope(event=request.event):
                     try:
@@ -607,8 +658,22 @@ class QuestionEditView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Vie
                 messages.success(request, _("Question '%s' added.") % saved.question)
             else:
                 messages.success(request, _("Question saved."))
-            return redirect("plugins:teamshifts:cfm_application_form", organizer=request.organizer.slug, event=request.event.slug)
-        return render(request, self.template_name, {"form": form, "question": instance})
+
+            return redirect(
+                "plugins:teamshifts:cfm_application_form",
+                organizer=request.organizer.slug,
+                event=request.event.slug,
+            )
+
+        return render(
+            request,
+            self.template_name,
+            {
+                "form": form,
+                "option_formset": option_formset,
+                "question": instance,
+            },
+        )
 
 
 class QuestionDeleteView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):

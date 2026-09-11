@@ -200,7 +200,7 @@ class TeamMemberApplicationForm(forms.Form):
             return
 
         with scopes_disabled():
-            self._questions = list(TeamApplicationQuestion.objects.filter(event=event, active=True).order_by("pk"))
+            self._questions = list(TeamApplicationQuestion.objects.filter(event=event, active=True).prefetch_related("option_records").order_by("pk"))
 
         question_map: dict[int, TeamApplicationQuestion] = {q.pk: q for q in self._questions}
 

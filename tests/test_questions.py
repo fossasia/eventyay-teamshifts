@@ -147,7 +147,7 @@ def test_question_edit_requires_at_least_two_options(orga_client, event):
         "option_records-INITIAL_FORMS": "0",
         "option_records-MIN_NUM_FORMS": "0",
         "option_records-MAX_NUM_FORMS": "1000",
-        "option_records-0-answer": "Small",
+        "option_records-0-answer_0": "Small",
         "option_records-0-ORDER": "0",
         "option_records-0-DELETE": "",
     }

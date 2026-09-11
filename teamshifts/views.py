@@ -619,7 +619,15 @@ class QuestionEditView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Vie
             event=request.event,
             variant=request.POST.get("variant"),
         )
-        if form.is_valid() and option_formset.is_valid():
+        if form.is_valid() and (
+            option_formset.variant
+            not in (
+                "choices",
+                "choices_dropdown",
+                "multiple_choice",
+            )
+            or option_formset.is_valid()
+        ):
             with transaction.atomic():
                 with scope(event=request.event):
                     saved = form.save()

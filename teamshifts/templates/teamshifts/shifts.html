@@ -69,7 +69,7 @@
                     <td>{{ shift.location.name }}</td>
                     <td>
                         {% for assignment in shift.role_assignments.all %}
-                            <span class="label label-info" style="display: inline-block; margin-bottom: 2px;">
+                            <span class="label label-info ts-label-chip">
                                 {{ assignment.role.name }} ({{ assignment.capacity }})
                             </span><br>
                         {% empty %}

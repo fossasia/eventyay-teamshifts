@@ -112,8 +112,9 @@ label .optional {
     font-size: 13px;
 }
 
+#pretix-confirm-dialog-cancel.teamshifts-dialog-cancel-hidden,
 .teamshifts-dialog-cancel-hidden {
-    display: none !important;
+    display: none;
 }
 
 .teamshifts-detail-header-container {
@@ -256,4 +257,30 @@ label .optional {
   background: #e2e3e5;
   color: #383d41;
   border: 1px solid #d6d8db;
+}
+
+.richtext-preview,
+.mail-preview {
+  min-height: 80px;
+}
+
+.ts-mt-10 {
+  margin-top: 10px;
+}
+
+.ts-mb-1_5em {
+  margin-bottom: 1.5em;
+}
+
+.ts-hidden {
+  display: none;
+}
+
+.ts-label-chip {
+  display: inline-block;
+  margin-bottom: 2px;
+}
+
+.ts-qa-question {
+  width: 40%;
 }

@@ -75,6 +75,7 @@ document.addEventListener('DOMContentLoaded', function () {
   initDescriptionPreview();
   initSecretLinkCopy();
   initCallVisibilityToggles();
+  initRegenerateConfirm();
 });
 
 function initCallVisibilityToggles() {
@@ -147,6 +148,17 @@ function initSecretLinkCopy() {
     } else {
       document.execCommand('copy');
       done();
+    }
+  });
+}
+
+function initRegenerateConfirm() {
+  var btn = document.querySelector('.call-secret-regenerate [data-confirm]');
+  if (!btn) return;
+  btn.addEventListener('click', function (e) {
+    var msg = btn.getAttribute('data-confirm');
+    if (msg && !window.confirm(msg)) {
+      e.preventDefault();
     }
   });
 }

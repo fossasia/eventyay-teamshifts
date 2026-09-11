@@ -99,7 +99,7 @@
                     {% csrf_token %}
                     <input type="hidden" name="action" value="regenerate_secret">
                     <button type="submit" class="btn btn-default btn-sm"
-                            onclick="return confirm('{{ regenerate_confirm_msg|escapejs }}')">
+                            data-confirm="{{ regenerate_confirm_msg }}">
                         <i class="fa fa-refresh"></i> {% trans "Regenerate link" %}
                     </button>
                     <span class="text-muted call-secret-hint">{% trans "Regenerating immediately invalidates the current link." %}</span>

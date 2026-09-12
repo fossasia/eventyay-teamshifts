@@ -105,7 +105,7 @@
 
                         <div class="form-group">
                             <button type="button" class="btn btn-default" data-formset-add>
-                                <i class="fa fa-plus"></i> {% trans "Add a new option" %}
+                                <i class="fa fa-plus" aria-hidden="true"></i> {% trans "Add a new option" %}
                             </button>
                         </div>
                     </div>
@@ -130,7 +130,7 @@
             {% if question %}
                 <a href='{% url "plugins:teamshifts:question_delete" organizer=request.organizer.slug event=request.event.slug pk=question.pk %}'
                    class='btn btn-danger btn-lg pull-right flip'>
-                    <span class="fa fa-trash"></span> {% trans "Delete" %}
+                    <span class="fa fa-trash" aria-hidden="true"></span> {% trans "Delete" %}
                 </a>
             {% endif %}
         </div>

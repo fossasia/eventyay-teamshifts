@@ -54,6 +54,19 @@ MEMBER_ADDED_BY_ORGANIZER_TEXT = LazyI18nString.from_gettext(
 )
 
 
+CERTIFICATE_GENERATED_SUBJECT = LazyI18nString.from_gettext(_("Your certificate of participation — {event_name}"))
+CERTIFICATE_GENERATED_TEXT = LazyI18nString.from_gettext(
+    _(
+        "Hi {full_name},\n\n"
+        "Congratulations! You have been awarded a certificate of appreciation for {event_name}.\n\n"
+        "Your certificate is attached to this email as a PDF.\n\n"
+        "Thank you for your contribution!\n\n"
+        "Best regards,\n"
+        "The {event_name} team"
+    )
+)
+
+
 def get_default_template(role: str) -> tuple[LazyI18nString, LazyI18nString]:
     from ..models import EmailTemplateRoles
 
@@ -62,5 +75,6 @@ def get_default_template(role: str) -> tuple[LazyI18nString, LazyI18nString]:
         EmailTemplateRoles.APPLICATION_ACCEPTED: (ACCEPTED_SUBJECT, ACCEPTED_TEXT),
         EmailTemplateRoles.APPLICATION_REJECTED: (REJECTED_SUBJECT, REJECTED_TEXT),
         EmailTemplateRoles.MEMBER_ADDED_BY_ORGANIZER: (MEMBER_ADDED_BY_ORGANIZER_SUBJECT, MEMBER_ADDED_BY_ORGANIZER_TEXT),
+        EmailTemplateRoles.CERTIFICATE_GENERATED: (CERTIFICATE_GENERATED_SUBJECT, CERTIFICATE_GENERATED_TEXT),
     }
     return mapping[role]

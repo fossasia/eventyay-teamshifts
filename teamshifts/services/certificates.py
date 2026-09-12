@@ -1,20 +1,27 @@
+import base64
 import json
 import logging
 import zipfile
 from io import BytesIO
 
 from django.core.files.base import ContentFile
+from django.db import transaction
 from django.utils.formats import date_format
 from django.utils.text import slugify
 from django.utils.timezone import now
 from django.utils.translation import gettext
 from django_scopes import scope
+from eventyay.base.email import get_email_context
+from eventyay.base.i18n import language
+from eventyay.base.services.mail import mail_send_task
+from i18nfield.strings import LazyI18nString
 
 from ..models import (
     ApplicationStatus,
     CertificateMatchMode,
     CertificateSettings,
     CertificateTrigger,
+    EmailTemplateRoles,
     MemberCertificate,
     ShiftAssignment,
     TeamMemberApplication,
@@ -130,15 +137,70 @@ def certificate_filename(application: TeamMemberApplication) -> str:
 def generate_certificate(application: TeamMemberApplication, settings: CertificateSettings | None = None) -> MemberCertificate:
     settings = settings or get_certificate_settings(application.event)
     pdf_bytes = render_certificate_pdf(settings, application_context(application))
+    is_first_generation = False
     with scope(event=application.event):
         certificate, _created = MemberCertificate.objects.get_or_create(application=application)
+        if certificate.notified_at is None:
+            is_first_generation = True
         if certificate.file:
             certificate.file.delete(save=False)
         certificate.file.save(certificate_filename(application), ContentFile(pdf_bytes), save=False)
         certificate.generated_at = now()
         certificate.downloaded_at = None
         certificate.save()
+
+    if is_first_generation:
+        transaction.on_commit(lambda: _send_certificate_email(application, pdf_bytes))
+
     return certificate
+
+
+def _send_certificate_email(application: TeamMemberApplication, pdf_bytes: bytes) -> None:
+    user = application.user
+    event = application.event
+
+    if not user or not user.email:
+        logger.warning("[TeamShifts] Skipping certificate email for application %s: no email address", application.pk)
+        return
+
+    try:
+        cfm = event.call_for_team_members
+    except Exception:
+        logger.warning("[TeamShifts] No CFM for event %s — skipping certificate email", event.slug)
+        return
+
+    template = cfm.get_mail_template(EmailTemplateRoles.CERTIFICATE_GENERATED)
+    locale = user.locale or event.settings.locale
+
+    with language(locale, event.settings.region):
+        context = get_email_context(event=event, user=user)
+        subject = str(LazyI18nString(template.subject).localize(locale))
+        body_template = LazyI18nString(template.body).localize(locale)
+        body = str(body_template).format_map(context)
+
+        sender = event.settings.mail_from
+        event_backend = event.get_mail_backend()
+        sender = event_backend.from_address if hasattr(event_backend, "from_address") else sender
+
+    try:
+        mail_send_task.apply_async(
+            kwargs={
+                "to": [user.email],
+                "subject": subject,
+                "body": body,
+                "html": None,
+                "sender": sender or event.settings.mail_from,
+                "event": event.pk,
+                "user": user.pk,
+                "attach_file_base64": base64.b64encode(pdf_bytes).decode(),
+                "attach_file_name": certificate_filename(application),
+            }
+        )
+        with scope(event=event):
+            MemberCertificate.objects.filter(application=application).update(notified_at=now())
+        logger.info("[TeamShifts] Certificate email queued for application %s", application.pk)
+    except Exception:
+        logger.exception("[TeamShifts] Failed to queue certificate email for application %s", application.pk)
 
 
 def maybe_auto_issue_certificate(application: TeamMemberApplication) -> MemberCertificate | None:

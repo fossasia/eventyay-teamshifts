@@ -7,6 +7,7 @@ from eventyay.base.models import Event, Organizer, Team
 from teamshifts.models import (
     CallForTeamMembers,
     TeamApplicationQuestion,
+    TeamApplicationQuestionOption,
 )
 
 
@@ -127,3 +128,157 @@ def test_cfm_application_form_renders_delete_link(orga_client, event, question):
     assert f'href="{delete_url}"' in content
     # Should NOT be a submit button with formaction
     assert f'formaction="{delete_url}"' not in content
+
+
+@pytest.mark.django_db
+def test_question_edit_requires_at_least_two_options(orga_client, event):
+    url = reverse(
+        "plugins:teamshifts:question_create",
+        kwargs={"organizer": event.organizer.slug, "event": event.slug},
+    )
+
+    data = {
+        "question_0": "T-Shirt Size",
+        "help_text": "",
+        "variant": "choices",
+        "required": "",
+        "active": "on",
+        "option_records-TOTAL_FORMS": "1",
+        "option_records-INITIAL_FORMS": "0",
+        "option_records-MIN_NUM_FORMS": "0",
+        "option_records-MAX_NUM_FORMS": "1000",
+        "option_records-0-answer_0": "Small",
+        "option_records-0-ORDER": "0",
+        "option_records-0-DELETE": "",
+    }
+
+    response = orga_client.post(url, data)
+
+    assert response.status_code == 200
+    assert "Please provide at least 2 options." in response.content.decode()
+
+
+@pytest.mark.django_db
+def test_question_edit_saves_two_options(orga_client, event):
+    url = reverse(
+        "plugins:teamshifts:question_create",
+        kwargs={"organizer": event.organizer.slug, "event": event.slug},
+    )
+
+    data = {
+        "question_0": "T-Shirt Size",
+        "help_text": "",
+        "variant": "choices",
+        "required": "",
+        "active": "on",
+        "option_records-TOTAL_FORMS": "2",
+        "option_records-INITIAL_FORMS": "0",
+        "option_records-MIN_NUM_FORMS": "0",
+        "option_records-MAX_NUM_FORMS": "1000",
+        "option_records-0-answer_0": "Small",
+        "option_records-0-ORDER": "0",
+        "option_records-0-DELETE": "",
+        "option_records-1-answer_0": "Large",
+        "option_records-1-ORDER": "1",
+        "option_records-1-DELETE": "",
+    }
+
+    response = orga_client.post(url, data)
+
+    assert response.status_code == 302
+
+    with scope(event=event):
+        question = TeamApplicationQuestion.objects.latest("pk")
+        options = list(TeamApplicationQuestionOption.objects.filter(question=question))
+
+    assert [str(option.answer) for option in options] == ["Small", "Large"]
+    assert [option.position for option in options] == [0, 1]
+
+
+@pytest.mark.django_db
+def test_question_edit_loads_existing_options(orga_client, event, question):
+    with scope(event=event):
+        question.variant = "choices"
+        question.save(update_fields=["variant"])
+        TeamApplicationQuestionOption.objects.create(
+            question=question,
+            answer="Small",
+            position=0,
+        )
+        TeamApplicationQuestionOption.objects.create(
+            question=question,
+            answer="Large",
+            position=1,
+        )
+
+    url = reverse(
+        "plugins:teamshifts:question_edit",
+        kwargs={
+            "organizer": event.organizer.slug,
+            "event": event.slug,
+            "pk": question.pk,
+        },
+    )
+
+    response = orga_client.get(url)
+
+    assert response.status_code == 200
+
+    option_forms = response.context["option_formset"].forms
+    assert [str(form.instance.answer) for form in option_forms] == [
+        "Small",
+        "Large",
+    ]
+
+
+@pytest.mark.django_db
+def test_question_edit_switches_to_non_choice_and_deletes_options(orga_client, event, question):
+    with scope(event=event):
+        question.variant = "choices"
+        question.save(update_fields=["variant"])
+        TeamApplicationQuestionOption.objects.create(
+            question=question,
+            answer="Small",
+            position=0,
+        )
+        TeamApplicationQuestionOption.objects.create(
+            question=question,
+            answer="Large",
+            position=1,
+        )
+
+    url = reverse(
+        "plugins:teamshifts:question_edit",
+        kwargs={
+            "organizer": event.organizer.slug,
+            "event": event.slug,
+            "pk": question.pk,
+        },
+    )
+
+    data = {
+        "question_0": "T-Shirt Size",
+        "help_text": "",
+        "variant": "text",
+        "required": "",
+        "active": "on",
+        "option_records-TOTAL_FORMS": "2",
+        "option_records-INITIAL_FORMS": "2",
+        "option_records-MIN_NUM_FORMS": "0",
+        "option_records-MAX_NUM_FORMS": "1000",
+        "option_records-0-answer_0": "Small",
+        "option_records-0-ORDER": "0",
+        "option_records-0-DELETE": "on",
+        "option_records-1-answer_0": "Large",
+        "option_records-1-ORDER": "1",
+        "option_records-1-DELETE": "on",
+    }
+
+    response = orga_client.post(url, data)
+
+    assert response.status_code == 302
+
+    with scope(event=event):
+        question.refresh_from_db()
+        assert question.variant == "text"
+        assert not TeamApplicationQuestionOption.objects.filter(question=question).exists()

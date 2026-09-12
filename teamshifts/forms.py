@@ -1,15 +1,17 @@
 from zoneinfo import ZoneInfo
 
 from django import forms
+from django.forms import inlineformset_factory
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from django_countries import countries
 from django_scopes import scopes_disabled
 from django_scopes.forms import SafeModelChoiceField
+from eventyay.base.forms import I18nInlineFormSet
 from eventyay.base.models import Event
 from eventyay.common.forms.widgets import I18nEmailEditorWidget, RichTextWidget
 from eventyay.control.forms import SplitDateTimeField, SplitDateTimePickerWidget
-from i18nfield.forms import I18nFormField, I18nTextInput
+from i18nfield.forms import I18nFormField, I18nModelForm, I18nTextInput
 
 from .models import (
     CFM_BUILTIN_FIELD_KEYS,
@@ -22,6 +24,7 @@ from .models import (
     QuestionVariant,
     ShiftLocation,
     TeamApplicationQuestion,
+    TeamApplicationQuestionOption,
     TeamRole,
     TeamShiftsEmailQueue,
     normalize_field_order,
@@ -114,14 +117,51 @@ class TeamRoleForm(forms.ModelForm):
         return cleaned_data
 
 
+class TeamApplicationQuestionOptionForm(I18nModelForm):
+    class Meta:
+        model = TeamApplicationQuestionOption
+        localized_fields = "__all__"
+        fields = ["answer"]
+
+
+class TeamApplicationQuestionOptionFormSet(I18nInlineFormSet):
+    def __init__(self, *args, variant=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.variant = variant
+
+    def clean(self):
+        cleaned_data = super().clean()
+        if self.variant not in (
+            QuestionVariant.CHOICES,
+            QuestionVariant.CHOICES_DROPDOWN,
+            QuestionVariant.MULTIPLE,
+        ):
+            return cleaned_data
+
+        option_count = sum(1 for form in self.forms if not self._should_delete_form(form) and form.cleaned_data.get("answer"))
+
+        if option_count < 2:
+            raise forms.ValidationError(_("Please provide at least 2 options."))
+
+        return cleaned_data
+
+
+TeamApplicationQuestionOptionFormSet = inlineformset_factory(
+    TeamApplicationQuestion,
+    TeamApplicationQuestionOption,
+    form=TeamApplicationQuestionOptionForm,
+    formset=TeamApplicationQuestionOptionFormSet,
+    can_order=True,
+    can_delete=True,
+    extra=0,
+)
+
+
 class TeamApplicationQuestionForm(forms.ModelForm):
     class Meta:
         model = TeamApplicationQuestion
-        fields = ("question", "help_text", "variant", "required", "options", "active")
+        fields = ("question", "help_text", "variant", "required", "active")
         widgets = {
-            "options": forms.Textarea(
-                attrs={"class": "form-control", "rows": 3, "placeholder": _("One option per line")},
-            ),
             "variant": forms.Select(attrs={"class": "form-control"}),
         }
 
@@ -131,15 +171,6 @@ class TeamApplicationQuestionForm(forms.ModelForm):
         if locales:
             for field_name in ("question", "help_text"):
                 self.fields[field_name].widget.enabled_locales = locales
-
-    def clean(self):
-        cleaned = super().clean()
-        variant = cleaned.get("variant")
-        options = cleaned.get("options", "")
-        needs_options = variant in (QuestionVariant.CHOICES, QuestionVariant.CHOICES_DROPDOWN, QuestionVariant.MULTIPLE)
-        if needs_options and len([line for line in (options or "").splitlines() if line.strip()]) < 2:
-            self.add_error("options", _("Choice fields need at least two options, one per line."))
-        return cleaned
 
     def save(self, commit=True):
         instance = super().save(commit=False)
@@ -169,7 +200,7 @@ class TeamMemberApplicationForm(forms.Form):
             return
 
         with scopes_disabled():
-            self._questions = list(TeamApplicationQuestion.objects.filter(event=event, active=True).order_by("pk"))
+            self._questions = list(TeamApplicationQuestion.objects.filter(event=event, active=True).prefetch_related("option_records").order_by("pk"))
 
         question_map: dict[int, TeamApplicationQuestion] = {q.pk: q for q in self._questions}
 

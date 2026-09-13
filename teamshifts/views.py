@@ -30,6 +30,7 @@ from eventyay.base.models import Event, User
 from eventyay.base.templatetags.rich_text import rich_text
 from eventyay.common.text.phrases import phrases
 from eventyay.control.views import PaginationMixin
+from eventyay.multidomain.urlreverse import build_absolute_uri
 
 from .forms import (
     BaseShiftRoleFormSet,
@@ -45,6 +46,7 @@ from .forms import (
     TeamApplicationQuestionForm,
     TeamMemberApplicationForm,
     TeamRoleForm,
+    VoucherSettingsForm,
     render_answer_for_review,
 )
 from .models import (
@@ -53,6 +55,7 @@ from .models import (
     ApplicationStatus,
     CallForTeamMembers,
     EmailTemplateRoles,
+    MemberVoucher,
     Shift,
     ShiftAssignment,
     ShiftLocation,
@@ -63,6 +66,8 @@ from .models import (
     TeamRole,
     TeamShiftsCustomEmailTemplate,
     TeamShiftsEmailQueue,
+    VolunteerVoucherSettings,
+    VoucherStatus,
     normalize_field_order,
 )
 from .permissions import TeamShiftsPermissionRequiredMixin, can_act_on_role, can_view_email_addresses, get_allowed_role_ids, has_teamshifts_permission
@@ -72,6 +77,17 @@ from .services.members import AlreadyMemberError, add_member_from_organizer
 from .tasks import send_queued_email
 
 logger = logging.getLogger(__name__)
+
+_TEMPLATE_PLACEHOLDERS = [
+    ("{full_name}", _("The applicant's full name")),
+    ("{event_name}", _("The event's name")),
+    ("{role_name}", _("The role applied for")),
+    ("{event_dates}", _("The event's date range")),
+    ("{event_location}", _("The event's location")),
+    ("{shift_schedule_url}", _("Link to the shift schedule")),
+    ("{voucher_code}", _("The volunteer's voucher code (voucher emails only)")),
+    ("{ticket_claim_url}", _("Link to claim the ticket (voucher emails only)")),
+]
 
 
 ShiftRoleFormSet = inlineformset_factory(Shift, ShiftRoleAssignment, form=ShiftRoleAssignmentForm, formset=BaseShiftRoleFormSet, extra=1, can_delete=True)
@@ -423,14 +439,7 @@ class EmailTemplateListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin
                 "panels": panels,
                 "custom_panels": custom_panels,
                 "locales": request.event.settings.locales,
-                "email_placeholders": [
-                    ("{full_name}", _("The applicant's full name")),
-                    ("{event_name}", _("The event's name")),
-                    ("{role_name}", _("The role applied for")),
-                    ("{event_dates}", _("The event's date range")),
-                    ("{event_location}", _("The event's location")),
-                    ("{shift_schedule_url}", _("Link to the shift schedule")),
-                ],
+                "email_placeholders": _TEMPLATE_PLACEHOLDERS,
             },
         )
 
@@ -464,14 +473,7 @@ class EmailTemplateListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin
                 "panels": panels,
                 "custom_panels": custom_panels,
                 "locales": request.event.settings.locales,
-                "email_placeholders": [
-                    ("{full_name}", _("The applicant's full name")),
-                    ("{event_name}", _("The event's name")),
-                    ("{role_name}", _("The role applied for")),
-                    ("{event_dates}", _("The event's date range")),
-                    ("{event_location}", _("The event's location")),
-                    ("{shift_schedule_url}", _("Link to the shift schedule")),
-                ],
+                "email_placeholders": _TEMPLATE_PLACEHOLDERS,
             },
         )
 
@@ -499,7 +501,9 @@ class EmailTemplatePreviewView(PluginActiveMixin, TeamShiftsPermissionRequiredMi
                 "role_name": "Volunteer",
                 "event_dates": event.get_date_range_display(),
                 "event_location": str(event.location) if event.location else "",
-                "shift_schedule_url": "https://example.com/my-event/shifts/",
+                "shift_schedule_url": build_absolute_uri(event, "plugins:teamshifts:public_shift_schedule"),
+                "voucher_code": "ABCD-1234-EFGH",
+                "ticket_claim_url": build_absolute_uri(event, "presale:event.index") + "?voucher=ABCD-1234-EFGH",
             },
         )
 
@@ -1772,11 +1776,21 @@ class MembersListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Pagi
                         queryset=ShiftAssignment.objects.filter(shift__event=event).select_related("role"),
                         to_attr="event_assignments",
                     ),
+                    Prefetch(
+                        "voucher_assignment",
+                        queryset=MemberVoucher.objects.select_related("voucher"),
+                    ),
                 )
                 .order_by("user__fullname", "user__email")
             )
 
         return qs
+
+    def _get_voucher_settings(self):
+        try:
+            return self.request.event.volunteer_voucher_settings
+        except VolunteerVoucherSettings.DoesNotExist:
+            return None
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -1792,6 +1806,25 @@ class MembersListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Pagi
             "can_teamshifts_manage_applicants",
             request=self.request,
         )
+
+        voucher_settings = self._get_voucher_settings()
+        ctx["vouchers_enabled"] = bool(voucher_settings and voucher_settings.enabled and voucher_settings.voucher_tag)
+        ctx["vouchers_not_configured"] = bool(voucher_settings and voucher_settings.enabled and not voucher_settings.voucher_tag)
+        if ctx["vouchers_enabled"]:
+            with scope(event=event):
+                ctx["voucher_batch_empty"] = voucher_settings.batch_remaining_count() == 0
+                members_list = list(ctx.get("members", []))
+                newly_claimed_ids = []
+                for member in members_list:
+                    va = getattr(member, "voucher_assignment", None)
+                    if va and va.status != VoucherStatus.CLAIMED and va.voucher.redeemed > 0:
+                        va.status = VoucherStatus.CLAIMED
+                        newly_claimed_ids.append(va.pk)
+                if newly_claimed_ids:
+                    MemberVoucher.objects.filter(pk__in=newly_claimed_ids).update(status=VoucherStatus.CLAIMED)
+        else:
+            ctx["voucher_batch_empty"] = False
+
         return ctx
 
 
@@ -2859,3 +2892,147 @@ class MyShiftsCertificateDownloadView(LoginRequiredMixin, View):
         certificate.downloaded_at = now()
         certificate.save(update_fields=["downloaded_at"])
         return response
+
+
+class VoucherSettingsView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):
+    permission = "can_teamshifts_manage_applicants"
+    template_name = "teamshifts/voucher_settings.html"
+
+    def _get_settings(self):
+        with scope(event=self.request.event):
+            obj, _created = VolunteerVoucherSettings.objects.get_or_create(event=self.request.event)
+        return obj
+
+    def get(self, request, *args, **kwargs):
+        settings = self._get_settings()
+        form = VoucherSettingsForm(
+            event=request.event,
+            initial={
+                "enabled": settings.enabled,
+                "voucher_tag": settings.voucher_tag,
+            },
+        )
+        return render(
+            request,
+            self.template_name,
+            {
+                "form": form,
+                "voucher_settings": settings,
+            },
+        )
+
+    def post(self, request, *args, **kwargs):
+        settings = self._get_settings()
+        form = VoucherSettingsForm(request.POST, event=request.event)
+        if form.is_valid():
+            settings.enabled = form.cleaned_data["enabled"]
+            settings.voucher_tag = form.cleaned_data["voucher_tag"]
+            settings.save(update_fields=["enabled", "voucher_tag"])
+            messages.success(request, _("Voucher settings saved."))
+            return redirect(
+                "plugins:teamshifts:voucher_settings",
+                organizer=request.organizer.slug,
+                event=request.event.slug,
+            )
+        return render(
+            request,
+            self.template_name,
+            {
+                "form": form,
+                "voucher_settings": settings,
+            },
+        )
+
+
+class BulkSendVouchersView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):
+    permission = "can_teamshifts_manage_applicants"
+
+    def post(self, request, *args, **kwargs):
+        from .services.vouchers import allocate_and_send_vouchers
+
+        event = request.event
+        member_ids = request.POST.getlist("member_ids")
+
+        if not member_ids:
+            messages.warning(request, _("No members selected."))
+            return redirect(
+                "plugins:teamshifts:members",
+                organizer=request.organizer.slug,
+                event=event.slug,
+            )
+
+        try:
+            settings = event.volunteer_voucher_settings
+        except VolunteerVoucherSettings.DoesNotExist:
+            settings = None
+
+        if not settings or not settings.enabled or not settings.voucher_tag:
+            messages.error(request, _("Configure a voucher batch in settings first."))
+            return redirect(
+                "plugins:teamshifts:members",
+                organizer=request.organizer.slug,
+                event=event.slug,
+            )
+
+        with scope(event=event):
+            applications = list(
+                TeamMemberApplication.objects.filter(
+                    event=event,
+                    pk__in=member_ids,
+                    status=ApplicationStatus.ACCEPTED,
+                ).select_related("user")
+            )
+
+        result = allocate_and_send_vouchers(event, settings, applications)
+
+        parts = []
+        if result["sent"]:
+            parts.append(
+                ngettext(
+                    "Voucher sent to %(count)d member.",
+                    "Vouchers sent to %(count)d members.",
+                    result["sent"],
+                )
+                % {"count": result["sent"]}
+            )
+        if result["resent"]:
+            parts.append(
+                ngettext(
+                    "%(count)d voucher resent.",
+                    "%(count)d vouchers resent.",
+                    result["resent"],
+                )
+                % {"count": result["resent"]}
+            )
+        if result["skipped_claimed"]:
+            parts.append(
+                ngettext(
+                    "%(count)d skipped (already claimed).",
+                    "%(count)d skipped (already claimed).",
+                    result["skipped_claimed"],
+                )
+                % {"count": result["skipped_claimed"]}
+            )
+        if result["skipped_no_vouchers"]:
+            parts.append(_("Voucher batch is empty. Add more codes in Tickets → Vouchers."))
+        if result["skipped_no_email"]:
+            parts.append(
+                ngettext(
+                    "%(count)d skipped (no email address on file).",
+                    "%(count)d skipped (no email address on file).",
+                    result["skipped_no_email"],
+                )
+                % {"count": result["skipped_no_email"]}
+            )
+
+        summary = " ".join(str(p) for p in parts) or str(_("No vouchers were sent."))
+        if result["sent"] or result["resent"]:
+            messages.success(request, summary)
+        else:
+            messages.warning(request, summary)
+
+        return redirect(
+            "plugins:teamshifts:members",
+            organizer=request.organizer.slug,
+            event=event.slug,
+        )

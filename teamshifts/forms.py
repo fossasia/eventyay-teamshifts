@@ -175,7 +175,7 @@ class TeamApplicationQuestionForm(forms.ModelForm):
         return instance
 
 
-PHONE_REGEX = r"^\+?(?:[\d\s\-]+|\([\d\s\-]+\))+$"
+PHONE_REGEX = r"^\+?(?:\d+|\([\d\s\-]+\))(?:[\s\-]*(?:\d+|\([\d\s\-]+\)))*$"
 
 
 def validate_phone(value):
@@ -282,7 +282,7 @@ class TeamMemberApplicationForm(forms.Form):
                                 "placeholder": "+1 555 000 0000",
                                 "minlength": "7",
                                 "maxlength": "30",
-                                "pattern": r"^\+?(?:[\d\s\-]+|\([\d\s\-]+\))+$",
+                                "pattern": PHONE_REGEX,
                             }
                         ),
                     )
@@ -339,7 +339,7 @@ class TeamMemberApplicationForm(forms.Form):
                         "type": "tel",
                         "minlength": "7",
                         "maxlength": "30",
-                        "pattern": r"^\+?(?:[\d\s\-]+|\([\d\s\-]+\))+$",
+                        "pattern": PHONE_REGEX,
                     }
                 ),
                 **common,

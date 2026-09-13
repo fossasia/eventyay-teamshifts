@@ -222,12 +222,13 @@ def test_phone_validation_rejects_too_short(event, call_for_team_members):
 
 
 @pytest.mark.django_db
-def test_phone_validation_rejects_garbage(event, call_for_team_members):
+@pytest.mark.parametrize("bad_phone", ["abc 123 xyz", "123(456)7890", "123(---)4567890"])
+def test_phone_validation_rejects_garbage(event, call_for_team_members, bad_phone):
     form = TeamMemberApplicationForm(
         data={
             "full_name": "Jane Member",
             "email": "jane@example.com",
-            "phone": "abc 123 xyz",
+            "phone": bad_phone,
         },
         event=event,
         cfm=call_for_team_members,

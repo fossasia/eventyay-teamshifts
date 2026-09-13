@@ -132,19 +132,19 @@ def test_cfm_application_form_renders_delete_link(orga_client, event, question):
 
 
 @pytest.mark.django_db
-def test_custom_phone_question_validation(event):
+@pytest.mark.parametrize("bad_phone", ["123)456(7890", "123(456)7890", "123(---)4567890"])
+def test_custom_phone_question_validation_rejects(event, bad_phone):
     with scope(event=event):
         cfm = CallForTeamMembers.objects.create(event=event, active=True)
         question = TeamApplicationQuestion.objects.create(
             event=event, question="What is your WhatsApp number?", variant=QuestionVariant.PHONE, active=True, required=True
         )
 
-    # Test rejection
     form_invalid = TeamMemberApplicationForm(
         data={
             "full_name": "Jane Member",
             "email": "jane@example.com",
-            f"question_{question.pk}": "123)456(7890",
+            f"question_{question.pk}": bad_phone,
         },
         event=event,
         cfm=cfm,
@@ -153,7 +153,15 @@ def test_custom_phone_question_validation(event):
     assert not form_invalid.is_valid()
     assert f"question_{question.pk}" in form_invalid.errors
 
-    # Test acceptance
+
+@pytest.mark.django_db
+def test_custom_phone_question_validation_accepts(event):
+    with scope(event=event):
+        cfm = CallForTeamMembers.objects.create(event=event, active=True)
+        question = TeamApplicationQuestion.objects.create(
+            event=event, question="What is your WhatsApp number?", variant=QuestionVariant.PHONE, active=True, required=True
+        )
+
     form_valid = TeamMemberApplicationForm(
         data={
             "full_name": "Jane Member",

@@ -175,7 +175,7 @@ class TeamApplicationQuestionForm(forms.ModelForm):
         return instance
 
 
-PHONE_REGEX = r"^\+?(?:(?:\d+[\s\-]+)*\d+|(?:\d+[\s\-]+)*\(\d+\)(?:[\s\-]*\d+)*)$"
+PHONE_REGEX = r"^\+?(?:(?:\d+[ \-]+)*\d+|(?:\d+[ \-]+)*\(\d+\)(?:[ \-]*\d+)*)$"
 
 
 def validate_phone(value):

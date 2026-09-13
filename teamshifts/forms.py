@@ -2,6 +2,7 @@ import re
 from zoneinfo import ZoneInfo
 
 from django import forms
+from django.core.exceptions import ValidationError
 from django.utils import timezone
 from django.utils.html import escape as html_escape
 from django.utils.translation import gettext_lazy as _
@@ -174,6 +175,16 @@ class TeamApplicationQuestionForm(forms.ModelForm):
         return instance
 
 
+def validate_phone(value):
+    if not value:
+        return
+    if not re.match(r"^\+?[\d\s\-\(\)]+$", value):
+        raise ValidationError(_("Enter a valid phone number (7–15 digits, optionally prefixed with +)."))
+    digits = re.sub(r"\D", "", value)
+    if len(digits) < 7 or len(digits) > 15:
+        raise ValidationError(_("Enter a valid phone number (7–15 digits, optionally prefixed with +)."))
+
+
 class TeamMemberApplicationForm(forms.Form):
     QUESTION_FIELD_PREFIX = "question_"
 
@@ -259,8 +270,18 @@ class TeamMemberApplicationForm(forms.Form):
                     field = forms.CharField(
                         label=_("Phone / Mobile"),
                         required=required,
+                        validators=[validate_phone],
                         help_text=_("Optional. We may use this to contact you regarding your shift."),
-                        widget=forms.TextInput(attrs={"class": "form-control", "type": "tel", "placeholder": "+1 555 000 0000"}),
+                        widget=forms.TextInput(
+                            attrs={
+                                "class": "form-control",
+                                "type": "tel",
+                                "placeholder": "+1 555 000 0000",
+                                "minlength": "7",
+                                "maxlength": "20",
+                                "pattern": r"^\+?[\d\s\-\(\)]+$",
+                            }
+                        ),
                     )
                     self.fields["phone"] = field
                 elif item == "availability":
@@ -307,7 +328,19 @@ class TeamMemberApplicationForm(forms.Form):
         if variant == QuestionVariant.DATETIME:
             return forms.DateTimeField(widget=forms.DateTimeInput(attrs={"class": "form-control datetimepicker"}), **common)
         if variant == QuestionVariant.PHONE:
-            return forms.CharField(widget=forms.TextInput(attrs={"class": "form-control", "type": "tel"}), **common)
+            return forms.CharField(
+                validators=[validate_phone],
+                widget=forms.TextInput(
+                    attrs={
+                        "class": "form-control",
+                        "type": "tel",
+                        "minlength": "7",
+                        "maxlength": "20",
+                        "pattern": r"^\+?[\d\s\-\(\)]+$",
+                    }
+                ),
+                **common,
+            )
         if variant == QuestionVariant.COUNTRY:
             return forms.ChoiceField(
                 choices=[("", _("— Select country —"))] + list(countries),

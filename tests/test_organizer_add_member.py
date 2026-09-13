@@ -187,3 +187,66 @@ def test_organizer_added_member_appears_on_members_list(client, event, call_for_
     assert response.status_code == 200
     emails = {member.user.email for member in response.context["members"]}
     assert "orgmember2@example.com" in emails
+
+
+@pytest.mark.django_db
+def test_phone_validation_rejects_overly_long(event, call_for_team_members):
+    form = TeamMemberApplicationForm(
+        data={
+            "full_name": "Jane Member",
+            "email": "jane@example.com",
+            "phone": "+1 123 456 7890 12345678",
+        },
+        event=event,
+        cfm=call_for_team_members,
+        organizer_mode=True,
+    )
+    assert not form.is_valid()
+    assert "phone" in form.errors
+
+
+@pytest.mark.django_db
+def test_phone_validation_rejects_too_short(event, call_for_team_members):
+    form = TeamMemberApplicationForm(
+        data={
+            "full_name": "Jane Member",
+            "email": "jane@example.com",
+            "phone": "123",
+        },
+        event=event,
+        cfm=call_for_team_members,
+        organizer_mode=True,
+    )
+    assert not form.is_valid()
+    assert "phone" in form.errors
+
+
+@pytest.mark.django_db
+def test_phone_validation_rejects_garbage(event, call_for_team_members):
+    form = TeamMemberApplicationForm(
+        data={
+            "full_name": "Jane Member",
+            "email": "jane@example.com",
+            "phone": "abc 123 xyz",
+        },
+        event=event,
+        cfm=call_for_team_members,
+        organizer_mode=True,
+    )
+    assert not form.is_valid()
+    assert "phone" in form.errors
+
+
+@pytest.mark.django_db
+def test_phone_validation_accepts_valid(event, call_for_team_members):
+    form = TeamMemberApplicationForm(
+        data={
+            "full_name": "Jane Member",
+            "email": "jane@example.com",
+            "phone": "+1 (555) 010-0203",
+        },
+        event=event,
+        cfm=call_for_team_members,
+        organizer_mode=True,
+    )
+    assert form.is_valid(), form.errors

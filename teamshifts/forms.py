@@ -175,10 +175,13 @@ class TeamApplicationQuestionForm(forms.ModelForm):
         return instance
 
 
+PHONE_REGEX = r"^\+?(?:[\d\s\-]+|\([\d\s\-]+\))+$"
+
+
 def validate_phone(value):
     if not value:
         return
-    if not re.match(r"^\+?[\d\s\-\(\)]+$", value):
+    if not re.match(PHONE_REGEX, value):
         raise ValidationError(_("Enter a valid phone number (7–15 digits, optionally prefixed with +)."))
     digits = re.sub(r"\D", "", value)
     if len(digits) < 7 or len(digits) > 15:
@@ -278,8 +281,8 @@ class TeamMemberApplicationForm(forms.Form):
                                 "type": "tel",
                                 "placeholder": "+1 555 000 0000",
                                 "minlength": "7",
-                                "maxlength": "20",
-                                "pattern": r"^\+?[\d\s\-\(\)]+$",
+                                "maxlength": "30",
+                                "pattern": r"^\+?(?:[\d\s\-]+|\([\d\s\-]+\))+$",
                             }
                         ),
                     )
@@ -335,8 +338,8 @@ class TeamMemberApplicationForm(forms.Form):
                         "class": "form-control",
                         "type": "tel",
                         "minlength": "7",
-                        "maxlength": "20",
-                        "pattern": r"^\+?[\d\s\-\(\)]+$",
+                        "maxlength": "30",
+                        "pattern": r"^\+?(?:[\d\s\-]+|\([\d\s\-]+\))+$",
                     }
                 ),
                 **common,

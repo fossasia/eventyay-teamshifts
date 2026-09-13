@@ -6,7 +6,7 @@ from django_scopes import scope
 from eventyay.base.models import Team, User
 
 from teamshifts.forms import TeamMemberApplicationForm
-from teamshifts.models import ApplicationStatus, CallForTeamMembers, TeamMemberApplication
+from teamshifts.models import ApplicationStatus, CallForTeamMembers, QuestionVariant, TeamApplicationQuestion, TeamMemberApplication
 from teamshifts.services.members import AlreadyMemberError, add_member_from_organizer, resolve_or_create_user
 
 
@@ -250,3 +250,38 @@ def test_phone_validation_accepts_valid(event, call_for_team_members):
         organizer_mode=True,
     )
     assert form.is_valid(), form.errors
+
+
+@pytest.mark.django_db
+def test_custom_phone_question_validation(event, call_for_team_members):
+    with scope(event=event):
+        question = TeamApplicationQuestion.objects.create(
+            event=event, question="What is your WhatsApp number?", variant=QuestionVariant.PHONE, active=True, required=True
+        )
+
+    # Test rejection
+    form_invalid = TeamMemberApplicationForm(
+        data={
+            "full_name": "Jane Member",
+            "email": "jane@example.com",
+            f"question_{question.pk}": "123)456(7890",
+        },
+        event=event,
+        cfm=call_for_team_members,
+        organizer_mode=True,
+    )
+    assert not form_invalid.is_valid()
+    assert f"question_{question.pk}" in form_invalid.errors
+
+    # Test acceptance
+    form_valid = TeamMemberApplicationForm(
+        data={
+            "full_name": "Jane Member",
+            "email": "jane@example.com",
+            f"question_{question.pk}": "+1 (555) 123-4567",
+        },
+        event=event,
+        cfm=call_for_team_members,
+        organizer_mode=True,
+    )
+    assert form_valid.is_valid(), form_valid.errors

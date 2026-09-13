@@ -40,6 +40,13 @@ CERTIFICATE_PLACEHOLDERS = (
 CERTIFICATE_DEFAULT_STATIC = "teamshifts/certificates/certificate_default.pdf"
 
 
+def hex_to_rgba(hex_color: str) -> list:
+    hex_color = hex_color.lstrip("#")
+    if len(hex_color) == 3:
+        hex_color = "".join(c * 2 for c in hex_color)
+    return [int(hex_color[i : i + 2], 16) for i in (0, 2, 4)] + [1]
+
+
 NAVY = [27, 54, 93, 1]
 
 DEFAULT_CERTIFICATE_LAYOUT = [
@@ -164,6 +171,7 @@ def preview_context(event):
     from django.utils.translation import gettext
 
     location = str(event.location) if event.location else "Berlin, Germany"
+    event_color = event.visible_primary_color or "#c0392b"
     return {
         "certificate_title": gettext("Certificate of Appreciation"),
         "certificate_intro": gettext("presents this"),
@@ -187,6 +195,7 @@ def preview_context(event):
         "assigned_shift_count": "3",
         "roles": "Registration, Info desk",
         "issued_date": gettext("Date Issued: %(date)s") % {"date": "24 August 2026"},
+        "_event_color": event_color,
     }
 
 
@@ -232,14 +241,6 @@ def layout_is_initial_overlay(layout_json: str) -> bool:
         old_sets = (
             {"certificate_intro", "certificate_title", "member_name", "certificate_body", "issued_date"},
             {"member_name", "event_name", "event_dates", "organizer_name"},
-            {
-                "certificate_intro",
-                "certificate_title",
-                "member_name",
-                "certificate_body_line1",
-                "certificate_body_line2",
-                "issued_date",
-            },
         )
         if content_set in old_sets:
             return True
@@ -331,8 +332,24 @@ class CertificateRenderer(Renderer):
         )
 
     def draw_page(self, canvas: Canvas, order=None, op=None, show_page=True):
+        event_color = self.context.get("_event_color")
+        color_rgba = hex_to_rgba(event_color) if event_color else None
+
         allowed = {"textarea", "poweredby", "imagearea"}
-        layout = [obj for obj in self.layout if obj.get("type") in allowed]
+        layout = []
+        for obj in self.layout:
+            if obj.get("type") not in allowed:
+                continue
+            if (
+                color_rgba
+                and obj.get("type") == "textarea"
+                and obj.get("content") in ("certificate_title", "member_name")
+                and (obj.get("color") == NAVY or not obj.get("color"))
+            ):
+                layout.append({**obj, "color": color_rgba})
+            else:
+                layout.append(obj)
+
         original = self.layout
         self.layout = layout
         try:

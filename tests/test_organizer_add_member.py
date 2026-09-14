@@ -195,7 +195,8 @@ def test_phone_validation_rejects_overly_long(event, call_for_team_members):
         data={
             "full_name": "Jane Member",
             "email": "jane@example.com",
-            "phone": "+1 123 456 7890 12345678",
+            "phone_0": "US",
+            "phone_1": "123 456 7890 12345678",
         },
         event=event,
         cfm=call_for_team_members,
@@ -211,7 +212,8 @@ def test_phone_validation_rejects_too_short(event, call_for_team_members):
         data={
             "full_name": "Jane Member",
             "email": "jane@example.com",
-            "phone": "123",
+            "phone_0": "US",
+            "phone_1": "123",
         },
         event=event,
         cfm=call_for_team_members,
@@ -228,7 +230,8 @@ def test_phone_validation_rejects_garbage(event, call_for_team_members, bad_phon
         data={
             "full_name": "Jane Member",
             "email": "jane@example.com",
-            "phone": bad_phone,
+            "phone_0": "US",
+            "phone_1": bad_phone,
         },
         event=event,
         cfm=call_for_team_members,
@@ -244,7 +247,8 @@ def test_phone_validation_accepts_valid(event, call_for_team_members):
         data={
             "full_name": "Jane Member",
             "email": "jane@example.com",
-            "phone": "+1 (555) 010-0203",
+            "phone_0": "US",
+            "phone_1": "555-010-0203",
         },
         event=event,
         cfm=call_for_team_members,

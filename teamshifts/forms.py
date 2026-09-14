@@ -13,6 +13,8 @@ from eventyay.base.models import Event
 from eventyay.common.forms.widgets import I18nEmailEditorWidget, RichTextWidget
 from eventyay.control.forms import SplitDateTimeField, SplitDateTimePickerWidget
 from i18nfield.forms import I18nFormField, I18nTextInput
+from phonenumber_field.formfields import PhoneNumberField
+from phonenumber_field.widgets import PhoneNumberPrefixWidget
 
 from .models import (
     CFM_BUILTIN_FIELD_KEYS,
@@ -175,19 +177,6 @@ class TeamApplicationQuestionForm(forms.ModelForm):
         return instance
 
 
-PHONE_REGEX = r"^\+?(?:(?:\d+[ \-]+)*\d+|(?:\d+[ \-]+)*\(\d+\)(?:[ \-]*\d+)*)$"
-
-
-def validate_phone(value):
-    if not value:
-        return
-    if not re.match(PHONE_REGEX, value):
-        raise ValidationError(_("Enter a valid phone number (7–15 digits, optionally prefixed with +)."))
-    digits = re.sub(r"\D", "", value)
-    if len(digits) < 7 or len(digits) > 15:
-        raise ValidationError(_("Enter a valid phone number (7–15 digits, optionally prefixed with +)."))
-
-
 class TeamMemberApplicationForm(forms.Form):
     QUESTION_FIELD_PREFIX = "question_"
 
@@ -270,21 +259,11 @@ class TeamMemberApplicationForm(forms.Form):
                         field.initial = user.email
                     self.fields["email"] = field
                 elif item == "phone":
-                    field = forms.CharField(
+                    field = PhoneNumberField(
                         label=_("Phone / Mobile"),
                         required=required,
-                        validators=[validate_phone],
                         help_text=_("Optional. We may use this to contact you regarding your shift."),
-                        widget=forms.TextInput(
-                            attrs={
-                                "class": "form-control",
-                                "type": "tel",
-                                "placeholder": "+1 555 000 0000",
-                                "minlength": "7",
-                                "maxlength": "30",
-                                "pattern": PHONE_REGEX,
-                            }
-                        ),
+                        widget=PhoneNumberPrefixWidget(attrs={"class": "form-control"}),
                     )
                     self.fields["phone"] = field
                 elif item == "availability":
@@ -331,17 +310,8 @@ class TeamMemberApplicationForm(forms.Form):
         if variant == QuestionVariant.DATETIME:
             return forms.DateTimeField(widget=forms.DateTimeInput(attrs={"class": "form-control datetimepicker"}), **common)
         if variant == QuestionVariant.PHONE:
-            return forms.CharField(
-                validators=[validate_phone],
-                widget=forms.TextInput(
-                    attrs={
-                        "class": "form-control",
-                        "type": "tel",
-                        "minlength": "7",
-                        "maxlength": "30",
-                        "pattern": PHONE_REGEX,
-                    }
-                ),
+            return PhoneNumberField(
+                widget=PhoneNumberPrefixWidget(attrs={"class": "form-control"}),
                 **common,
             )
         if variant == QuestionVariant.COUNTRY:

@@ -117,6 +117,11 @@ urlpatterns = [
         name="locations",
     ),
     path(
+        "teamshifts/event/<orgslug:organizer>/<slug:event>/locations/reorder/",
+        views.ShiftLocationReorderView.as_view(),
+        name="location_reorder",
+    ),
+    path(
         "teamshifts/event/<orgslug:organizer>/<slug:event>/locations/add/",
         views.ShiftLocationCreateView.as_view(),
         name="location_create",
@@ -200,6 +205,16 @@ urlpatterns = [
         "teamshifts/event/<orgslug:organizer>/<slug:event>/members/<int:pk>/toggle-arrived/",
         views.MemberArrivedToggleView.as_view(),
         name="member_toggle_arrived",
+    ),
+    path(
+        "teamshifts/event/<orgslug:organizer>/<slug:event>/members/send-vouchers/",
+        views.BulkSendVouchersView.as_view(),
+        name="bulk_send_vouchers",
+    ),
+    path(
+        "teamshifts/event/<orgslug:organizer>/<slug:event>/voucher-settings/",
+        views.VoucherSettingsView.as_view(),
+        name="voucher_settings",
     ),
     path(
         "teamshifts/event/<orgslug:organizer>/<slug:event>/emails/templates/",

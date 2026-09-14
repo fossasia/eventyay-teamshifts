@@ -1,8 +1,10 @@
+import re
 from zoneinfo import ZoneInfo
 
 from django import forms
 from django.forms import inlineformset_factory
 from django.utils import timezone
+from django.utils.html import escape as html_escape
 from django.utils.translation import gettext_lazy as _
 from django_countries import countries
 from django_scopes import scopes_disabled
@@ -44,6 +46,28 @@ def format_datetime_local(dt):
 
 
 EMAIL_PLACEHOLDERS = ["full_name", "event_name", "role_name", "event_dates", "event_location", "shift_schedule_url"]
+
+
+def plain_text_to_html(text: str) -> str:
+    if not text:
+        return text
+    if text.lstrip().startswith("<") or "data-variable=" in text:
+        return text
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    paragraphs = re.split(r"\n{2,}", text)
+    parts = []
+    for para in paragraphs:
+        stripped = para.strip()
+        if stripped:
+            inner = html_escape(stripped).replace("\n", "<br>")
+            parts.append(f"<p>{inner}</p>")
+    return "".join(parts) if parts else text
+
+
+class _HtmlNormalizingEmailWidget(I18nEmailEditorWidget):
+    def decompress(self, value):
+        values = super().decompress(value)
+        return [plain_text_to_html(v) if v else v for v in values]
 
 
 class CallForTeamMembersSettingsForm(forms.ModelForm):
@@ -423,7 +447,7 @@ class EmailTemplateForm(forms.ModelForm):
         self.fields["body"].required = False
         if locales:
             self.fields["subject"].widget = I18nTextInput(locales=locales, field=self.fields["subject"])
-            self.fields["body"].widget = I18nEmailEditorWidget(
+            self.fields["body"].widget = _HtmlNormalizingEmailWidget(
                 locales=locales,
                 field=self.fields["body"],
                 placeholders=EMAIL_PLACEHOLDERS,
@@ -446,7 +470,7 @@ class CustomEmailTemplateForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         if locales:
             self.fields["subject"].widget = I18nTextInput(locales=locales, field=self.fields["subject"])
-            self.fields["body"].widget = I18nEmailEditorWidget(
+            self.fields["body"].widget = _HtmlNormalizingEmailWidget(
                 locales=locales,
                 field=self.fields["body"],
                 placeholders=EMAIL_PLACEHOLDERS,
@@ -469,7 +493,7 @@ class EmailComposeForm(forms.Form):
         )
         self.fields["message"] = I18nFormField(
             label=_("Message"),
-            widget=I18nEmailEditorWidget,
+            widget=_HtmlNormalizingEmailWidget,
             required=True,
             locales=locales,
             widget_kwargs={
@@ -520,7 +544,7 @@ class EmailQueueEditForm(forms.ModelForm):
         self._event = event
         if event is not None:
             locales = list(event.settings.get("locales") or [event.settings.locale])
-            self.fields["message"].widget = I18nEmailEditorWidget(
+            self.fields["message"].widget = _HtmlNormalizingEmailWidget(
                 locales=locales,
                 field=self.fields["message"],
                 placeholders=EMAIL_PLACEHOLDERS,
@@ -786,3 +810,36 @@ class MyShiftsFilterForm(forms.Form):
                     plugins__contains="teamshifts",
                 ).distinct()
             self.fields["event"].queryset = events
+
+
+class VoucherSettingsForm(forms.Form):
+    enabled = forms.BooleanField(
+        required=False,
+        label=_("Enable volunteer vouchers"),
+        help_text=_("When enabled, organisers can send ticket vouchers to accepted team members from the Members page."),
+    )
+    voucher_tag = forms.ChoiceField(
+        required=False,
+        label=_("Voucher batch"),
+        help_text=_("Select the voucher batch (tag) created in Tickets → Vouchers."),
+        widget=forms.Select(attrs={"class": "form-control"}),
+    )
+
+    def __init__(self, *args, event=None, **kwargs):
+        self.event = event
+        super().__init__(*args, **kwargs)
+
+        tag_choices = [("", _("— Select voucher batch —"))]
+        if event is not None:
+            from eventyay.base.models import Voucher
+
+            tags = Voucher.objects.filter(event=event).exclude(tag="").values_list("tag", flat=True).distinct().order_by("tag")
+            tag_choices += [(t, t) for t in tags]
+
+        self.fields["voucher_tag"].choices = tag_choices
+
+    def clean(self):
+        cleaned = super().clean()
+        if cleaned.get("enabled") and not cleaned.get("voucher_tag"):
+            self.add_error("voucher_tag", _("Select a voucher batch when vouchers are enabled."))
+        return cleaned

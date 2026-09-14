@@ -147,8 +147,20 @@ def teamshifts_mail_placeholders(sender, **kwargs):
         SimpleFunctionalMailTextPlaceholder(
             "shift_schedule_url",
             ["event"],
-            lambda event: build_absolute_uri(event, "presale:event.index"),
-            lambda event: "https://example.com/my-event/",
+            lambda event: build_absolute_uri(event, "plugins:teamshifts:public_shift_schedule"),
+            lambda event: "https://example.com/fossasia/my-event/teamshifts/shifts/",
+        ),
+        SimpleFunctionalMailTextPlaceholder(
+            "voucher_code",
+            ["voucher_code"],
+            lambda voucher_code: voucher_code,
+            "ABCD-1234-EFGH",
+        ),
+        SimpleFunctionalMailTextPlaceholder(
+            "ticket_claim_url",
+            ["ticket_claim_url"],
+            lambda ticket_claim_url: ticket_claim_url,
+            "https://example.com/my-event/?voucher=ABCD-1234-EFGH",
         ),
     ]
 
@@ -181,6 +193,8 @@ def teamshifts_user_menu_item(sender, request=None, icon_class="", **kwargs):
 @receiver(nav_global, dispatch_uid="teamshifts_nav_global_my_shifts")
 def teamshifts_nav_global_my_shifts(sender, request=None, **kwargs):
     if request is None or not getattr(request, "user", None) or not request.user.is_authenticated:
+        return []
+    if "eventyay_admin" in getattr(getattr(request, "resolver_match", None), "namespaces", []):
         return []
     with scopes_disabled():
         if not _has_shifts_in_active_events(request.user):

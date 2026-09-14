@@ -130,7 +130,7 @@
             <tbody>
                 {% for entry in application.rendered_answers %}
                 <tr>
-                    <th style="width: 40%">{{ entry.question.question }}</th>
+                    <th class="ts-qa-question">{{ entry.question.question }}</th>
                     <td>{{ entry.value|default:"—" }}</td>
                 </tr>
                 {% endfor %}

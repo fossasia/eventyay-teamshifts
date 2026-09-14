@@ -59,7 +59,7 @@
             <div id='compose_message_preview' class='tab-pane'>
               <div class='mail-preview-group'>
                 {% for locale in request.event.settings.locales %}
-                  <div lang='{{ locale }}' class='mail-preview well' style='min-height:80px;'></div>
+                  <div lang='{{ locale }}' class='mail-preview well'></div>
                 {% endfor %}
               </div>
             </div>

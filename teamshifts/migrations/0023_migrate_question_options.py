@@ -26,7 +26,7 @@ def migrate_question_options(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("teamshifts", "0021_teamapplicationquestionoption"),
+        ("teamshifts", "0022_teamapplicationquestionoption"),
     ]
 
     operations = [

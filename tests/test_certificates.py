@@ -138,6 +138,10 @@ def test_hex_to_rgba():
     assert hex_to_rgba("#1B365D") == [27, 54, 93, 1]
     assert hex_to_rgba("#fff") == [255, 255, 255, 1]
     assert hex_to_rgba("00ff00") == [0, 255, 0, 1]
+    assert hex_to_rgba("#fffzzz") is None
+    assert hex_to_rgba("") is None
+    assert hex_to_rgba(None) is None
+    assert hex_to_rgba("invalid") is None
 
 
 @pytest.mark.django_db
@@ -266,3 +270,70 @@ def test_get_certificate_settings_preserves_custom_layout(event):
         parsed_layout = json.loads(refreshed_settings.layout)
         title_obj = next(o for o in parsed_layout if o.get("content") == "certificate_title")
         assert title_obj["color"] == custom_color
+
+
+@pytest.mark.django_db
+def test_default_layout_with_event(event):
+    from teamshifts.pdf import NAVY, default_layout, hex_to_rgba
+
+    with scope(event=event):
+        # Without event -> NAVY
+        layout_no_event = default_layout()
+        title_no_event = next(o for o in layout_no_event if o.get("content") == "certificate_title")
+        assert title_no_event["color"] == NAVY
+
+        # With event having primary color
+        event.primary_color = "#2185d0"
+        event.save(update_fields=["primary_color"])
+        layout_event = default_layout(event)
+        title_event = next(o for o in layout_event if o.get("content") == "certificate_title")
+        member_event = next(o for o in layout_event if o.get("content") == "member_name")
+        intro_event = next(o for o in layout_event if o.get("content") == "certificate_intro")
+
+        expected = hex_to_rgba("#2185d0")
+        assert title_event["color"] == expected
+        assert member_event["color"] == expected
+        assert intro_event["color"] == [107, 107, 107, 1]
+
+
+@pytest.mark.django_db
+def test_certificate_editor_view_get_current_layout(event, rf):
+    from teamshifts.certificate_views import CertificateEditorView
+    from teamshifts.pdf import hex_to_rgba
+
+    with scope(event=event, organizer=event.organizer):
+        event.settings.set("primary_color", "#e67e22")
+
+        view = CertificateEditorView()
+        request = rf.get("/")
+        request.event = event
+        request.organizer = event.organizer
+        view.request = request
+
+        # Unconfigured layout should use event primary color
+        layout = view.get_current_layout()
+        title = next(o for o in layout if o.get("content") == "certificate_title")
+        member = next(o for o in layout if o.get("content") == "member_name")
+        expected = hex_to_rgba(event.visible_primary_color)
+        assert title["color"] == expected
+        assert member["color"] == expected
+
+        # Custom configured layout should be respected
+        custom_color = [100, 200, 50, 1]
+        settings = view.certificate_settings
+        import json
+
+        settings.layout = json.dumps(
+            [
+                {
+                    "type": "textarea",
+                    "content": "certificate_title",
+                    "color": custom_color,
+                }
+            ]
+        )
+        settings.save(update_fields=["layout"])
+
+        custom_layout = view.get_current_layout()
+        custom_title = next(o for o in custom_layout if o.get("content") == "certificate_title")
+        assert custom_title["color"] == custom_color

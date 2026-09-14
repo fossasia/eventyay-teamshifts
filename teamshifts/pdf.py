@@ -40,11 +40,18 @@ CERTIFICATE_PLACEHOLDERS = (
 CERTIFICATE_DEFAULT_STATIC = "teamshifts/certificates/certificate_default.pdf"
 
 
-def hex_to_rgba(hex_color: str) -> list:
-    hex_color = hex_color.lstrip("#")
+def hex_to_rgba(hex_color: str) -> list | None:
+    if not hex_color or not isinstance(hex_color, str):
+        return None
+    hex_color = hex_color.lstrip("#").strip()
     if len(hex_color) == 3:
         hex_color = "".join(c * 2 for c in hex_color)
-    return [int(hex_color[i : i + 2], 16) for i in (0, 2, 4)] + [1]
+    if len(hex_color) != 6:
+        return None
+    try:
+        return [int(hex_color[i : i + 2], 16) for i in (0, 2, 4)] + [1]
+    except ValueError:
+        return None
 
 
 NAVY = [27, 54, 93, 1]
@@ -216,8 +223,16 @@ def format_event_date_to(event):
     return date_format(event.date_from, "DATE_FORMAT")
 
 
-def default_layout():
-    return json.loads(json.dumps(DEFAULT_CERTIFICATE_LAYOUT))
+def default_layout(event=None):
+    layout = json.loads(json.dumps(DEFAULT_CERTIFICATE_LAYOUT))
+    if event:
+        event_color = getattr(event, "visible_primary_color", None) or "#c0392b"
+        color_rgba = hex_to_rgba(event_color)
+        if color_rgba:
+            for obj in layout:
+                if obj.get("content") in ("certificate_title", "member_name"):
+                    obj["color"] = color_rgba
+    return layout
 
 
 def layout_is_initial_overlay(layout_json: str) -> bool:
@@ -376,7 +391,7 @@ class CertificateRenderer(Renderer):
 
 
 def render_certificate_pdf(settings: CertificateSettings, context: dict, layout=None, background_file=None) -> bytes:
-    layout = layout if layout is not None else (json.loads(settings.layout) if settings.layout else default_layout())
+    layout = layout if layout is not None else (json.loads(settings.layout) if settings.layout else default_layout(settings.event))
     if background_file is not None:
         background = background_file
     elif settings.background and settings.background.name:

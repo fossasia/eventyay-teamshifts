@@ -5,7 +5,8 @@ from django.db import models
 from django.utils import timezone
 from django.utils.crypto import get_random_string
 from django.utils.translation import gettext_lazy as _
-from django_scopes import ScopedManager, scope
+from django_scopes import ScopedManager, scope, scopes_disabled
+from eventyay.base.models import Voucher
 from i18nfield.fields import I18nCharField, I18nTextField
 
 

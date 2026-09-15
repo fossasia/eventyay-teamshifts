@@ -144,7 +144,7 @@ def test_custom_phone_question_validation_rejects(event, bad_phone):
         data={
             "full_name": "Jane Member",
             "email": "jane@example.com",
-            f"question_{question.pk}_0": "US",
+            f"question_{question.pk}_0": "+1",
             f"question_{question.pk}_1": bad_phone,
         },
         event=event,
@@ -167,8 +167,8 @@ def test_custom_phone_question_validation_accepts(event):
         data={
             "full_name": "Jane Member",
             "email": "jane@example.com",
-            f"question_{question.pk}_0": "US",
-            f"question_{question.pk}_1": "555-123-4567",
+            f"question_{question.pk}_0": "+1",
+            f"question_{question.pk}_1": "201-555-0199",
         },
         event=event,
         cfm=cfm,

@@ -2,19 +2,19 @@ import re
 from zoneinfo import ZoneInfo
 
 from django import forms
-from django.core.exceptions import ValidationError
 from django.utils import timezone
 from django.utils.html import escape as html_escape
 from django.utils.translation import gettext_lazy as _
 from django_countries import countries
 from django_scopes import scopes_disabled
 from django_scopes.forms import SafeModelChoiceField
+from eventyay.base.forms.questions import WrappedPhoneNumberPrefixWidget, guess_country
 from eventyay.base.models import Event
 from eventyay.common.forms.widgets import I18nEmailEditorWidget, RichTextWidget
 from eventyay.control.forms import SplitDateTimeField, SplitDateTimePickerWidget
 from i18nfield.forms import I18nFormField, I18nTextInput
 from phonenumber_field.formfields import PhoneNumberField
-from phonenumber_field.widgets import PhoneNumberPrefixWidget
+from phonenumbers.data import _COUNTRY_CODE_TO_REGION_CODE
 
 from .models import (
     CFM_BUILTIN_FIELD_KEYS,
@@ -177,6 +177,18 @@ class TeamApplicationQuestionForm(forms.ModelForm):
         return instance
 
 
+def build_phone_field(event, **kwargs) -> PhoneNumberField:
+    # Same country-prefix select + number input as ticket, talk and exhibition phone questions.
+    initial = None
+    if event is not None:
+        country = str(guess_country(event) or "")
+        for prefix, regions in _COUNTRY_CODE_TO_REGION_CODE.items():
+            if country in regions:
+                initial = f"+{prefix}."
+                break
+    return PhoneNumberField(initial=initial, widget=WrappedPhoneNumberPrefixWidget(), **kwargs)
+
+
 class TeamMemberApplicationForm(forms.Form):
     QUESTION_FIELD_PREFIX = "question_"
 
@@ -259,11 +271,11 @@ class TeamMemberApplicationForm(forms.Form):
                         field.initial = user.email
                     self.fields["email"] = field
                 elif item == "phone":
-                    field = PhoneNumberField(
+                    field = build_phone_field(
+                        event,
                         label=_("Phone / Mobile"),
                         required=required,
                         help_text=_("Optional. We may use this to contact you regarding your shift."),
-                        widget=PhoneNumberPrefixWidget(attrs={"class": "form-control"}),
                     )
                     self.fields["phone"] = field
                 elif item == "availability":
@@ -310,10 +322,7 @@ class TeamMemberApplicationForm(forms.Form):
         if variant == QuestionVariant.DATETIME:
             return forms.DateTimeField(widget=forms.DateTimeInput(attrs={"class": "form-control datetimepicker"}), **common)
         if variant == QuestionVariant.PHONE:
-            return PhoneNumberField(
-                widget=PhoneNumberPrefixWidget(attrs={"class": "form-control"}),
-                **common,
-            )
+            return build_phone_field(question.event, **common)
         if variant == QuestionVariant.COUNTRY:
             return forms.ChoiceField(
                 choices=[("", _("— Select country —"))] + list(countries),

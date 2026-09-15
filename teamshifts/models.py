@@ -431,11 +431,6 @@ class TeamApplicationQuestion(models.Model):
         verbose_name=_("Field type"),
     )
     required = models.BooleanField(default=False, verbose_name=_("Required"))
-    options = models.TextField(
-        blank=True,
-        verbose_name=_("Options"),
-        help_text=_("One option per line. Only used for choice / multiple choice fields."),
-    )
     active = models.BooleanField(default=True, verbose_name=_("Active"))
 
     objects = ScopedManager(event="event")

@@ -19,7 +19,7 @@ def migrate_question_options(apps, schema_editor):
             if answer:
                 TeamApplicationQuestionOption.objects.create(
                     question=question,
-                    answer=answer,
+                    answer={"en": answer},
                     position=position,
                 )
 

@@ -3,6 +3,10 @@ document.addEventListener("DOMContentLoaded", () => {
     const variant = document.querySelector("#id_variant")
     const options = document.querySelector("#teamshifts-answer-options")
 
+    if (!variant || !options) {
+        return
+    }
+
     const toggleOptions = () => {
         const showOptions = ["choices", "choices_dropdown", "multiple_choice"].includes(
             variant.value

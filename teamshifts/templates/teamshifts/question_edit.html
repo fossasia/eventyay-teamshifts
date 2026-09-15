@@ -115,7 +115,7 @@
             {% bootstrap_field form.active layout='control' %}
         </fieldset>
 
-        <script type="module" src="{% static 'teamshifts/question_edit.js' %}"></script>
+        <script src="{% static 'teamshifts/question_edit.js' %}" defer></script>
 
         <div class='form-group submit-group'>
             <button type='submit' class='btn btn-primary btn-save'>

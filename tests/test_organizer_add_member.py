@@ -6,7 +6,7 @@ from django_scopes import scope
 from eventyay.base.models import Team, User
 
 from teamshifts.forms import TeamMemberApplicationForm
-from teamshifts.models import ApplicationStatus, CallForTeamMembers, QuestionVariant, TeamApplicationQuestion, TeamMemberApplication
+from teamshifts.models import ApplicationStatus, CallForTeamMembers, TeamMemberApplication
 from teamshifts.services.members import AlreadyMemberError, add_member_from_organizer, resolve_or_create_user
 
 
@@ -43,7 +43,8 @@ def test_add_member_creates_accepted_application(event, call_for_team_members):
         data={
             "full_name": "Jane Member",
             "email": "jane.member@example.com",
-            "phone": "+1 555 0100",
+            "phone_0": "+1",
+            "phone_1": "201 555 0100",
             "availability_notes": "Weekends",
         },
         event=event,
@@ -56,7 +57,7 @@ def test_add_member_creates_accepted_application(event, call_for_team_members):
     assert application.added_by_organizer is True
     assert application.user.email == "jane.member@example.com"
     assert application.user.fullname == "Jane Member"
-    assert application.phone == "+1 555 0100"
+    assert application.phone == "+12015550100"
 
 
 @pytest.mark.django_db
@@ -110,7 +111,7 @@ def test_add_member_accepts_pending_application(event, call_for_team_members, dj
         )
 
     form = TeamMemberApplicationForm(
-        data={"full_name": "Pending Updated", "email": "pending@example.com", "phone": "123"},
+        data={"full_name": "Pending Updated", "email": "pending@example.com", "phone_0": "+1", "phone_1": "201 555 0123"},
         event=event,
         cfm=call_for_team_members,
         organizer_mode=True,
@@ -120,7 +121,7 @@ def test_add_member_accepts_pending_application(event, call_for_team_members, dj
     assert updated.pk == application.pk
     assert updated.status == ApplicationStatus.ACCEPTED
     assert updated.added_by_organizer is True
-    assert updated.phone == "123"
+    assert updated.phone == "+12015550123"
 
 
 @pytest.mark.django_db
@@ -189,8 +190,10 @@ def test_organizer_added_member_appears_on_members_list(client, event, call_for_
     assert "orgmember2@example.com" in emails
 
 
+# Phone numbers are validated with `phonenumbers` against the rules of the selected country,
+# not against a fixed 7–15 digit range.
 @pytest.mark.django_db
-def test_phone_validation_rejects_overly_long(event, call_for_team_members):
+def test_phone_validation_rejects_too_long_for_country(event, call_for_team_members):
     form = TeamMemberApplicationForm(
         data={
             "full_name": "Jane Member",
@@ -207,7 +210,7 @@ def test_phone_validation_rejects_overly_long(event, call_for_team_members):
 
 
 @pytest.mark.django_db
-def test_phone_validation_rejects_too_short(event, call_for_team_members):
+def test_phone_validation_rejects_too_short_for_country(event, call_for_team_members):
     form = TeamMemberApplicationForm(
         data={
             "full_name": "Jane Member",
@@ -255,3 +258,75 @@ def test_phone_validation_accepts_valid(event, call_for_team_members):
         organizer_mode=True,
     )
     assert form.is_valid(), form.errors
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("prefix", "number", "valid"),
+    [
+        ("+1", "201 555 0123", True),
+        ("+91", "201 555 0123", False),
+        ("+91", "98765 43210", True),
+        ("+1", "98765 43210", False),
+    ],
+)
+def test_phone_validation_depends_on_selected_country(event, call_for_team_members, prefix, number, valid):
+    form = TeamMemberApplicationForm(
+        data={"full_name": "Jane Member", "email": "jane@example.com", "phone_0": prefix, "phone_1": number},
+        event=event,
+        cfm=call_for_team_members,
+        organizer_mode=True,
+    )
+    assert form.is_valid() is valid, form.errors
+
+
+INVALID_LEGACY_PHONE_VALUES = ["555.123.4567", "call me after 6pm"]
+LEGACY_PHONE_VALUES = [*INVALID_LEGACY_PHONE_VALUES, "+1 (201) 555-0123 ext. 4"]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("legacy_phone", LEGACY_PHONE_VALUES)
+def test_legacy_phone_value_renders_unchanged_in_form(event, call_for_team_members, legacy_phone):
+    form = TeamMemberApplicationForm(initial={"phone": legacy_phone}, event=event, cfm=call_for_team_members, organizer_mode=True)
+    html = str(form["phone"])
+    assert f'value="{legacy_phone}"' in html
+
+
+@pytest.mark.django_db
+def test_valid_legacy_phone_value_is_split_into_prefix_and_number(event, call_for_team_members):
+    form = TeamMemberApplicationForm(initial={"phone": "+1 201-555-0123"}, event=event, cfm=call_for_team_members, organizer_mode=True)
+    assert form.fields["phone"].prepare_value("+1 201-555-0123") == "+12015550123"
+    html = str(form["phone"])
+    assert 'value="2015550123"' in html
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("legacy_phone", INVALID_LEGACY_PHONE_VALUES)
+def test_legacy_phone_value_resubmitted_is_rejected_with_form_error(event, call_for_team_members, legacy_phone):
+    form = TeamMemberApplicationForm(
+        data={"full_name": "Jane Member", "email": "jane@example.com", "phone_0": "", "phone_1": legacy_phone},
+        event=event,
+        cfm=call_for_team_members,
+        organizer_mode=True,
+    )
+    assert not form.is_valid()
+    assert "phone" in form.errors
+    assert f'value="{legacy_phone}"' in str(form["phone"])
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("legacy_phone", LEGACY_PHONE_VALUES)
+def test_saved_legacy_phone_still_renders_in_organizer_views(client, event, call_for_team_members, orga_user, django_user_model, settings, legacy_phone):
+    settings.SITE_URL = "https://testserver"
+    applicant = django_user_model.objects.create_user(email="legacy@example.com", password="x", fullname="Legacy Applicant")
+    with scope(event=event):
+        application = TeamMemberApplication.objects.create(event=event, user=applicant, status=ApplicationStatus.PENDING, phone=legacy_phone)
+
+    client.force_login(orga_user)
+    kwargs = {"organizer": event.organizer.slug, "event": event.slug}
+    list_response = client.get(reverse("plugins:teamshifts:applications", kwargs=kwargs))
+    detail_response = client.get(reverse("plugins:teamshifts:application_detail", kwargs={**kwargs, "pk": application.pk}))
+
+    assert list_response.status_code == 200
+    assert detail_response.status_code == 200
+    assert legacy_phone in detail_response.content.decode()

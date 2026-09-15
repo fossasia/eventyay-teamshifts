@@ -178,7 +178,7 @@ def preview_context(event):
     from django.utils.translation import gettext
 
     location = str(event.location) if event.location else "Berlin, Germany"
-    event_color = event.visible_primary_color or "#c0392b"
+    event_color = getattr(event, "visible_primary_color", None)
     return {
         "certificate_title": gettext("Certificate of Appreciation"),
         "certificate_intro": gettext("presents this"),
@@ -226,7 +226,7 @@ def format_event_date_to(event):
 def default_layout(event=None):
     layout = json.loads(json.dumps(DEFAULT_CERTIFICATE_LAYOUT))
     if event:
-        event_color = getattr(event, "visible_primary_color", None) or "#c0392b"
+        event_color = getattr(event, "visible_primary_color", None)
         color_rgba = hex_to_rgba(event_color)
         if color_rgba:
             for obj in layout:
@@ -256,11 +256,28 @@ def layout_is_initial_overlay(layout_json: str) -> bool:
         old_sets = (
             {"certificate_intro", "certificate_title", "member_name", "certificate_body", "issued_date"},
             {"member_name", "event_name", "event_dates", "organizer_name"},
+            {
+                "certificate_intro",
+                "certificate_title",
+                "member_name",
+                "certificate_body_line1",
+                "certificate_body_line2",
+                "issued_date",
+            },
         )
-        if content_set in old_sets:
-            return True
-        content_set_without_other = content_set - {"other"}
-        if content_set_without_other in old_sets:
+        if content_set in old_sets or (content_set - {"other"}) in old_sets:
+            current_fields = {
+                "certificate_intro",
+                "certificate_title",
+                "member_name",
+                "certificate_body_line1",
+                "certificate_body_line2",
+                "issued_date",
+            }
+            if (content_set - {"other"}) == current_fields:
+                title_obj = next((item for item in items if item.get("content") == "certificate_title"), None)
+                if title_obj and title_obj.get("color") and title_obj.get("color") != NAVY:
+                    return False
             return True
     return False
 

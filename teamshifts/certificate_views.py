@@ -207,7 +207,7 @@ class CertificateEditorView(PluginActiveMixin, BaseEditorView):
             items = json.loads(layout)
         else:
             items = default_layout(self.request.event)
-        event_color = getattr(self.request.event, "visible_primary_color", None) or "#c0392b"
+        event_color = getattr(self.request.event, "visible_primary_color", None)
         color_rgba = hex_to_rgba(event_color)
         if not color_rgba:
             return items

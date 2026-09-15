@@ -157,7 +157,7 @@ def test_preview_context_event_color(event):
         event.primary_color = None
         event.save(update_fields=["primary_color"])
         ctx = preview_context(event)
-        assert ctx["_event_color"] == (event.visible_primary_color or "#c0392b")
+        assert ctx["_event_color"] == event.visible_primary_color
 
 
 @pytest.mark.django_db
@@ -167,7 +167,7 @@ def test_application_context_event_color(event, application):
     with scope(event=event):
         ctx = application_context(application)
         assert "_event_color" in ctx
-        assert ctx["_event_color"] == (event.visible_primary_color or "#c0392b")
+        assert ctx["_event_color"] == event.visible_primary_color
 
 
 @pytest.mark.django_db
@@ -270,6 +270,24 @@ def test_get_certificate_settings_preserves_custom_layout(event):
         parsed_layout = json.loads(refreshed_settings.layout)
         title_obj = next(o for o in parsed_layout if o.get("content") == "certificate_title")
         assert title_obj["color"] == custom_color
+
+
+def test_layout_is_initial_overlay_detects_legacy_body_lines():
+    import json
+
+    from teamshifts.pdf import layout_is_initial_overlay
+
+    legacy_layout = json.dumps(
+        [
+            {"type": "textarea", "content": "certificate_intro"},
+            {"type": "textarea", "content": "certificate_title"},
+            {"type": "textarea", "content": "member_name"},
+            {"type": "textarea", "content": "certificate_body_line1"},
+            {"type": "textarea", "content": "certificate_body_line2"},
+            {"type": "textarea", "content": "issued_date"},
+        ]
+    )
+    assert layout_is_initial_overlay(legacy_layout) is True
 
 
 @pytest.mark.django_db

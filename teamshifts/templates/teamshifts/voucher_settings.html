@@ -45,7 +45,7 @@
           <i class='fa fa-save'></i> {% trans 'Save' %}
         </button>
         <a class='btn btn-default'
-           href='{% url "control:event.vouchers" organizer=request.organizer.slug event=request.event.slug %}'>
+           href='{% url "control:event.vouchers.bulk" organizer=request.organizer.slug event=request.event.slug %}'>
           <i class='fa fa-plus'></i> {% trans 'Create a voucher batch in Tickets →' %}
         </a>
       </div>

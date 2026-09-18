@@ -4,6 +4,7 @@
 {% load static %}
 {% load eventurl %}
 {% load rich_text %}
+{% load oauth_tags %}
 
 {% block pagetitle %}{% if cfm %}{{ cfm.title }}{% else %}{% trans "Apply to join the team" %}{% endif %}{% endblock %}
 
@@ -16,76 +17,93 @@
 {% endblock %}
 
 {% block content %}
-  <h2>{% if cfm %}{{ cfm.title }}{% else %}{% trans "Apply to join the team" %}{% endif %}</h2>
+  <main aria-label="{% if cfm %}{{ cfm.title }}{% else %}{% trans "Apply to join the team" %}{% endif %}">
+    <section class="front-page teamshifts-call-page">
+      <h2>{% if cfm %}{{ cfm.title }}{% else %}{% trans "Apply to join the team" %}{% endif %}</h2>
 
-  {% if not cfm_open %}
-    <div class="alert alert-warning">
-      {% if cfm_deadline_passed %}
-        <strong>{% blocktrans with deadline=cfm.deadline %}Applications closed on {{ deadline }}.{% endblocktrans %}</strong>
-        <p class="mb-0">{% blocktrans with title=cfm.title %}{{ title }} is no longer accepting applications.{% endblocktrans %}</p>
-      {% else %}
-        <strong>{% trans "Applications are currently closed." %}</strong>
-        {% trans "This event is not accepting team member applications at this time." %}
-      {% endif %}
-    </div>
-  {% else %}
-
-    {% if cfm.description %}
-      <div class="description-text ts-mb-1_5em">{{ cfm.description|rich_text }}</div>
-    {% endif %}
-
-    {% if existing_application %}
-      <div class="panel panel-info ts-mb-1_5em">
-        <div class="panel-heading">
-          <h3 class="panel-title">{% trans "Your application" %}</h3>
-        </div>
-        <div class="panel-body">
-          <p>
-            {% trans "Status:" %}
-            {% if existing_application.status == 'pending' %}
-              <span class="label label-warning">{% trans "Pending review" %}</span>
-            {% elif existing_application.status == 'accepted' %}
-              <span class="label label-success">{% trans "Accepted" %}</span>
-            {% else %}
-              <span class="label label-danger">{% trans "Rejected" %}</span>
-            {% endif %}
-          </p>
-          <p class="text-muted">{% blocktrans with date=existing_application.created_at|date:"SHORT_DATETIME_FORMAT" %}Applied on {{ date }}.{% endblocktrans %}</p>
-          {% if existing_application.status == 'accepted' %}
-            <p>{% trans "You have been approved! Browse the shift schedule to claim your shifts." %}</p>
+      {% if not cfm_open %}
+        <div class="alert alert-warning">
+          {% if cfm_deadline_passed %}
+            <strong>{% blocktrans with deadline=cfm.deadline %}Applications closed on {{ deadline }}.{% endblocktrans %}</strong>
+            <p class="mb-0">{% blocktrans with title=cfm.title %}{{ title }} is no longer accepting applications.{% endblocktrans %}</p>
+          {% else %}
+            <strong>{% trans "Applications are currently closed." %}</strong>
+            {% trans "This event is not accepting team member applications at this time." %}
           {% endif %}
         </div>
-      </div>
-    {% else %}
+      {% else %}
 
-      <div class="panel panel-default">
-        <div class="panel-heading">
-          <h3 class="panel-title">{% trans "New application" %}</h3>
-        </div>
-        <div class="panel-body">
-          <form action="" method="post" class="form-horizontal" id="teamshifts-apply-form">
-            {% csrf_token %}
-            {% bootstrap_form_errors form %}
-            {% for item in form.render_items %}
-              {% if item.is_question %}
-                <div class="teamshifts-question-row">
-                  {% bootstrap_field item.field layout="control" %}
-                </div>
-              {% else %}
-                {% bootstrap_field item.field layout="control" %}
-              {% endif %}
-            {% endfor %}
-            <div class="form-group">
-              <div class="col-md-9 col-md-offset-3 text-right">
-                <button type="submit" class="btn btn-primary btn-lg">
-                  {% trans "Submit application" %} &raquo;
-                </button>
-              </div>
+        {% if cfm.description %}
+          <div class="description-text ts-mb-1_5em">{{ cfm.description|rich_text }}</div>
+        {% endif %}
+
+        {% if existing_application %}
+          <div class="panel panel-info ts-mb-1_5em">
+            <div class="panel-heading">
+              <h3 class="panel-title">{% trans "Your application" %}</h3>
             </div>
-          </form>
-        </div>
-      </div>
+            <div class="panel-body">
+              <p>
+                {% trans "Status:" %}
+                {% if existing_application.status == 'pending' %}
+                  <span class="label label-warning">{% trans "Pending review" %}</span>
+                {% elif existing_application.status == 'accepted' %}
+                  <span class="label label-success">{% trans "Accepted" %}</span>
+                {% else %}
+                  <span class="label label-danger">{% trans "Rejected" %}</span>
+                {% endif %}
+              </p>
+              <p class="text-muted">{% blocktrans with date=existing_application.created_at|date:"SHORT_DATETIME_FORMAT" %}Applied on {{ date }}.{% endblocktrans %}</p>
+              {% if existing_application.status == 'accepted' %}
+                <p>{% trans "You have been approved! Browse the shift schedule to claim your shifts." %}</p>
+              {% endif %}
+            </div>
+          </div>
+        {% elif request.user.is_authenticated %}
 
-    {% endif %}
-  {% endif %}
+          <div class="panel panel-default">
+            <div class="panel-heading">
+              <h3 class="panel-title">{% trans "New application" %}</h3>
+            </div>
+            <div class="panel-body">
+              <form action="" method="post" class="form-horizontal" id="teamshifts-apply-form">
+                {% csrf_token %}
+                {% bootstrap_form_errors form %}
+                {% for item in form.render_items %}
+                  {% if item.is_question %}
+                    <div class="teamshifts-question-row">
+                      {% bootstrap_field item.field layout="control" %}
+                    </div>
+                  {% else %}
+                    {% bootstrap_field item.field layout="control" %}
+                  {% endif %}
+                {% endfor %}
+                <div class="row checkout-button-row">
+                  <div class="col-md-4 col-md-offset-8 col-sm-6">
+                    <button type="submit" class="btn btn-block btn-primary btn-lg">
+                      {% trans "Submit application" %} &raquo;
+                    </button>
+                  </div>
+                  <div class="clearfix"></div>
+                </div>
+              </form>
+            </div>
+          </div>
+
+        {% else %}
+
+          <p>{% trans "Log in or create an account to submit your application." %}</p>
+          <div class="url-links">
+            <a class="btn btn-primary btn-lg btn-block" href="{% oauth_login_url request.get_full_path %}">
+              {% trans "Log in" %}
+            </a>
+            <a class="btn btn-default btn-lg btn-block" href="{% register_account_url request.get_full_path %}">
+              {% trans "Create an account" %}
+            </a>
+          </div>
+
+        {% endif %}
+      {% endif %}
+    </section>
+  </main>
 {% endblock %}

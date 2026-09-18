@@ -5,7 +5,8 @@ from django.db import models
 from django.utils import timezone
 from django.utils.crypto import get_random_string
 from django.utils.translation import gettext_lazy as _
-from django_scopes import ScopedManager, scope
+from django_scopes import ScopedManager, scope, scopes_disabled
+from eventyay.base.models import Voucher
 from i18nfield.fields import I18nTextField
 
 
@@ -157,15 +158,32 @@ class CallForTeamMembers(models.Model):
 
         try:
             with scope(event=self.event):
-                return self.event.teamshifts_email_templates.get(role=role)
+                template = self.event.teamshifts_email_templates.get(role=role)
+            default_subject, default_text = get_default_template(role)
+            stored_subject = template.subject.data if isinstance(template.subject, LazyI18nString) else {}
+            stored_body = template.body.data if isinstance(template.body, LazyI18nString) else {}
+            missing_locales = [loc for loc in self.event.locales if loc and not stored_subject.get(loc)]
+            if missing_locales:
+                fallback_subject = str(default_subject.localize("en") or default_subject)
+                fallback_body = str(default_text.localize("en") or default_text)
+                for locale in missing_locales:
+                    stored_subject[locale] = str(default_subject.localize(locale)) or fallback_subject
+                    stored_body[locale] = str(default_text.localize(locale)) or fallback_body
+                template.subject = LazyI18nString(stored_subject)
+                template.body = LazyI18nString(stored_body)
+                with scope(event=self.event):
+                    template.save(update_fields=["subject", "body"])
+            return template
         except TeamShiftsEmailTemplate.DoesNotExist:
             default_subject, default_text = get_default_template(role)
+            fallback_subject = str(default_subject.localize("en") or default_subject)
+            fallback_body = str(default_text.localize("en") or default_text)
             subject_data = {}
             body_data = {}
             for locale in self.event.locales:
                 if locale:
-                    subject_data[locale] = str(default_subject.localize(locale))
-                    body_data[locale] = str(default_text.localize(locale))
+                    subject_data[locale] = str(default_subject.localize(locale)) or fallback_subject
+                    body_data[locale] = str(default_text.localize(locale)) or fallback_body
             subject = LazyI18nString(subject_data) if subject_data else default_subject
             body = LazyI18nString(body_data) if body_data else default_text
             with scope(event=self.event):
@@ -551,6 +569,7 @@ class EmailTemplateRoles(models.TextChoices):
     APPLICATION_ACCEPTED = "teamshifts.application.accepted", _("Application accepted")
     APPLICATION_REJECTED = "teamshifts.application.rejected", _("Application rejected")
     MEMBER_ADDED_BY_ORGANIZER = "teamshifts.member.added_by_organizer", _("Added as volunteer by organizer")
+    VOUCHER_SENT = "teamshifts.voucher.sent", _("Voucher sent to volunteer")
 
 
 class TeamShiftsEmailTemplate(models.Model):
@@ -681,3 +700,104 @@ class MemberCertificate(models.Model):
 
     def __str__(self):
         return f"Certificate for {self.application}"
+
+
+class VoucherStatus(models.TextChoices):
+    NOT_SENT = "not_sent", _("Not sent")
+    SENT = "sent", _("Sent — not claimed")
+    CLAIMED = "claimed", _("Claimed")
+
+
+class VolunteerVoucherSettings(models.Model):
+    event = models.OneToOneField(
+        "base.Event",
+        on_delete=models.CASCADE,
+        related_name="volunteer_voucher_settings",
+    )
+    enabled = models.BooleanField(
+        default=False,
+        verbose_name=_("Enable volunteer vouchers"),
+        help_text=_("Allow sending ticket vouchers to accepted team members."),
+    )
+    voucher_tag = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        verbose_name=_("Voucher batch (tag)"),
+        help_text=_("The tag that identifies the voucher batch in Tickets → Vouchers."),
+    )
+
+    objects = ScopedManager(event="event")
+
+    class Meta:
+        verbose_name = _("Volunteer voucher settings")
+        verbose_name_plural = _("Volunteer voucher settings")
+
+    def __str__(self):
+        return f"Voucher settings for {self.event.slug}"
+
+    def get_available_vouchers(self):
+        if not self.voucher_tag:
+            return Voucher.objects.none()
+        assigned_voucher_ids = MemberVoucher.objects.filter(
+            application__event=self.event,
+        ).values_list("voucher_id", flat=True)
+        with scopes_disabled():
+            return Voucher.objects.filter(
+                event=self.event,
+                tag=self.voucher_tag,
+                redeemed=0,
+            ).exclude(pk__in=assigned_voucher_ids)
+
+    def batch_total_count(self) -> int:
+        if not self.voucher_tag:
+            return 0
+        with scopes_disabled():
+            return Voucher.objects.filter(event=self.event, tag=self.voucher_tag).count()
+
+    def batch_remaining_count(self) -> int:
+        return self.get_available_vouchers().count()
+
+
+class MemberVoucher(models.Model):
+    application = models.OneToOneField(
+        TeamMemberApplication,
+        on_delete=models.CASCADE,
+        related_name="voucher_assignment",
+    )
+    voucher = models.OneToOneField(
+        "base.Voucher",
+        on_delete=models.CASCADE,
+        related_name="teamshifts_member_link",
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=VoucherStatus.choices,
+        default=VoucherStatus.NOT_SENT,
+        verbose_name=_("Voucher status"),
+    )
+    sent_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name=_("Sent at"),
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = ScopedManager(event="application__event")
+
+    class Meta:
+        verbose_name = _("Member voucher")
+        verbose_name_plural = _("Member vouchers")
+
+    def __str__(self):
+        return f"{self.application.user.email} → {self.voucher.code}"
+
+    def refresh_claimed_status(self) -> bool:
+        if self.status == VoucherStatus.CLAIMED:
+            return False
+        self.voucher.refresh_from_db(fields=["redeemed"])
+        if self.voucher.redeemed > 0:
+            self.status = VoucherStatus.CLAIMED
+            self.save(update_fields=["status"])
+            return True
+        return False

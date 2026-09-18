@@ -104,6 +104,14 @@
     </li>
 
     <li>
+        <a href="{% url 'plugins:teamshifts:voucher_settings' organizer=request.organizer.slug event=request.event.slug %}"
+           {% if url_name == 'voucher_settings' %}class="active"{% endif %}>
+            <span class="fa fa-fw fa-ticket"></span>
+            <span class="sidebar-text">{% trans "Ticket Vouchers" %}</span>
+        </a>
+    </li>
+
+    <li>
         <a href="{% url 'plugins:teamshifts:schedule_grid' organizer=request.organizer.slug event=request.event.slug %}" class="has-children {% if url_name == 'schedule_grid' %}active{% endif %}">
             <span class="fa fa-fw fa-calendar"></span>
             <span class="sidebar-text">{% trans "Shift schedule" %}</span>

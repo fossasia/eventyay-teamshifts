@@ -367,11 +367,7 @@ class CertificateRenderer(Renderer):
         for obj in self.layout:
             if obj.get("type") not in allowed:
                 continue
-            if (
-                color_rgba
-                and obj.get("type") == "textarea"
-                and obj.get("content") in ("certificate_title", "member_name")
-            ):
+            if color_rgba and obj.get("type") == "textarea" and obj.get("content") in ("certificate_title", "member_name"):
                 layout.append({**obj, "color": color_rgba})
             else:
                 layout.append(obj)

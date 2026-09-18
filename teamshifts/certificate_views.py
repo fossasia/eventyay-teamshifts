@@ -18,12 +18,10 @@ from .forms import CertificateSettingsForm
 from .models import ApplicationStatus, CertificateSettings, MemberCertificate, TeamMemberApplication
 from .pdf import (
     CERTIFICATE_PLACEHOLDERS,
-    NAVY,
     default_layout,
     editor_image_variables,
     editor_variables,
     get_default_background_url,
-    hex_to_rgba,
     image_file_to_pdf,
     open_default_background,
     preview_context,
@@ -204,24 +202,8 @@ class CertificateEditorView(PluginActiveMixin, BaseEditorView):
     def get_current_layout(self):
         layout = self.certificate_settings.layout
         if layout:
-            items = json.loads(layout)
-        else:
-            items = default_layout(self.request.event)
-        event_color = getattr(self.request.event, "visible_primary_color", None)
-        color_rgba = hex_to_rgba(event_color)
-        if not color_rgba:
-            return items
-        result = []
-        for obj in items:
-            if (
-                obj.get("type") == "textarea"
-                and obj.get("content") in ("certificate_title", "member_name")
-                and (obj.get("color") == NAVY or not obj.get("color"))
-            ):
-                result.append({**obj, "color": color_rgba})
-            else:
-                result.append(obj)
-        return result
+            return json.loads(layout)
+        return default_layout()
 
     def get_current_background(self):
         if self.certificate_settings.background:

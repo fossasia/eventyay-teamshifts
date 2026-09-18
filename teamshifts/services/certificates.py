@@ -28,7 +28,7 @@ def get_certificate_settings(event) -> CertificateSettings:
     with scope(event=event):
         settings, created = CertificateSettings.objects.get_or_create(event=event)
         if created or not settings.layout or layout_is_initial_overlay(settings.layout):
-            settings.layout = json.dumps(default_layout(event))
+            settings.layout = json.dumps(default_layout())
             settings.save(update_fields=["layout"])
     return settings
 

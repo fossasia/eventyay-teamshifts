@@ -202,7 +202,7 @@ def test_certificate_renderer_applies_event_color_to_default_layout(event):
 
 
 @pytest.mark.django_db
-def test_certificate_renderer_preserves_custom_color_and_does_not_mutate(event):
+def test_certificate_renderer_unconditional_injection_and_immutability(event):
     from unittest.mock import MagicMock
 
     from teamshifts.pdf import CertificateRenderer, default_layout, hex_to_rgba
@@ -212,7 +212,7 @@ def test_certificate_renderer_preserves_custom_color_and_does_not_mutate(event):
         ctx = {"_event_color": event_color}
         layout = default_layout()
 
-        # Set custom color for certificate_title
+        # Set custom color for certificate_title in the input layout
         custom_green = [0, 255, 0, 1]
         for obj in layout:
             if obj.get("content") == "certificate_title":
@@ -233,11 +233,14 @@ def test_certificate_renderer_preserves_custom_color_and_does_not_mutate(event):
 
         title_obj = next(o for o in drawn_objects if o.get("content") == "certificate_title")
         member_obj = next(o for o in drawn_objects if o.get("content") == "member_name")
+        intro_obj = next(o for o in drawn_objects if o.get("content") == "certificate_intro")
 
-        # Custom green color must be preserved
-        assert title_obj["color"] == custom_green
-        # Default member_name color should use event color
-        assert member_obj["color"] == hex_to_rgba(event_color)
+        # Unconditional injection at render-time applies event color to title and member name
+        expected_color = hex_to_rgba(event_color)
+        assert title_obj["color"] == expected_color
+        assert member_obj["color"] == expected_color
+        # Non-title/member object retains its original color
+        assert intro_obj["color"] == [107, 107, 107, 1]
 
         # Input layout dicts must NOT have been mutated in place
         assert next(o for o in layout if o.get("content") == "certificate_title")["color"] == original_title_color
@@ -290,34 +293,33 @@ def test_layout_is_initial_overlay_detects_legacy_body_lines():
     assert layout_is_initial_overlay(legacy_layout) is True
 
 
-@pytest.mark.django_db
-def test_default_layout_with_event(event):
-    from teamshifts.pdf import NAVY, default_layout, hex_to_rgba
+def test_layout_is_initial_overlay_preserves_custom_member_name_color():
+    import json
 
-    with scope(event=event):
-        # Without event -> NAVY
-        layout_no_event = default_layout()
-        title_no_event = next(o for o in layout_no_event if o.get("content") == "certificate_title")
-        assert title_no_event["color"] == NAVY
+    from teamshifts.pdf import default_layout, layout_is_initial_overlay
 
-        # With event having primary color
-        event.primary_color = "#2185d0"
-        event.save(update_fields=["primary_color"])
-        layout_event = default_layout(event)
-        title_event = next(o for o in layout_event if o.get("content") == "certificate_title")
-        member_event = next(o for o in layout_event if o.get("content") == "member_name")
-        intro_event = next(o for o in layout_event if o.get("content") == "certificate_intro")
+    layout = default_layout()
+    for obj in layout:
+        if obj.get("content") == "member_name":
+            obj["color"] = [255, 0, 0, 1]
+    layout_json = json.dumps(layout)
+    assert layout_is_initial_overlay(layout_json) is False
 
-        expected = hex_to_rgba("#2185d0")
-        assert title_event["color"] == expected
-        assert member_event["color"] == expected
-        assert intro_event["color"] == [107, 107, 107, 1]
+
+def test_default_layout():
+    from teamshifts.pdf import NAVY, default_layout
+
+    layout = default_layout()
+    title = next(o for o in layout if o.get("content") == "certificate_title")
+    member = next(o for o in layout if o.get("content") == "member_name")
+    assert title["color"] == NAVY
+    assert member["color"] == NAVY
 
 
 @pytest.mark.django_db
 def test_certificate_editor_view_get_current_layout(event, rf):
     from teamshifts.certificate_views import CertificateEditorView
-    from teamshifts.pdf import hex_to_rgba
+    from teamshifts.pdf import NAVY
 
     with scope(event=event, organizer=event.organizer):
         event.settings.set("primary_color", "#e67e22")
@@ -328,13 +330,12 @@ def test_certificate_editor_view_get_current_layout(event, rf):
         request.organizer = event.organizer
         view.request = request
 
-        # Unconfigured layout should use event primary color
+        # Unconfigured layout should return raw default layout (NAVY), not injected event color
         layout = view.get_current_layout()
         title = next(o for o in layout if o.get("content") == "certificate_title")
         member = next(o for o in layout if o.get("content") == "member_name")
-        expected = hex_to_rgba(event.visible_primary_color)
-        assert title["color"] == expected
-        assert member["color"] == expected
+        assert title["color"] == NAVY
+        assert member["color"] == NAVY
 
         # Custom configured layout should be respected
         custom_color = [100, 200, 50, 1]

@@ -223,16 +223,8 @@ def format_event_date_to(event):
     return date_format(event.date_from, "DATE_FORMAT")
 
 
-def default_layout(event=None):
-    layout = json.loads(json.dumps(DEFAULT_CERTIFICATE_LAYOUT))
-    if event:
-        event_color = getattr(event, "visible_primary_color", None)
-        color_rgba = hex_to_rgba(event_color)
-        if color_rgba:
-            for obj in layout:
-                if obj.get("content") in ("certificate_title", "member_name"):
-                    obj["color"] = color_rgba
-    return layout
+def default_layout():
+    return json.loads(json.dumps(DEFAULT_CERTIFICATE_LAYOUT))
 
 
 def layout_is_initial_overlay(layout_json: str) -> bool:
@@ -276,7 +268,10 @@ def layout_is_initial_overlay(layout_json: str) -> bool:
             }
             if (content_set - {"other"}) == current_fields:
                 title_obj = next((item for item in items if item.get("content") == "certificate_title"), None)
-                if title_obj and title_obj.get("color") and title_obj.get("color") != NAVY:
+                member_obj = next((item for item in items if item.get("content") == "member_name"), None)
+                if (title_obj and title_obj.get("color") and title_obj.get("color") != NAVY) or (
+                    member_obj and member_obj.get("color") and member_obj.get("color") != NAVY
+                ):
                     return False
             return True
     return False
@@ -376,7 +371,6 @@ class CertificateRenderer(Renderer):
                 color_rgba
                 and obj.get("type") == "textarea"
                 and obj.get("content") in ("certificate_title", "member_name")
-                and (obj.get("color") == NAVY or not obj.get("color"))
             ):
                 layout.append({**obj, "color": color_rgba})
             else:
@@ -408,7 +402,7 @@ class CertificateRenderer(Renderer):
 
 
 def render_certificate_pdf(settings: CertificateSettings, context: dict, layout=None, background_file=None) -> bytes:
-    layout = layout if layout is not None else (json.loads(settings.layout) if settings.layout else default_layout(settings.event))
+    layout = layout if layout is not None else (json.loads(settings.layout) if settings.layout else default_layout())
     if background_file is not None:
         background = background_file
     elif settings.background and settings.background.name:

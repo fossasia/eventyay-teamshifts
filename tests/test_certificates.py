@@ -306,6 +306,23 @@ def test_layout_is_initial_overlay_preserves_custom_member_name_color():
     assert layout_is_initial_overlay(layout_json) is False
 
 
+def test_layout_is_initial_overlay_preserves_legacy_variant_with_custom_color():
+    import json
+
+    from teamshifts.pdf import layout_is_initial_overlay
+
+    legacy_layout = json.dumps(
+        [
+            {"type": "textarea", "content": "certificate_intro"},
+            {"type": "textarea", "content": "certificate_title", "color": [0, 128, 0, 1]},
+            {"type": "textarea", "content": "member_name"},
+            {"type": "textarea", "content": "certificate_body"},
+            {"type": "textarea", "content": "issued_date"},
+        ]
+    )
+    assert layout_is_initial_overlay(legacy_layout) is False
+
+
 def test_default_layout():
     from teamshifts.pdf import NAVY, default_layout
 

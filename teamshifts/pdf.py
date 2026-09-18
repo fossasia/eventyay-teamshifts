@@ -235,6 +235,13 @@ def layout_is_initial_overlay(layout_json: str) -> bool:
     contents = [item.get("content") for item in items if item.get("type") == "textarea"]
     types = {item.get("type") for item in items}
     if types <= {"textarea", "poweredby", "imagearea"}:
+        title_obj = next((item for item in items if item.get("content") == "certificate_title"), None)
+        member_obj = next((item for item in items if item.get("content") == "member_name"), None)
+        if (title_obj and title_obj.get("color") and title_obj.get("color") != NAVY) or (
+            member_obj and member_obj.get("color") and member_obj.get("color") != NAVY
+        ):
+            return False
+
         # Recognize any variant of the default layout as "initial" so it gets replaced on upgrade
         initial_patterns = (
             ["member_name", "event_name", "event_dates"],
@@ -258,21 +265,6 @@ def layout_is_initial_overlay(layout_json: str) -> bool:
             },
         )
         if content_set in old_sets or (content_set - {"other"}) in old_sets:
-            current_fields = {
-                "certificate_intro",
-                "certificate_title",
-                "member_name",
-                "certificate_body_line1",
-                "certificate_body_line2",
-                "issued_date",
-            }
-            if (content_set - {"other"}) == current_fields:
-                title_obj = next((item for item in items if item.get("content") == "certificate_title"), None)
-                member_obj = next((item for item in items if item.get("content") == "member_name"), None)
-                if (title_obj and title_obj.get("color") and title_obj.get("color") != NAVY) or (
-                    member_obj and member_obj.get("color") and member_obj.get("color") != NAVY
-                ):
-                    return False
             return True
     return False
 

@@ -10,10 +10,14 @@ from django_countries import countries
 from django_scopes import scopes_disabled
 from django_scopes.forms import SafeModelChoiceField
 from eventyay.base.forms import I18nInlineFormSet
+from eventyay.base.forms.questions import WrappedPhoneNumberPrefixWidget, guess_country
 from eventyay.base.models import Event
 from eventyay.common.forms.widgets import I18nEmailEditorWidget, RichTextWidget
 from eventyay.control.forms import SplitDateTimeField, SplitDateTimePickerWidget
 from i18nfield.forms import I18nFormField, I18nModelForm, I18nTextInput
+from phonenumber_field.formfields import PhoneNumberField
+from phonenumber_field.phonenumber import to_python as to_phone_number
+from phonenumbers.data import _COUNTRY_CODE_TO_REGION_CODE
 
 from .models import (
     CFM_BUILTIN_FIELD_KEYS,
@@ -205,6 +209,43 @@ class TeamApplicationQuestionForm(forms.ModelForm):
         return instance
 
 
+# WrappedPhoneNumberPrefixWidget submits "<prefix>.<number>", e.g. "+49.30 1234567" or ".030 1234567".
+PREFIX_WIDGET_VALUE = re.compile(r"(\+\d+)?\.(.*)", re.DOTALL)
+
+
+class ApplicationPhoneNumberField(PhoneNumberField):
+    """PhoneNumberField that can display phone numbers saved before validation was added.
+
+    Validation follows the ``phonenumbers`` rules for the selected country, not a fixed digit count.
+    Older applications may hold free-text values such as ``555.123.4567``, which the prefix widget would
+    otherwise split on every ``.`` and partially drop. Valid legacy numbers are split into prefix and number;
+    anything else is shown unchanged in the number input so it can be corrected instead of silently lost.
+    """
+
+    def prepare_value(self, value):
+        if not isinstance(value, str) or not value:
+            return value
+        if match := PREFIX_WIDGET_VALUE.fullmatch(value):
+            return [match[1], match[2]]
+        phone_number = to_phone_number(value)
+        # The prefix widget has no extension input, so keep numbers with an extension as typed.
+        if phone_number.is_valid() and not phone_number.extension:
+            return phone_number
+        return [None, value]
+
+
+def build_phone_field(event, **kwargs) -> ApplicationPhoneNumberField:
+    # Same country-prefix select + number input as ticket, talk and exhibition phone questions.
+    initial = None
+    if event is not None:
+        country = str(guess_country(event) or "")
+        for prefix, regions in _COUNTRY_CODE_TO_REGION_CODE.items():
+            if country in regions:
+                initial = f"+{prefix}."
+                break
+    return ApplicationPhoneNumberField(initial=initial, widget=WrappedPhoneNumberPrefixWidget(), **kwargs)
+
+
 class TeamMemberApplicationForm(forms.Form):
     QUESTION_FIELD_PREFIX = "question_"
 
@@ -287,11 +328,11 @@ class TeamMemberApplicationForm(forms.Form):
                         field.initial = user.email
                     self.fields["email"] = field
                 elif item == "phone":
-                    field = forms.CharField(
+                    field = build_phone_field(
+                        event,
                         label=_("Phone / Mobile"),
                         required=required,
                         help_text=_("Optional. We may use this to contact you regarding your shift."),
-                        widget=forms.TextInput(attrs={"class": "form-control", "type": "tel", "placeholder": "+1 555 000 0000"}),
                     )
                     self.fields["phone"] = field
                 elif item == "availability":
@@ -338,7 +379,7 @@ class TeamMemberApplicationForm(forms.Form):
         if variant == QuestionVariant.DATETIME:
             return forms.DateTimeField(widget=forms.DateTimeInput(attrs={"class": "form-control datetimepicker"}), **common)
         if variant == QuestionVariant.PHONE:
-            return forms.CharField(widget=forms.TextInput(attrs={"class": "form-control", "type": "tel"}), **common)
+            return build_phone_field(question.event, **common)
         if variant == QuestionVariant.COUNTRY:
             return forms.ChoiceField(
                 choices=[("", _("— Select country —"))] + list(countries),

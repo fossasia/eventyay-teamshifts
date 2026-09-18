@@ -4,8 +4,10 @@ from django.utils.timezone import now
 from django_scopes import scope
 from eventyay.base.models import Event, Organizer, Team
 
+from teamshifts.forms import TeamMemberApplicationForm
 from teamshifts.models import (
     CallForTeamMembers,
+    QuestionVariant,
     TeamApplicationQuestion,
     TeamApplicationQuestionOption,
 )
@@ -282,3 +284,47 @@ def test_question_edit_switches_to_non_choice_and_deletes_options(orga_client, e
         question.refresh_from_db()
         assert question.variant == "text"
         assert not TeamApplicationQuestionOption.objects.filter(question=question).exists()
+
+@pytest.mark.parametrize("bad_phone", ["123)456(7890", "123(456)7890", "123(---)4567890"])
+def test_custom_phone_question_validation_rejects(event, bad_phone):
+    with scope(event=event):
+        cfm = CallForTeamMembers.objects.create(event=event, active=True)
+        question = TeamApplicationQuestion.objects.create(
+            event=event, question="What is your WhatsApp number?", variant=QuestionVariant.PHONE, active=True, required=True
+        )
+
+    form_invalid = TeamMemberApplicationForm(
+        data={
+            "full_name": "Jane Member",
+            "email": "jane@example.com",
+            f"question_{question.pk}_0": "+1",
+            f"question_{question.pk}_1": bad_phone,
+        },
+        event=event,
+        cfm=cfm,
+        organizer_mode=True,
+    )
+    assert not form_invalid.is_valid()
+    assert f"question_{question.pk}" in form_invalid.errors
+
+
+@pytest.mark.django_db
+def test_custom_phone_question_validation_accepts(event):
+    with scope(event=event):
+        cfm = CallForTeamMembers.objects.create(event=event, active=True)
+        question = TeamApplicationQuestion.objects.create(
+            event=event, question="What is your WhatsApp number?", variant=QuestionVariant.PHONE, active=True, required=True
+        )
+
+    form_valid = TeamMemberApplicationForm(
+        data={
+            "full_name": "Jane Member",
+            "email": "jane@example.com",
+            f"question_{question.pk}_0": "+1",
+            f"question_{question.pk}_1": "201-555-0199",
+        },
+        event=event,
+        cfm=cfm,
+        organizer_mode=True,
+    )
+    assert form_valid.is_valid(), form_valid.errors

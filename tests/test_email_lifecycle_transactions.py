@@ -57,7 +57,8 @@ def test_apply_view_queues_received_email(mock_queue, client, event, call_for_te
     data = {
         "full_name": "Applicant Name",
         "email": applicant.email,
-        "phone": "+123456789",
+        "phone_0": "+1",
+        "phone_1": "201 555 0123",
         "accept_terms": True,
     }
     tc = TestCase()

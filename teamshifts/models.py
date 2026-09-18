@@ -460,6 +460,8 @@ class TeamApplicationQuestionOption(models.Model):
     answer = I18nCharField(verbose_name=_("Answer"))
     position = models.IntegerField(default=0)
 
+    objects = ScopedManager(event="question__event")
+
     def __str__(self):
         return str(self.answer)
 

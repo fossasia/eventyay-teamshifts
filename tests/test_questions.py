@@ -285,6 +285,7 @@ def test_question_edit_switches_to_non_choice_and_deletes_options(orga_client, e
         assert question.variant == "text"
         assert not TeamApplicationQuestionOption.objects.filter(question=question).exists()
 
+
 @pytest.mark.parametrize("bad_phone", ["123)456(7890", "123(456)7890", "123(---)4567890"])
 def test_custom_phone_question_validation_rejects(event, bad_phone):
     with scope(event=event):

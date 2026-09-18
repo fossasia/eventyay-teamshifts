@@ -5,6 +5,7 @@ import re
 import secrets
 from collections import defaultdict
 from datetime import timedelta
+from urllib.parse import urlencode
 
 import dateutil.parser
 from django.contrib import messages
@@ -945,12 +946,6 @@ class PublicApplyView(FormView):
     def dispatch(self, request, *args, **kwargs):
         if "teamshifts" not in request.event.get_plugins():
             raise Http404
-        if not request.user.is_authenticated:
-            login_url = reverse(
-                "cfp:event.login",
-                kwargs={"organizer": request.organizer.slug, "event": request.event.slug},
-            )
-            return redirect(f"{login_url}?next={request.get_full_path()}")
         self.event = request.event
         self.organizer = request.organizer
         with scope(event=self.event):
@@ -960,6 +955,8 @@ class PublicApplyView(FormView):
                 self.cfm = None
         if self.cfm and self.cfm.cfm_private:
             if not getattr(request, "_cfm_secret_verified", False):
+                if not request.user.is_authenticated:
+                    raise Http404
                 with scope(event=self.event):
                     has_application = TeamMemberApplication.objects.filter(event=self.event, user=request.user).exists()
                 if not has_application:
@@ -969,7 +966,7 @@ class PublicApplyView(FormView):
     def get_form(self, form_class=None):
         kwargs = self.get_form_kwargs()
         kwargs["event"] = self.event
-        kwargs["user"] = self.request.user
+        kwargs["user"] = self.request.user if self.request.user.is_authenticated else None
         kwargs["cfm"] = self.cfm
         return TeamMemberApplicationForm(**kwargs)
 
@@ -979,11 +976,20 @@ class PublicApplyView(FormView):
         ctx["cfm"] = self.cfm
         ctx["cfm_open"] = self.cfm is not None and self.cfm.is_open
         ctx["cfm_deadline_passed"] = self.cfm is not None and self.cfm.active and self.cfm.deadline is not None and not self.cfm.is_open
-        with scope(event=self.event):
-            ctx["existing_application"] = TeamMemberApplication.objects.filter(event=self.event, user=self.request.user).first()
+        if self.request.user.is_authenticated:
+            with scope(event=self.event):
+                ctx["existing_application"] = TeamMemberApplication.objects.filter(event=self.event, user=self.request.user).first()
+        else:
+            ctx["existing_application"] = None
         return ctx
 
     def form_valid(self, form):
+        if not self.request.user.is_authenticated:
+            login_url = reverse(
+                "cfp:event.login",
+                kwargs={"organizer": self.organizer.slug, "event": self.event.slug},
+            )
+            return redirect(f"{login_url}?{urlencode({'next': self.request.get_full_path()})}")
         event = self.event
         if self.cfm is None or not self.cfm.is_open:
             messages.error(self.request, _("Applications are not currently open for this event."))
@@ -1022,12 +1028,6 @@ class PublicApplyThanksView(TemplateView):
     def dispatch(self, request, *args, **kwargs):
         if "teamshifts" not in request.event.get_plugins():
             raise Http404
-        if not request.user.is_authenticated:
-            login_url = reverse(
-                "cfp:event.login",
-                kwargs={"organizer": request.organizer.slug, "event": request.event.slug},
-            )
-            return redirect(f"{login_url}?next={request.get_full_path()}")
         self.event = request.event
         return super().dispatch(request, *args, **kwargs)
 

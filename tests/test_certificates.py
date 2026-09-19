@@ -202,7 +202,7 @@ def test_certificate_renderer_applies_event_color_to_default_layout(event):
 
 
 @pytest.mark.django_db
-def test_certificate_renderer_unconditional_injection_and_immutability(event):
+def test_certificate_renderer_preserves_custom_color_and_does_not_mutate(event):
     from unittest.mock import MagicMock
 
     from teamshifts.pdf import CertificateRenderer, default_layout, hex_to_rgba
@@ -235,10 +235,9 @@ def test_certificate_renderer_unconditional_injection_and_immutability(event):
         member_obj = next(o for o in drawn_objects if o.get("content") == "member_name")
         intro_obj = next(o for o in drawn_objects if o.get("content") == "certificate_intro")
 
-        # Unconditional injection at render-time applies event color to title and member name
-        expected_color = hex_to_rgba(event_color)
-        assert title_obj["color"] == expected_color
-        assert member_obj["color"] == expected_color
+        # Custom color on certificate_title is preserved; default NAVY member_name receives event color
+        assert title_obj["color"] == custom_green
+        assert member_obj["color"] == hex_to_rgba(event_color)
         # Non-title/member object retains its original color
         assert intro_obj["color"] == [107, 107, 107, 1]
 

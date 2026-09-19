@@ -15,7 +15,7 @@ from eventyay.base.models import CachedFile
 from eventyay.control.views.pdf import BaseEditorView
 
 from .forms import CertificateSettingsForm
-from .models import ApplicationStatus, CertificateSettings, MemberCertificate, TeamMemberApplication
+from .models import ApplicationStatus, MemberCertificate, TeamMemberApplication
 from .pdf import (
     CERTIFICATE_PLACEHOLDERS,
     default_layout,
@@ -37,22 +37,6 @@ from .services.certificates import (
 from .views import PluginActiveMixin
 
 IMAGE_TYPES = {"image/png", "image/jpeg", "image/jpg"}
-
-
-def _apply_background_change(settings: CertificateSettings, uploaded) -> None:
-    if uploaded is None:
-        return
-    if settings.background:
-        settings.background.delete(save=False)
-    if uploaded is False:
-        settings.background = None
-        settings.save(update_fields=["background"])
-        return
-    content_type = (uploaded.content_type or mimetypes.guess_type(uploaded.name)[0] or "").lower()
-    if content_type in IMAGE_TYPES or (uploaded.name or "").lower().endswith((".png", ".jpg", ".jpeg")):
-        pdf_buffer = image_file_to_pdf(uploaded)
-        uploaded = ContentFile(pdf_buffer.read(), name="background.pdf")
-    settings.background.save("background.pdf", uploaded, save=True)
 
 
 class CertificateSettingsView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):
@@ -87,20 +71,10 @@ class CertificateSettingsView(PluginActiveMixin, TeamShiftsPermissionRequiredMix
             response = FileResponse(archive, content_type="application/zip")
             response["Content-Disposition"] = f'attachment; filename="certificates-{request.event.slug}.zip"'
             return response
-        if action == "delete_background":
-            if settings.background:
-                settings.background.delete(save=False)
-                settings.background = None
-                settings.save(update_fields=["background"])
-            messages.success(request, _("Custom background template has been removed."))
-            return redirect(self._url(request))
 
-        form = CertificateSettingsForm(request.POST, request.FILES, instance=settings)
+        form = CertificateSettingsForm(request.POST, instance=settings)
         if form.is_valid():
-            settings = form.save()
-            uploaded = request.FILES.get("background")
-            if uploaded:
-                _apply_background_change(settings, uploaded)
+            form.save()
             messages.success(request, _("Certificate settings have been saved."))
             return redirect(self._url(request))
         messages.error(request, _("We could not save your changes. See below for details."))

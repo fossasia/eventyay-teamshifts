@@ -136,3 +136,23 @@ def test_skipped_no_email_counted(event, cfm, voucher_settings, voucher_batch, d
 
     assert result["sent"] == 1
     assert result["skipped_no_email"] == 1
+
+
+@pytest.mark.django_db
+def test_voucher_email_uses_redeem_url(event, cfm, voucher_settings, voucher_batch, django_user_model):
+    app = _make_member(event, "redeem@example.com", django_user_model)
+
+    with (
+        patch("teamshifts.services.vouchers.build_absolute_uri", return_value="https://example.com/test-organizer/test-event/redeem/") as mock_uri,
+        patch("teamshifts.services.vouchers.mail") as mock_mail,
+    ):
+        result = allocate_and_send_vouchers(event, voucher_settings, [app])
+
+    assert result["sent"] == 1
+
+    mock_uri.assert_called_with(event, "presale:event.redeem")
+
+    context = mock_mail.call_args.kwargs["context"]
+    with scopes_disabled():
+        mv = MemberVoucher.objects.get(application=app)
+    assert context["ticket_claim_url"] == f"https://example.com/test-organizer/test-event/redeem/?voucher={mv.voucher.code}"

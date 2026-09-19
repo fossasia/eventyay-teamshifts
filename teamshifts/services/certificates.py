@@ -1,20 +1,28 @@
 import json
 import logging
 import zipfile
+from datetime import timedelta
 from io import BytesIO
 
+from django.core.exceptions import ObjectDoesNotExist
 from django.core.files.base import ContentFile
+from django.db import transaction
 from django.utils.formats import date_format
 from django.utils.text import slugify
 from django.utils.timezone import now
 from django.utils.translation import gettext
 from django_scopes import scope
+from eventyay.base.email import get_email_context
+from eventyay.base.models import CachedFile
+from eventyay.base.services.mail import SendMailException, mail
+from i18nfield.strings import LazyI18nString
 
 from ..models import (
     ApplicationStatus,
     CertificateMatchMode,
     CertificateSettings,
     CertificateTrigger,
+    EmailTemplateRoles,
     MemberCertificate,
     ShiftAssignment,
     TeamMemberApplication,
@@ -140,7 +148,58 @@ def generate_certificate(application: TeamMemberApplication, settings: Certifica
         certificate.generated_at = now()
         certificate.downloaded_at = None
         certificate.save()
+        claimed = MemberCertificate.objects.filter(pk=certificate.pk, notified_at__isnull=True).update(notified_at=now())
+
+    if claimed:
+        transaction.on_commit(lambda: _send_certificate_email(application, pdf_bytes))
+
     return certificate
+
+
+def _send_certificate_email(application: TeamMemberApplication, pdf_bytes: bytes) -> None:
+    user = application.user
+    event = application.event
+
+    if not user or not user.email:
+        logger.warning("[TeamShifts] Skipping certificate email for application %s: no email address", application.pk)
+        return
+
+    try:
+        cfm = event.call_for_team_members
+    except ObjectDoesNotExist:
+        logger.warning("[TeamShifts] No CFM for event %s — skipping certificate email", event.slug)
+        return
+
+    template = cfm.get_mail_template(EmailTemplateRoles.CERTIFICATE_GENERATED)
+    locale = user.locale or event.settings.locale
+
+    context = get_email_context(event=event, user=user)
+    subject = LazyI18nString(template.subject)
+    body = LazyI18nString(template.body)
+
+    try:
+        cf = CachedFile.objects.create(
+            filename=certificate_filename(application),
+            type="application/pdf",
+            expires=now() + timedelta(hours=24),
+        )
+        cf.file.save(certificate_filename(application), ContentFile(pdf_bytes), save=True)
+        mail(
+            email=user.email,
+            subject=subject,
+            template=body,
+            context=context,
+            event=event,
+            locale=locale,
+            user=user,
+            attach_cached_files=[cf.pk],
+            auto_email=False,
+        )
+        logger.info("[TeamShifts] Certificate email queued for application %s", application.pk)
+    except (OSError, SendMailException):
+        with scope(event=event):
+            MemberCertificate.objects.filter(application=application).update(notified_at=None)
+        logger.exception("[TeamShifts] Failed to queue certificate email for application %s", application.pk)
 
 
 def maybe_auto_issue_certificate(application: TeamMemberApplication) -> MemberCertificate | None:

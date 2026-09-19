@@ -40,6 +40,20 @@ CERTIFICATE_PLACEHOLDERS = (
 CERTIFICATE_DEFAULT_STATIC = "teamshifts/certificates/certificate_default.pdf"
 
 
+def hex_to_rgba(hex_color: str) -> list | None:
+    if not hex_color or not isinstance(hex_color, str):
+        return None
+    hex_color = hex_color.lstrip("#").strip()
+    if len(hex_color) == 3:
+        hex_color = "".join(c * 2 for c in hex_color)
+    if len(hex_color) != 6:
+        return None
+    try:
+        return [int(hex_color[i : i + 2], 16) for i in (0, 2, 4)] + [1]
+    except ValueError:
+        return None
+
+
 NAVY = [27, 54, 93, 1]
 
 DEFAULT_CERTIFICATE_LAYOUT = [
@@ -164,6 +178,7 @@ def preview_context(event):
     from django.utils.translation import gettext
 
     location = str(event.location) if event.location else "Berlin, Germany"
+    event_color = getattr(event, "visible_primary_color", None)
     return {
         "certificate_title": gettext("Certificate of Appreciation"),
         "certificate_intro": gettext("presents this"),
@@ -187,6 +202,7 @@ def preview_context(event):
         "assigned_shift_count": "3",
         "roles": "Registration, Info desk",
         "issued_date": gettext("Date Issued: %(date)s") % {"date": "24 August 2026"},
+        "_event_color": event_color,
     }
 
 
@@ -219,6 +235,13 @@ def layout_is_initial_overlay(layout_json: str) -> bool:
     contents = [item.get("content") for item in items if item.get("type") == "textarea"]
     types = {item.get("type") for item in items}
     if types <= {"textarea", "poweredby", "imagearea"}:
+        title_obj = next((item for item in items if item.get("content") == "certificate_title"), None)
+        member_obj = next((item for item in items if item.get("content") == "member_name"), None)
+        if (title_obj and title_obj.get("color") and title_obj.get("color") != NAVY) or (
+            member_obj and member_obj.get("color") and member_obj.get("color") != NAVY
+        ):
+            return False
+
         # Recognize any variant of the default layout as "initial" so it gets replaced on upgrade
         initial_patterns = (
             ["member_name", "event_name", "event_dates"],
@@ -241,10 +264,7 @@ def layout_is_initial_overlay(layout_json: str) -> bool:
                 "issued_date",
             },
         )
-        if content_set in old_sets:
-            return True
-        content_set_without_other = content_set - {"other"}
-        if content_set_without_other in old_sets:
+        if content_set in old_sets or (content_set - {"other"}) in old_sets:
             return True
     return False
 
@@ -331,8 +351,24 @@ class CertificateRenderer(Renderer):
         )
 
     def draw_page(self, canvas: Canvas, order=None, op=None, show_page=True):
+        event_color = self.context.get("_event_color")
+        color_rgba = hex_to_rgba(event_color) if event_color else None
+
         allowed = {"textarea", "poweredby", "imagearea"}
-        layout = [obj for obj in self.layout if obj.get("type") in allowed]
+        layout = []
+        for obj in self.layout:
+            if obj.get("type") not in allowed:
+                continue
+            if (
+                color_rgba
+                and obj.get("type") == "textarea"
+                and obj.get("content") in ("certificate_title", "member_name")
+                and (not obj.get("color") or obj.get("color") == NAVY)
+            ):
+                layout.append({**obj, "color": color_rgba})
+            else:
+                layout.append(obj)
+
         original = self.layout
         self.layout = layout
         try:

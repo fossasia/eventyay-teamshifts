@@ -231,6 +231,15 @@ class ShiftLocation(models.Model):
     name = models.CharField(max_length=190, verbose_name=_("Location Name"))
     description = models.TextField(blank=True, verbose_name=_("Description"))
     position = models.IntegerField(default=0)
+    linked_room = models.OneToOneField(
+        "base.Room",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="shift_location",
+        verbose_name=_("Linked Talks Room"),
+        help_text=_("If set, this location mirrors a room from the Talks schedule."),
+    )
 
     objects = ScopedManager(event="event")
 
@@ -239,6 +248,28 @@ class ShiftLocation(models.Model):
         verbose_name_plural = _("Shift Locations")
         unique_together = ("event", "name")
         ordering = ["position", "name"]
+
+    @property
+    def is_from_talks(self) -> bool:
+        """Whether this location is linked to a talks Room."""
+        return self.linked_room_id is not None
+
+    @property
+    def linked_room_deleted(self) -> bool:
+        """Whether the linked talks Room has been soft-deleted."""
+        if not self.is_from_talks:
+            return False
+        room = self.linked_room
+        return room is not None and room.deleted
+
+    def display_name(self, locale: str = "en") -> str:
+        """Return the room name, resolving I18n from the linked talks Room if present."""
+        if self.linked_room_id is not None and self.linked_room is not None:
+            room_name = self.linked_room.name
+            if hasattr(room_name, "data") and isinstance(room_name.data, dict):
+                return room_name.data.get(locale) or str(room_name)
+            return str(room_name)
+        return self.name
 
     def __str__(self):
         return f"{self.name} ({self.event.slug})"

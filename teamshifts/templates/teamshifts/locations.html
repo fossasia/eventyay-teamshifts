@@ -11,11 +11,60 @@
 
 {% block teamshifts_content %}
   {% csrf_token %}
-  <p class="text-right">
+  <p class='text-right'>
     <a href='{% url "plugins:teamshifts:location_create" organizer=request.organizer.slug event=request.event.slug %}' class='btn btn-primary'>
       <span class='fa fa-plus'></span> {% trans "Add location" %}
     </a>
   </p>
+
+  {% if importable_rooms %}
+    <div class='panel panel-info'>
+      <div class='panel-heading'>
+        <h3 class='panel-title'><i class='fa fa-exchange'></i> {% trans "Import rooms from Talks" %}</h3>
+      </div>
+      <div class='panel-body'>
+        <p>{% trans "The following rooms from the Talks schedule can be imported as shift locations. Imported rooms stay linked — renaming or deleting them in Talks will be reflected here." %}</p>
+        <form method='post' action='{% url "plugins:teamshifts:import_talks_rooms" organizer=request.organizer.slug event=request.event.slug %}'>
+          {% csrf_token %}
+          <div class='table-responsive'>
+            <table class='table table-condensed'>
+              <thead>
+                <tr>
+                  <th style='width: 40px'>
+                    <input type='checkbox' id='select-all-rooms' aria-label='{% trans "Select all rooms" %}'>
+                  </th>
+                  <th>{% trans "Room name" %}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for room in importable_rooms %}
+                  <tr>
+                    <td><input type='checkbox' name='room_ids' value='{{ room.pk }}' class='room-checkbox' aria-label='{{ room.name }}'></td>
+                    <td>{{ room.name }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <button type='submit' class='btn btn-success'>
+            <span class='fa fa-download'></span> {% trans "Import selected rooms" %}
+          </button>
+        </form>
+      </div>
+    </div>
+    <script>
+      document.addEventListener('DOMContentLoaded', function () {
+        var selectAll = document.getElementById('select-all-rooms')
+        if (selectAll) {
+          selectAll.addEventListener('change', function () {
+            var boxes = document.querySelectorAll('.room-checkbox')
+            for (var i = 0; i < boxes.length; i++) boxes[i].checked = selectAll.checked
+          })
+        }
+      })
+    </script>
+  {% endif %}
+
   {% if not locations %}
     <div class='empty-collection'>
       <p>{% blocktrans trimmed %}No locations have been defined for this event yet.{% endblocktrans %}</p>
@@ -26,22 +75,45 @@
         <thead>
           <tr>
             <th>{% trans "Name" %}</th>
+            <th>{% trans "Source" %}</th>
             <th>{% trans "Description" %}</th>
             <th class='text-right'>{% trans "Actions" %}</th>
           </tr>
         </thead>
-         <tbody data-dnd-url="{% url 'plugins:teamshifts:location_reorder' organizer=request.organizer.slug event=request.event.slug %}">
+        <tbody data-dnd-url='{% url "plugins:teamshifts:location_reorder" organizer=request.organizer.slug event=request.event.slug %}'>
           {% for location in locations %}
-           <tr data-dnd-id="{{ location.pk }}">
-              <td><strong>{{ location.name }}</strong></td>
+            <tr data-dnd-id='{{ location.pk }}'>
+              <td>
+                <strong>{{ location.name }}</strong>
+                {% if location.linked_room_deleted %}
+                  <span class='label label-danger' title='{% trans "The linked Talks room has been deleted." %}'>
+                    {% trans "Deleted in Talks" %}
+                  </span>
+                {% endif %}
+              </td>
+              <td>
+                {% if location.is_from_talks %}
+                  <span class='label label-info' title='{% trans "This location is managed in the Talks schedule settings." %}'>
+                    <i class='fa fa-link'></i> {% trans "Talks" %}
+                  </span>
+                {% else %}
+                  <span class='text-muted'>{% trans "TeamShifts" %}</span>
+                {% endif %}
+              </td>
               <td class='text-muted'>{% if location.description %}{{ location.description|rich_text }}{% else %}—{% endif %}</td>
               <td class='text-right flip dnd-container'>
-                <a href='{% url "plugins:teamshifts:location_edit" organizer=request.organizer.slug event=request.event.slug pk=location.pk %}' class='btn btn-default btn-sm'>
-                  <span class='fa fa-edit'></span> {% trans "Edit" %}
-                </a>
-                <a href='{% url "plugins:teamshifts:location_delete" organizer=request.organizer.slug event=request.event.slug pk=location.pk %}' class='btn btn-danger btn-sm'>
-                  <span class='fa fa-trash'></span> {% trans "Delete" %}
-                </a>
+                {% if location.is_from_talks %}
+                  <span class='text-muted' title='{% trans "This room is managed in the Talks schedule settings." %}'>
+                    <i class='fa fa-lock'></i> {% trans "Read-only" %}
+                  </span>
+                {% else %}
+                  <a href='{% url "plugins:teamshifts:location_edit" organizer=request.organizer.slug event=request.event.slug pk=location.pk %}' class='btn btn-default btn-sm'>
+                    <span class='fa fa-edit'></span> {% trans "Edit" %}
+                  </a>
+                  <a href='{% url "plugins:teamshifts:location_delete" organizer=request.organizer.slug event=request.event.slug pk=location.pk %}' class='btn btn-danger btn-sm'>
+                    <span class='fa fa-trash'></span> {% trans "Delete" %}
+                  </a>
+                {% endif %}
               </td>
             </tr>
           {% endfor %}

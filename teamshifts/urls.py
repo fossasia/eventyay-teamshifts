@@ -122,6 +122,11 @@ urlpatterns = [
         name="location_reorder",
     ),
     path(
+        "teamshifts/event/<orgslug:organizer>/<slug:event>/locations/import-talks-rooms/",
+        views.ImportTalksRoomsView.as_view(),
+        name="import_talks_rooms",
+    ),
+    path(
         "teamshifts/event/<orgslug:organizer>/<slug:event>/locations/add/",
         views.ShiftLocationCreateView.as_view(),
         name="location_create",

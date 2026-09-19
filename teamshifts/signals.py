@@ -263,3 +263,45 @@ def team_role_post_delete(sender, instance, **kwargs):
     for team in teams:
         team.limit_teamshifts_roles.remove(instance.pk)
         team.save(update_fields=["limit_teamshifts_roles"])
+
+
+# ---------------------------------------------------------------------------
+# Room ↔ ShiftLocation bridge signals
+# ---------------------------------------------------------------------------
+
+try:
+    from django.db.models.signals import post_save
+    from eventyay.base.models.room import Room
+
+    @receiver(post_save, sender=Room, dispatch_uid="teamshifts_sync_linked_room")
+    @scopes_disabled()
+    def sync_linked_shift_location(sender, instance, **kwargs):
+        """Keep the linked ShiftLocation name in sync when a talks Room is renamed.
+
+        The ShiftLocation.name (CharField) stores the display-language string
+        from the Room.name (I18nCharField). This runs on every Room save so the
+        teamshifts side stays current without manual intervention.
+        """
+        from .models import ShiftLocation
+
+        try:
+            location = ShiftLocation.objects.get(linked_room=instance)
+        except ShiftLocation.DoesNotExist:
+            return
+
+        new_name = str(instance.name)
+        if location.name != new_name:
+            # Check for name conflicts within the same event
+            conflict = ShiftLocation.objects.filter(event=instance.event, name=new_name).exclude(pk=location.pk).exists()
+            if not conflict:
+                location.name = new_name
+                location.save(update_fields=["name"])
+            else:
+                logger.warning(
+                    "Cannot sync Room rename to ShiftLocation %s: name '%s' conflicts with another location",
+                    location.pk,
+                    new_name,
+                )
+
+except ImportError:
+    pass

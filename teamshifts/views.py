@@ -1333,8 +1333,17 @@ class ShiftLocationListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin
 
     def get(self, request, *args, **kwargs):
         with scope(event=request.event):
-            locations = list(ShiftLocation.objects.filter(event=request.event))
-        return render(request, self.template_name, {"locations": locations})
+            locations = list(ShiftLocation.objects.filter(event=request.event).select_related("linked_room"))
+            already_linked_room_ids = {loc.linked_room_id for loc in locations if loc.linked_room_id is not None}
+            importable_rooms = list(request.event.rooms.filter(deleted=False).exclude(pk__in=already_linked_room_ids).order_by("position", "pk"))
+        return render(
+            request,
+            self.template_name,
+            {
+                "locations": locations,
+                "importable_rooms": importable_rooms,
+            },
+        )
 
 
 class ShiftLocationReorderView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):
@@ -1430,12 +1439,24 @@ class ShiftLocationUpdateView(PluginActiveMixin, TeamShiftsPermissionRequiredMix
     def get(self, request, *args, **kwargs):
         with scope(event=request.event):
             location = get_object_or_404(ShiftLocation, pk=kwargs["pk"], event=request.event)
+        if location.is_from_talks:
+            messages.warning(
+                request,
+                _("This location is linked to a Talks room and cannot be edited from TeamShifts."),
+            )
+            return redirect("plugins:teamshifts:locations", organizer=request.organizer.slug, event=request.event.slug)
         form = ShiftLocationForm(instance=location)
         return render(request, self.template_name, {"form": form, "location": location})
 
     def post(self, request, *args, **kwargs):
         with scope(event=request.event):
             location = get_object_or_404(ShiftLocation, pk=kwargs["pk"], event=request.event)
+        if location.is_from_talks:
+            messages.warning(
+                request,
+                _("This location is linked to a Talks room and cannot be edited from TeamShifts."),
+            )
+            return redirect("plugins:teamshifts:locations", organizer=request.organizer.slug, event=request.event.slug)
         form = ShiftLocationForm(request.POST, instance=location)
         with scope(event=request.event):
             is_valid = form.is_valid()
@@ -1454,6 +1475,12 @@ class ShiftLocationDeleteView(PluginActiveMixin, TeamShiftsPermissionRequiredMix
     def get(self, request, *args, **kwargs):
         with scope(event=request.event):
             location = get_object_or_404(ShiftLocation, pk=kwargs["pk"], event=request.event)
+        if location.is_from_talks:
+            messages.error(
+                request,
+                _("'%s' is managed in the Talks schedule settings and cannot be deleted from TeamShifts.") % location.name,
+            )
+            return redirect("plugins:teamshifts:locations", organizer=request.organizer.slug, event=request.event.slug)
         return render(request, self.template_name, {"location": location})
 
     def post(self, request, *args, **kwargs):
@@ -1467,7 +1494,12 @@ class ShiftLocationDeleteView(PluginActiveMixin, TeamShiftsPermissionRequiredMix
                     event=event,
                 )
 
-                if location.shifts.exists():
+                if location.is_from_talks:
+                    messages.error(
+                        request,
+                        _("'%s' is managed in the Talks schedule settings and cannot be deleted from TeamShifts.") % location.name,
+                    )
+                elif location.shifts.exists():
                     messages.error(
                         request,
                         _("Cannot delete '%s': it is used by existing shifts.") % location.name,
@@ -1501,6 +1533,75 @@ class ShiftLocationDeleteView(PluginActiveMixin, TeamShiftsPermissionRequiredMix
             organizer=request.organizer.slug,
             event=request.event.slug,
         )
+
+
+class ImportTalksRoomsView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):
+    permission = "can_teamshifts_create_shifts"
+
+    def post(self, request, *args, **kwargs):
+        try:
+            data = json.loads(request.body.decode("utf-8"))
+            raw_ids = data.get("room_ids", [])
+        except (json.JSONDecodeError, ValueError, AttributeError):
+            raw_ids = request.POST.getlist("room_ids")
+
+        room_ids = []
+        for pk in raw_ids:
+            try:
+                room_ids.append(int(pk))
+            except (TypeError, ValueError):
+                continue
+
+        if not room_ids:
+            messages.warning(request, _("No rooms selected for import."))
+            return redirect("plugins:teamshifts:locations", organizer=request.organizer.slug, event=request.event.slug)
+
+        with scope(event=request.event):
+            with transaction.atomic():
+                event = Event.objects.select_for_update().get(pk=request.event.pk)
+
+                already_linked_room_ids = set(ShiftLocation.objects.filter(event=event, linked_room__isnull=False).values_list("linked_room_id", flat=True))
+
+                rooms = event.rooms.filter(deleted=False, pk__in=room_ids).exclude(pk__in=already_linked_room_ids)
+
+                max_position = ShiftLocation.objects.filter(event=event).aggregate(
+                    max_position=Max("position"),
+                )["max_position"]
+                next_position = (max_position if max_position is not None else -1) + 1
+
+                imported_count = 0
+                for room in rooms:
+                    room_name = str(room.name)
+                    existing_name = ShiftLocation.objects.filter(event=event, name=room_name).first()
+                    if existing_name and existing_name.linked_room_id is None:
+                        existing_name.linked_room = room
+                        existing_name.save(update_fields=["linked_room"])
+                        imported_count += 1
+                    elif not existing_name:
+                        ShiftLocation.objects.create(
+                            event=event,
+                            name=room_name,
+                            description="",
+                            position=next_position,
+                            linked_room=room,
+                        )
+                        next_position += 1
+                        imported_count += 1
+
+        if imported_count:
+            messages.success(
+                request,
+                ngettext(
+                    "%d room imported from Talks.",
+                    "%d rooms imported from Talks.",
+                    imported_count,
+                )
+                % imported_count,
+            )
+        else:
+            messages.info(request, _("No new rooms to import."))
+
+        return redirect("plugins:teamshifts:locations", organizer=request.organizer.slug, event=request.event.slug)
 
 
 class ShiftListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, PaginationMixin, ListView):
@@ -1936,9 +2037,9 @@ class ShiftScheduleTalksAPIView(PluginActiveMixin, TeamShiftsPermissionRequiredM
             for role in roles:
                 data["roles"].append({"id": role.id, "name": {"en": role.name}, "is_restricted": role.is_restricted})
 
-            locations = event.shift_locations.all()
+            locations = event.shift_locations.select_related("linked_room").all()
             for loc in locations:
-                data["rooms"].append({"id": loc.id, "name": {"en": loc.name}, "description": {"en": _html_to_plain(loc.description)}})
+                data["rooms"].append(_serialize_location_room(loc))
 
             shifts = event.shifts.all().prefetch_related(
                 "role_assignments__role",
@@ -2383,6 +2484,30 @@ def _html_to_plain(value: str) -> str:
     return "\n".join(line.strip() for line in text.splitlines() if line.strip())
 
 
+def _location_name_dict(loc: "ShiftLocation") -> dict[str, str]:
+    """Build a localized name dict for a ShiftLocation.
+
+    If the location is linked to a talks Room, the I18nCharField from the Room
+    is used so that multi-language names are passed to the frontend.  Otherwise,
+    the plain CharField is wrapped in ``{"en": name}``.
+    """
+    if loc.linked_room_id is not None and loc.linked_room is not None:
+        room_name = loc.linked_room.name
+        if hasattr(room_name, "data") and isinstance(room_name.data, dict):
+            return {k: v for k, v in room_name.data.items() if v}
+        return {"en": str(room_name)}
+    return {"en": loc.name}
+
+
+def _serialize_location_room(loc: "ShiftLocation") -> dict:
+    """Serialize a ShiftLocation as a schedule-editor room entry."""
+    return {
+        "id": loc.id,
+        "name": _location_name_dict(loc),
+        "description": {"en": _html_to_plain(loc.description)},
+    }
+
+
 def _shift_talk_payload(shift):
     duration = int((shift.end_time - shift.start_time).total_seconds() / 60) if shift.end_time and shift.start_time else 0
     return {
@@ -2501,14 +2626,8 @@ class PublicShiftScheduleAPIView(PublicShiftScheduleMixin, View):
             for role in event.team_roles.all():
                 data["roles"].append({"id": role.id, "name": {"en": role.name}, "is_restricted": role.is_restricted})
 
-            for loc in event.shift_locations.all():
-                data["rooms"].append(
-                    {
-                        "id": loc.id,
-                        "name": {"en": loc.name},
-                        "description": {"en": _html_to_plain(loc.description)},
-                    }
-                )
+            for loc in event.shift_locations.select_related("linked_room").all():
+                data["rooms"].append(_serialize_location_room(loc))
 
             for shift in _public_shifts_queryset(event):
                 data["talks"].append(_shift_talk_payload(shift))
@@ -2530,17 +2649,10 @@ class PublicShiftScheduleView(PublicShiftScheduleMixin, TemplateView):
             return ctx
 
         with scope(event=event):
-            locations = list(event.shift_locations.all())
+            locations = list(event.shift_locations.select_related("linked_room").all())
             shifts = list(_public_shifts_queryset(event))
 
-        rooms = [
-            {
-                "id": loc.id,
-                "name": {"en": loc.name},
-                "description": {"en": _html_to_plain(loc.description)},
-            }
-            for loc in locations
-        ]
+        rooms = [_serialize_location_room(loc) for loc in locations]
 
         schedule_data = {
             "mode": "shifts",

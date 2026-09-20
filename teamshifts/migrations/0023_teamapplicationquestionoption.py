@@ -7,7 +7,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("teamshifts", "0021_volunteer_vouchers"),
+        ("teamshifts", "0022_membercertificate_notified_at"),
     ]
 
     operations = [

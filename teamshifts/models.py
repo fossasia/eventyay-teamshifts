@@ -585,6 +585,7 @@ class EmailTemplateRoles(models.TextChoices):
     APPLICATION_REJECTED = "teamshifts.application.rejected", _("Application rejected")
     MEMBER_ADDED_BY_ORGANIZER = "teamshifts.member.added_by_organizer", _("Added as volunteer by organizer")
     VOUCHER_SENT = "teamshifts.voucher.sent", _("Voucher sent to volunteer")
+    CERTIFICATE_GENERATED = "teamshifts.certificate.generated", _("Certificate of participation generated")
 
 
 class TeamShiftsEmailTemplate(models.Model):
@@ -706,6 +707,12 @@ class MemberCertificate(models.Model):
     file = models.FileField(null=True, blank=True, upload_to=member_certificate_name, max_length=255)
     generated_at = models.DateTimeField(auto_now=True)
     downloaded_at = models.DateTimeField(null=True, blank=True)
+    notified_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name=_("Notified at"),
+        help_text=_("Timestamp of the first certificate email notification. Null means no notification has been sent yet."),
+    )
 
     objects = ScopedManager(event="application__event")
 

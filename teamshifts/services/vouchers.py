@@ -144,7 +144,7 @@ def _claim_next_voucher(settings: VolunteerVoucherSettings, assigned_voucher_ids
 
 
 def _send_voucher_email(event, user, voucher, template, locale) -> bool:
-    redeem_base = build_absolute_uri(event, "presale:event.index")
+    redeem_base = build_absolute_uri(event, "presale:event.redeem")
     ticket_claim_url = f"{redeem_base}?voucher={voucher.code}"
 
     context = get_email_context(event=event, user=user)

@@ -496,7 +496,7 @@ class EmailTemplatePreviewView(PluginActiveMixin, TeamShiftsPermissionRequiredMi
                 "event_location": str(event.location) if event.location else "",
                 "shift_schedule_url": build_absolute_uri(event, "plugins:teamshifts:public_shift_schedule"),
                 "voucher_code": "ABCD-1234-EFGH",
-                "ticket_claim_url": build_absolute_uri(event, "presale:event.index") + "?voucher=ABCD-1234-EFGH",
+                "ticket_claim_url": build_absolute_uri(event, "presale:event.redeem") + "?voucher=ABCD-1234-EFGH",
             },
         )
 

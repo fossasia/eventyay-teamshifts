@@ -13,7 +13,7 @@ from eventyay.base.email import SimpleFunctionalMailTextPlaceholder
 from eventyay.base.models.organizer import Team
 from eventyay.base.signals import register_mail_placeholders
 from eventyay.common.signals import periodic_task, user_menu_items
-from eventyay.control.signals import event_dashboard_components, event_dashboard_widgets, nav_event_common, nav_global
+from eventyay.control.signals import event_dashboard_components, nav_event_common, nav_global
 from eventyay.multidomain.urlreverse import build_absolute_uri
 from eventyay.presale.signals import header_nav_tabs
 
@@ -22,23 +22,6 @@ from .permissions import has_any_teamshifts_permission
 from .tasks import send_queued_email
 
 logger = logging.getLogger(__name__)
-
-
-@receiver(event_dashboard_widgets, dispatch_uid="teamshifts_dashboard_widget")
-def teamshifts_dashboard_widget(sender, subevent=None, lazy=False, request=None, **kwargs):
-    if request is None or not has_any_teamshifts_permission(request.user, request.organizer, sender, request=request):
-        return []
-    return [
-        {
-            "content": '<div class="numwidget"><span class="num">-</span><span class="text">{}</span></div>'.format(str(_("TeamShifts"))),
-            "display_size": "small",
-            "priority": 80,
-            "url": reverse(
-                "plugins:teamshifts:dashboard",
-                kwargs={"organizer": sender.organizer.slug, "event": sender.slug},
-            ),
-        }
-    ]
 
 
 @receiver(event_dashboard_components, dispatch_uid="teamshifts_dashboard_component")

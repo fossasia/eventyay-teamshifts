@@ -73,6 +73,7 @@ def application_context(application: TeamMemberApplication) -> dict:
     location = str(event.location) if event.location else ""
     date_from = format_event_date_from(event)
     date_to = format_event_date_to(event)
+    event_color = getattr(event, "visible_primary_color", None)
     issued = now()
 
     body_line2 = gettext("the %(event_name)s, held from %(date_from)s to %(date_to)s, in %(location)s.") % {
@@ -99,6 +100,7 @@ def application_context(application: TeamMemberApplication) -> dict:
         "assigned_shift_count": str(len(assignments)),
         "roles": ", ".join(roles),
         "issued_date": gettext("Date Issued: %(date)s") % {"date": date_format(issued, "DATE_FORMAT")},
+        "_event_color": event_color,
     }
 
 

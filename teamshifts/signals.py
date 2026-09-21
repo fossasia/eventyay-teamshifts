@@ -13,7 +13,7 @@ from eventyay.base.email import SimpleFunctionalMailTextPlaceholder
 from eventyay.base.models.organizer import Team
 from eventyay.base.signals import register_mail_placeholders
 from eventyay.common.signals import periodic_task, user_menu_items
-from eventyay.control.signals import event_dashboard_components, event_dashboard_widgets, nav_global
+from eventyay.control.signals import event_dashboard_components, event_dashboard_widgets, nav_event_common, nav_global
 from eventyay.multidomain.urlreverse import build_absolute_uri
 from eventyay.presale.signals import header_nav_tabs
 
@@ -60,6 +60,22 @@ def teamshifts_dashboard_component(sender, request=None, **kwargs):
         url,
         str(_("TeamShifts Dashboard")),
     )
+
+
+@receiver(nav_event_common, dispatch_uid="teamshifts_nav_event_common")
+def teamshifts_nav_event_common(sender, request=None, **kwargs):
+    if request is None or not has_any_teamshifts_permission(request.user, request.organizer, sender, request=request):
+        return []
+    url_kwargs = {"organizer": sender.organizer.slug, "event": sender.slug}
+    match = request.resolver_match
+    return [
+        {
+            "label": _("TeamShifts"),
+            "url": reverse("plugins:teamshifts:dashboard", kwargs=url_kwargs),
+            "icon": "users",
+            "active": bool(match and match.namespace == "plugins:teamshifts"),
+        }
+    ]
 
 
 @receiver(header_nav_tabs, dispatch_uid="teamshifts_header_nav_tab")

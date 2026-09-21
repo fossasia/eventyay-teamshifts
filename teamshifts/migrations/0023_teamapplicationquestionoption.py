@@ -5,6 +5,29 @@ import i18nfield.fields
 from django.db import migrations, models
 
 
+def migrate_question_options(apps, schema_editor):
+    TeamApplicationQuestion = apps.get_model(
+        "teamshifts",
+        "TeamApplicationQuestion",
+    )
+    TeamApplicationQuestionOption = apps.get_model(
+        "teamshifts",
+        "TeamApplicationQuestionOption",
+    )
+
+    for question in TeamApplicationQuestion.objects.all():
+        if not question.options:
+            continue
+
+        for position, answer in enumerate(line.strip() for line in question.options.splitlines()):
+            if answer:
+                TeamApplicationQuestionOption.objects.create(
+                    question=question,
+                    answer={"en": answer},
+                    position=position,
+                )
+
+
 class Migration(migrations.Migration):
     dependencies = [
         ("teamshifts", "0022_membercertificate_notified_at"),
@@ -19,7 +42,11 @@ class Migration(migrations.Migration):
                 ("position", models.IntegerField(default=0)),
                 (
                     "question",
-                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name="option_records", to="teamshifts.teamapplicationquestion"),
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="option_records",
+                        to="teamshifts.teamapplicationquestion",
+                    ),
                 ),
             ],
             options={
@@ -27,5 +54,10 @@ class Migration(migrations.Migration):
                 "verbose_name_plural": "Application question options",
                 "ordering": ("position", "id"),
             },
+        ),
+        migrations.RunPython(migrate_question_options, migrations.RunPython.noop),
+        migrations.RemoveField(
+            model_name="teamapplicationquestion",
+            name="options",
         ),
     ]

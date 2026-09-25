@@ -157,3 +157,34 @@ class TeamShiftsPermissionRequiredMixin:
     def as_view(cls, **initkwargs):
         view = super().as_view(**initkwargs)
         return teamshifts_permission_required(cls.permission)(view)
+
+
+def has_organizer_teamshifts_access(user, organizer, request=None):
+    """Check if user has any TeamShifts team or management access for the organizer."""
+    if not user.is_authenticated:
+        return False
+    if user.has_organizer_permission(organizer, "can_change_organizer_settings", request=request):
+        return True
+    with scopes_disabled():
+        if Team.objects.filter(organizer=organizer, members=user).exclude(teamshifts_role="").exists():
+            return True
+        for event in organizer.events.filter(plugins__contains="teamshifts"):
+            if user.has_event_permission(organizer, event, "can_change_event_settings", request=request):
+                return True
+    return False
+
+
+def get_user_teamshifts_events(user, organizer, request=None):
+    """Return all events under the organizer for which the user holds a TeamShifts role
+
+    and the teamshifts plugin is enabled. Returns a list of (event, role_str).
+    """
+    with scopes_disabled():
+        all_events = organizer.events.filter(plugins__contains="teamshifts")
+        eligible_events = []
+        for event in all_events:
+            role = _get_teamshifts_role(user, organizer, event, request=request)
+            if role:
+                eligible_events.append((event, role))
+        return eligible_events
+

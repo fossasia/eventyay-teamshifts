@@ -1,0 +1,104 @@
+{% extends "eventyay_common/base.html" %}
+{% load i18n %}
+{% load static %}
+
+{% block title %}{% trans "TeamShifts" %} :: {{ organizer.name }}{% endblock %}
+
+{% block custom_header %}
+  {{ block.super }}
+  <link rel="stylesheet" type="text/css" href="{% static 'teamshifts/teamshifts.css' %}">
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>
+    {% trans "TeamShifts" %}
+    <small>{{ organizer.name }}</small>
+  </h1>
+</div>
+
+{% if not active_events and not past_events %}
+  <div class="alert alert-info">
+    <i class="fa fa-info-circle"></i>
+    {% trans "No events with TeamShifts enabled were found for your team under this organizer." %}
+  </div>
+{% else %}
+  <p class="lead text-muted">
+    {% trans "Select an event to open its TeamShifts management dashboard." %}
+  </p>
+
+  {% if active_events %}
+    <h3>{% trans "Active & Upcoming Events" %}</h3>
+    <div class="row">
+      {% for item in active_events %}
+        <div class="col-md-6 col-lg-4" style="margin-bottom: 20px;">
+          <div class="panel panel-default" style="height: 100%; display: flex; flex-direction: column;">
+            <div class="panel-heading">
+              <h3 class="panel-title" style="font-size: 16px; font-weight: 600;">
+                {{ item.event.name }}
+              </h3>
+            </div>
+            <div class="panel-body" style="flex: 1;">
+              <p class="text-muted" style="margin-bottom: 8px;">
+                <i class="fa fa-calendar"></i>
+                {{ item.event.get_date_range_display|default:_("Dates not set") }}
+              </p>
+              {% if item.event.location %}
+                <p class="text-muted" style="margin-bottom: 8px;">
+                  <i class="fa fa-map-marker"></i>
+                  {{ item.event.location }}
+                </p>
+              {% endif %}
+              <p>
+                <span class="label {% if item.role == 'coordinator' %}label-primary{% else %}label-info{% endif %}">
+                  <i class="fa fa-user-circle"></i> {{ item.role_label }}
+                </span>
+              </p>
+            </div>
+            <div class="panel-footer text-right">
+              <a href="{% url 'plugins:teamshifts:dashboard' organizer=organizer.slug event=item.event.slug %}"
+                 class="btn btn-primary btn-block">
+                {% trans "Manage Shifts & Team" %} <i class="fa fa-arrow-right"></i>
+              </a>
+            </div>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  {% if past_events %}
+    <h3 class="text-muted" style="margin-top: 30px;">{% trans "Past Events" %}</h3>
+    <div class="row">
+      {% for item in past_events %}
+        <div class="col-md-6 col-lg-4" style="margin-bottom: 20px;">
+          <div class="panel panel-default text-muted" style="height: 100%; display: flex; flex-direction: column; opacity: 0.85;">
+            <div class="panel-heading">
+              <h3 class="panel-title">
+                {{ item.event.name }}
+              </h3>
+            </div>
+            <div class="panel-body" style="flex: 1;">
+              <p style="margin-bottom: 8px;">
+                <i class="fa fa-calendar"></i>
+                {{ item.event.get_date_range_display }}
+              </p>
+              <p>
+                <span class="label label-default">
+                  {{ item.role_label }}
+                </span>
+              </p>
+            </div>
+            <div class="panel-footer text-right">
+              <a href="{% url 'plugins:teamshifts:dashboard' organizer=organizer.slug event=item.event.slug %}"
+                 class="btn btn-default btn-block">
+                {% trans "View Dashboard" %} <i class="fa fa-arrow-right"></i>
+              </a>
+            </div>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+{% endif %}
+{% endblock %}

@@ -181,10 +181,21 @@ def get_user_teamshifts_events(user, organizer, request=None):
     """
     with scopes_disabled():
         all_events = organizer.events.filter(plugins__contains="teamshifts")
+        user_teams = list(Team.objects.filter(organizer=organizer, members=user).exclude(teamshifts_role="").prefetch_related("limit_events"))
         eligible_events = []
         for event in all_events:
-            role = _get_teamshifts_role(user, organizer, event, request=request)
-            if role:
-                eligible_events.append((event, role))
+            best_role = ""
+            for team in user_teams:
+                if team.all_events or event in team.limit_events.all():
+                    if ROLE_LEVELS.get(team.teamshifts_role, 0) > ROLE_LEVELS.get(best_role, 0):
+                        best_role = team.teamshifts_role
+            if not best_role and user.has_event_permission(
+                organizer,
+                event,
+                "can_change_event_settings",
+                request=request,
+            ):
+                best_role = "coordinator"
+            if best_role:
+                eligible_events.append((event, best_role))
         return eligible_events
-

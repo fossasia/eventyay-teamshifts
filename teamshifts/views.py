@@ -3178,10 +3178,19 @@ class TeamShiftsOrganizerLandingView(LoginRequiredMixin, TemplateView):
     def dispatch(self, request, *args, **kwargs):
         if not request.user.is_authenticated:
             return super().dispatch(request, *args, **kwargs)
+
         with scopes_disabled():
-            organizer = get_object_or_404(Organizer, slug=kwargs["organizer"])
+            organizer = getattr(request, "organizer", None)
+            if not organizer:
+                organizer = Organizer.objects.filter(slug=kwargs["organizer"]).first()
+                if not organizer or not request.user.has_organizer_permission(organizer, request=request):
+                    raise Http404(_("The selected organizer was not found or you have no permission to administrate it."))
+            elif not request.user.has_organizer_permission(organizer, request=request):
+                raise Http404(_("The selected organizer was not found or you have no permission to administrate it."))
+
             if not has_organizer_teamshifts_access(request.user, organizer, request=request):
                 raise PermissionDenied(_("You do not have permission to access TeamShifts for this organizer."))
+
             self.organizer = organizer
             self.eligible_events = get_user_teamshifts_events(request.user, organizer, request=request)
             if len(self.eligible_events) == 1:
@@ -3210,11 +3219,10 @@ class TeamShiftsOrganizerLandingView(LoginRequiredMixin, TemplateView):
             else:
                 active_events.append(data)
 
-        active_events.sort(key=lambda x: (x["event"].date_from or current_time))
-        past_events.sort(key=lambda x: (x["event"].date_to or current_time), reverse=True)
+        active_events.sort(key=lambda x: x["event"].date_from or current_time)
+        past_events.sort(key=lambda x: x["event"].date_to or current_time, reverse=True)
 
         ctx["organizer"] = self.organizer
         ctx["active_events"] = active_events
         ctx["past_events"] = past_events
         return ctx
-

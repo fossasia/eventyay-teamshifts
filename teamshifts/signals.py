@@ -150,6 +150,18 @@ def teamshifts_mail_placeholders(sender, **kwargs):
             lambda event: "https://example.com/fossasia/my-event/teamshifts/shifts/",
         ),
         SimpleFunctionalMailTextPlaceholder(
+            "shift_name",
+            ["shift"],
+            lambda shift: str(shift),
+            lambda event: _("Morning Shift (2026-01-15 09:00 – 12:00)"),
+        ),
+        SimpleFunctionalMailTextPlaceholder(
+            "shift_time",
+            ["shift"],
+            lambda shift: f"{shift.start_time:%Y-%m-%d %H:%M} – {shift.end_time:%H:%M}",
+            lambda event: "2026-01-15 09:00 – 12:00",
+        ),
+        SimpleFunctionalMailTextPlaceholder(
             "voucher_code",
             ["voucher_code"],
             lambda voucher_code: voucher_code,

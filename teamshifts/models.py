@@ -513,6 +513,20 @@ class TeamShiftsEmailQueue(models.Model):
         on_delete=models.SET_NULL,
         related_name="+",
     )
+    shift = models.ForeignKey(
+        Shift,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
+    shift_role = models.ForeignKey(
+        TeamRole,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
     status_filter = models.CharField(
         max_length=20,
         choices=ApplicationStatus.choices,
@@ -569,6 +583,8 @@ class EmailTemplateRoles(models.TextChoices):
     APPLICATION_ACCEPTED = "teamshifts.application.accepted", _("Application accepted")
     APPLICATION_REJECTED = "teamshifts.application.rejected", _("Application rejected")
     MEMBER_ADDED_BY_ORGANIZER = "teamshifts.member.added_by_organizer", _("Added as volunteer by organizer")
+    SHIFT_ASSIGNED_BY_ORGANIZER = "teamshifts.shift.assigned_by_organizer", _("Shift assigned by organizer")
+    SHIFT_CLAIMED_BY_VOLUNTEER = "teamshifts.shift.claimed_by_volunteer", _("Shift sign-up confirmation")
     VOUCHER_SENT = "teamshifts.voucher.sent", _("Voucher sent to volunteer")
     CERTIFICATE_GENERATED = "teamshifts.certificate.generated", _("Certificate of participation generated")
 

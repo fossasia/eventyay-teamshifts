@@ -63,7 +63,7 @@ def send_queued_email(self, event_id: int, queue_id: int):
 
     try:
         with scope(event=event):
-            queue = TeamShiftsEmailQueue.objects.select_related("event", "role_filter").filter(pk=queue_id, event=event).first()
+            queue = TeamShiftsEmailQueue.objects.select_related("event", "role_filter", "shift", "shift_role").filter(pk=queue_id, event=event).first()
             if queue is None:
                 logger.debug("[TeamShifts] Queue %s not found or locked", queue_id)
                 return
@@ -100,6 +100,10 @@ def send_queued_email(self, event_id: int, queue_id: int):
                         ctx_kwargs["user"] = recipient.user
                     if queue.role_filter_id:
                         ctx_kwargs["role"] = queue.role_filter
+                    if queue.shift_id:
+                        ctx_kwargs["shift"] = queue.shift
+                    if queue.shift_role_id:
+                        ctx_kwargs["role"] = queue.shift_role
                     context = get_email_context(**ctx_kwargs)
                     mail(
                         email=recipient.email,

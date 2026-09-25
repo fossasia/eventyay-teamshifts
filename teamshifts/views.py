@@ -73,19 +73,21 @@ from .models import (
 )
 from .permissions import TeamShiftsPermissionRequiredMixin, can_act_on_role, can_view_email_addresses, get_allowed_role_ids, has_teamshifts_permission
 from .services.certificates import maybe_auto_issue_certificate
-from .services.email import get_recipients, queue_email, queue_lifecycle_email
+from .services.email import get_recipients, queue_email, queue_lifecycle_email, queue_shift_notification_email
 from .services.members import AlreadyMemberError, add_member_from_organizer
 from .tasks import send_queued_email
 
 logger = logging.getLogger(__name__)
 
 _TEMPLATE_PLACEHOLDERS = [
-    ("{full_name}", _("The applicant's full name")),
+    ("{full_name}", _("The volunteer's full name")),
     ("{event_name}", _("The event's name")),
-    ("{role_name}", _("The role applied for")),
     ("{event_dates}", _("The event's date range")),
     ("{event_location}", _("The event's location")),
     ("{shift_schedule_url}", _("Link to the shift schedule")),
+    ("{shift_name}", _("The shift name (shift emails only)")),
+    ("{shift_time}", _("The shift date and time range (shift emails only)")),
+    ("{role_name}", _("The assigned role name (shift emails only)")),
     ("{voucher_code}", _("The volunteer's voucher code (voucher emails only)")),
     ("{ticket_claim_url}", _("Link to claim the ticket (voucher emails only)")),
 ]
@@ -493,6 +495,8 @@ class EmailTemplatePreviewView(PluginActiveMixin, TeamShiftsPermissionRequiredMi
                 "event_dates": event.get_date_range_display(),
                 "event_location": str(event.location) if event.location else "",
                 "shift_schedule_url": build_absolute_uri(event, "plugins:teamshifts:public_shift_schedule"),
+                "shift_name": "Morning Shift (2026-01-15 09:00 – 12:00)",
+                "shift_time": "2026-01-15 09:00 – 12:00",
                 "voucher_code": "ABCD-1234-EFGH",
                 "ticket_claim_url": build_absolute_uri(event, "presale:event.redeem") + "?voucher=ABCD-1234-EFGH",
             },
@@ -2230,10 +2234,20 @@ class ShiftScheduleAssignmentsAPIView(PluginActiveMixin, TeamShiftsPermissionReq
                         status=400,
                     )
 
-            ShiftAssignment.objects.update_or_create(
+            assignment, created = ShiftAssignment.objects.update_or_create(
                 shift=shift,
                 team_member=user,
                 defaults={"role_id": role_id, "assigned_by": request.user},
+            )
+            role = TeamRole.objects.filter(pk=role_id).first() if role_id else None
+            transaction.on_commit(
+                lambda: queue_shift_notification_email(
+                    event=event,
+                    user=user,
+                    shift=shift,
+                    role=role,
+                    template_role=EmailTemplateRoles.SHIFT_ASSIGNED_BY_ORGANIZER,
+                )
             )
             return JsonResponse({"status": "ok"})
 
@@ -2626,6 +2640,16 @@ class ShiftClaimView(PublicShiftScheduleMixin, View):
                     shift=shift,
                     team_member=request.user,
                     defaults={"role_id": sra.role_id, "assigned_by": None},
+                )
+            if created:
+                transaction.on_commit(
+                    lambda: queue_shift_notification_email(
+                        event=event,
+                        user=request.user,
+                        shift=shift,
+                        role=sra.role,
+                        template_role=EmailTemplateRoles.SHIFT_CLAIMED_BY_VOLUNTEER,
+                    )
                 )
             shift = Shift.objects.prefetch_related(
                 "role_assignments__role",

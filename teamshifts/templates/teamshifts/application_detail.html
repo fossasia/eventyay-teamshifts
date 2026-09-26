@@ -121,6 +121,61 @@
         </table>
     </div>
 
+    {% if application.user.event_assignments %}
+    <div class="panel panel-default">
+        <div class="panel-heading">
+            <h3 class="panel-title">{% trans "Shift Check-in Status" %}</h3>
+        </div>
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>{% trans "Shift" %}</th>
+                    <th>{% trans "Role" %}</th>
+                    <th>{% trans "Location" %}</th>
+                    <th>{% trans "Status" %}</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for assignment in application.user.event_assignments %}
+                <tr>
+                    <td>
+                        {{ assignment.shift.start_time|date:"D, N j H:i" }}–{{ assignment.shift.end_time|time:"H:i" }}
+                        {% if assignment.shift.name %}<br><span class="text-muted">{{ assignment.shift.name }}</span>{% endif %}
+                    </td>
+                    <td>
+                        {% if assignment.role %}
+                            <span class="label label-info">{{ assignment.role.name }}</span>
+                        {% else %}
+                            —
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if assignment.shift.location %}
+                            {{ assignment.shift.location.name }}
+                        {% elif assignment.shift.location_text %}
+                            {{ assignment.shift.location_text }}
+                        {% else %}
+                            —
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if assignment.ended_at %}
+                            <span class="label label-success">{% trans "Completed" %}</span>
+                            <br><span class="text-muted">{{ assignment.started_at|date:"SHORT_DATETIME_FORMAT" }} – {{ assignment.ended_at|date:"SHORT_DATETIME_FORMAT" }}</span>
+                        {% elif assignment.started_at %}
+                            <span class="label label-primary">{% trans "Checked in" %}</span>
+                            <br><span class="text-muted">{{ assignment.started_at|date:"SHORT_DATETIME_FORMAT" }}</span>
+                        {% else %}
+                            <span class="label label-default">{% trans "Not checked in" %}</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+
     {% if application.rendered_answers %}
     <div class="panel panel-default">
         <div class="panel-heading">

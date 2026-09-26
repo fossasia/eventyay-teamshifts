@@ -73,6 +73,7 @@ from .models import (
 )
 from .permissions import TeamShiftsPermissionRequiredMixin, can_act_on_role, can_view_email_addresses, get_allowed_role_ids, has_teamshifts_permission
 from .services.certificates import maybe_auto_issue_certificate
+from .services.checkin import end_shift
 from .services.email import get_recipients, queue_email, queue_lifecycle_email
 from .services.members import AlreadyMemberError, add_member_from_organizer
 from .tasks import send_queued_email
@@ -923,7 +924,9 @@ class ApplicationDetailView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin
                     "answers__question",
                     Prefetch(
                         "user__shift_assignments",
-                        queryset=ShiftAssignment.objects.filter(shift__event=event).select_related("role"),
+                        queryset=ShiftAssignment.objects.filter(shift__event=event)
+                        .select_related("role", "shift", "shift__location")
+                        .order_by("shift__start_time"),
                         to_attr="event_assignments",
                     ),
                 ),
@@ -1857,6 +1860,14 @@ class MembersListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Pagi
             qs = (
                 qs.annotate(
                     shifts_assigned=Count("user__shift_assignments", filter=Q(user__shift_assignments__shift__event=event)),
+                    shifts_checked_in=Count(
+                        "user__shift_assignments",
+                        filter=Q(user__shift_assignments__shift__event=event, user__shift_assignments__started_at__isnull=False),
+                    ),
+                    shifts_completed=Count(
+                        "user__shift_assignments",
+                        filter=Q(user__shift_assignments__shift__event=event, user__shift_assignments__ended_at__isnull=False),
+                    ),
                     hours_scheduled=Sum(
                         ExpressionWrapper(
                             F("user__shift_assignments__shift__end_time") - F("user__shift_assignments__shift__start_time"),
@@ -2058,7 +2069,14 @@ class ShiftScheduleTalksAPIView(PluginActiveMixin, TeamShiftsPermissionRequiredM
                     for assignment in shift.assignments.all():
                         if assignment.team_member_id and assignment.role_id == role_assignment.role_id:
                             name = assignment.team_member.get_full_name() or assignment.team_member.email
-                            assignments.append({"id": assignment.team_member.id, "name": name})
+                            assignments.append(
+                                {
+                                    "id": assignment.team_member.id,
+                                    "name": name,
+                                    "started_at": assignment.started_at.isoformat() if assignment.started_at else None,
+                                    "ended_at": assignment.ended_at.isoformat() if assignment.ended_at else None,
+                                }
+                            )
                     roles_data.append(
                         {
                             "id": role_assignment.role.id,
@@ -2920,7 +2938,41 @@ class MyShiftsView(PublicShiftScheduleMixin, TemplateView):
             shifts_by_day[day].append(assignment)
         ctx["shifts_by_day"] = dict(shifts_by_day)
         ctx["event"] = event
+        ctx["now"] = now()
         return ctx
+
+
+class ShiftCheckOutView(PublicShiftScheduleMixin, View):
+    redirect_unpublished_to_schedule = False
+
+    def post(self, request, *args, **kwargs):
+        event = self.event
+        assignment_pk = kwargs["pk"]
+
+        with scope(event=event), transaction.atomic():
+            assignment = (
+                ShiftAssignment.objects.select_for_update()
+                .filter(
+                    pk=assignment_pk,
+                    team_member=request.user,
+                    shift__event=event,
+                )
+                .select_related("shift")
+                .first()
+            )
+
+            if assignment is None:
+                return JsonResponse({"status": "error", "error": str(_("Shift assignment not found."))}, status=404)
+
+            if not assignment.started_at:
+                return JsonResponse({"status": "error", "error": str(_("You have not checked in for this shift yet."))}, status=400)
+
+            if assignment.ended_at:
+                return JsonResponse({"status": "error", "error": str(_("You have already checked out of this shift."))}, status=400)
+
+            end_shift(assignment, now())
+
+        return JsonResponse({"status": "ok", "ended_at": assignment.ended_at.isoformat()})
 
 
 class MyShiftsGlobalView(LoginRequiredMixin, TemplateView):

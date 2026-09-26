@@ -9,6 +9,7 @@
 {% block custom_header %}
   {{ block.super }}
   <link rel="stylesheet" type="text/css" href="{% static 'teamshifts/teamshifts.css' %}">
+  <script type="module" src="{% static 'teamshifts/shift_checkout.js' %}"></script>
 {% endblock %}
 
 {% block content %}
@@ -71,6 +72,19 @@
                       <i class="fa fa-star"></i> {% translate "Moderator" %}
                     </span>
                   {% endif %}
+                  {% if assignment.ended_at %}
+                    <span class="my-shifts-badge my-shifts-badge-completed">
+                      <i class="fa fa-check-circle"></i> {% translate "Completed" %}
+                    </span>
+                  {% elif assignment.started_at %}
+                    <span class="my-shifts-badge my-shifts-badge-active">
+                      <i class="fa fa-sign-in"></i> {% translate "Checked in" %}
+                    </span>
+                  {% elif assignment.shift.start_time <= now and assignment.shift.end_time > now %}
+                    <span class="my-shifts-badge my-shifts-badge-pending">
+                      <i class="fa fa-exclamation-circle"></i> {% translate "Not checked in" %}
+                    </span>
+                  {% endif %}
                   {% if assignment.assigned_by %}
                     <span class="my-shifts-badge my-shifts-badge-assigned">
                       <i class="fa fa-user-plus"></i> {% translate "Assigned by organizer" %}
@@ -97,10 +111,33 @@
                     <i class="fa fa-calendar-o"></i>
                     {{ assignment.shift.event.name }}
                   </span>
+                  {% if assignment.started_at %}
+                    <span class="my-shifts-checkin-time text-muted">
+                      <i class="fa fa-sign-in"></i>
+                      {% translate "Checked in:" %} {{ assignment.started_at|time:"H:i" }}
+                    </span>
+                  {% endif %}
+                  {% if assignment.ended_at %}
+                    <span class="my-shifts-checkin-time text-muted">
+                      <i class="fa fa-sign-out"></i>
+                      {% translate "Checked out:" %} {{ assignment.ended_at|time:"H:i" }}
+                    </span>
+                  {% endif %}
                 </div>
               </div>
 
               <div class="my-shifts-card-action">
+                {% if assignment.started_at and not assignment.ended_at %}
+                  <form method="post"
+                        action="{% url 'plugins:teamshifts:shift_checkout' organizer=event.organizer.slug event=event.slug pk=assignment.pk %}"
+                        class="shift-checkout-form">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-warning btn-xs">
+                      <i class="fa fa-sign-out"></i>
+                      {% translate "Check out" %}
+                    </button>
+                  </form>
+                {% endif %}
                 <a href="{% url 'presale:event.index' event=assignment.shift.event.slug organizer=assignment.shift.event.organizer.slug %}"
                    class="btn btn-default btn-xs">
                   <i class="fa fa-external-link"></i>

@@ -284,3 +284,91 @@ label .optional {
 .ts-qa-question {
   width: 40%;
 }
+
+.my-shifts-badge-completed {
+  background: #d4edda;
+  color: #155724;
+  border: 1px solid #b8dfc4;
+}
+
+.my-shifts-badge-active {
+  background: #cce5ff;
+  color: #004085;
+  border: 1px solid #b8daff;
+}
+
+.my-shifts-badge-pending {
+  background: #fff3cd;
+  color: #856404;
+  border: 1px solid #ffe082;
+}
+
+.my-shifts-checkin-time {
+  font-size: 12px;
+}
+
+.my-shifts-day-group {
+  margin-bottom: 24px;
+}
+
+.my-shifts-day-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 2px solid #eee;
+  margin-bottom: 12px;
+}
+
+.my-shifts-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 12px;
+  border: 1px solid #e8e8e8;
+  border-radius: 4px;
+  margin-bottom: 8px;
+  background: #fff;
+}
+
+.my-shifts-card-time {
+  min-width: 120px;
+  flex-shrink: 0;
+}
+
+.my-shifts-time-range {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.my-shifts-shift-name {
+  display: block;
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.my-shifts-card-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.my-shifts-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.my-shifts-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 13px;
+}
+
+.my-shifts-card-action {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+  align-items: flex-start;
+}

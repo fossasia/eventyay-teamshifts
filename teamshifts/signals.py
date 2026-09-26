@@ -10,8 +10,9 @@ from django.utils.timezone import now
 from django.utils.translation import gettext_lazy as _
 from django_scopes import scope, scopes_disabled
 from eventyay.base.email import SimpleFunctionalMailTextPlaceholder
+from eventyay.base.models.checkin import Checkin
 from eventyay.base.models.organizer import Team
-from eventyay.base.signals import register_mail_placeholders
+from eventyay.base.signals import checkin_created, register_mail_placeholders
 from eventyay.common.signals import periodic_task, user_menu_items
 from eventyay.control.signals import event_dashboard_components, nav_event_common, nav_global
 from eventyay.multidomain.urlreverse import build_absolute_uri
@@ -250,6 +251,18 @@ def dispatch_scheduled_emails(sender, **kwargs):
         if cache.add(cache_key, True, timeout=300):
             send_queued_email.delay(event_id, queue_pk)
             logger.info("[TeamShifts] Dispatched scheduled email queue %s", queue_pk)
+
+
+@receiver(checkin_created, dispatch_uid="teamshifts_volunteer_checkin")
+def handle_checkin_created(sender, checkin, **kwargs):
+    if checkin.type != Checkin.TYPE_ENTRY:
+        return
+    try:
+        from .services.checkin import handle_volunteer_checkin
+
+        handle_volunteer_checkin(checkin)
+    except Exception:
+        logger.exception("[TeamShifts] Error handling check-in %s", checkin.pk)
 
 
 @receiver(post_delete, sender=TeamRole)

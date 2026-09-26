@@ -72,6 +72,7 @@
             {% endif %}
             <th>{% trans 'Role' %}</th>
             <th>{% trans 'Shifts assigned' %}</th>
+            <th>{% trans 'Check-in' %}</th>
             <th>{% trans 'Hours scheduled' %}</th>
             {% if vouchers_enabled %}
               <th>{% trans 'Voucher' %}</th>
@@ -113,6 +114,15 @@
                 {% endif %}
               </td>
               <td>{{ member.shifts_assigned }}</td>
+              <td>
+                {% if member.shifts_assigned %}
+                  <span class="label {% if member.shifts_completed == member.shifts_assigned %}label-success{% elif member.shifts_checked_in %}label-primary{% else %}label-default{% endif %}">
+                    {{ member.shifts_checked_in }}/{{ member.shifts_assigned }}
+                  </span>
+                {% else %}
+                  -
+                {% endif %}
+              </td>
               <td>
                 {% if member.hours_scheduled %}
                   {{ member.hours_scheduled }}

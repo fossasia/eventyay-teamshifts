@@ -31,15 +31,15 @@
     <h3>{% trans "Active & Upcoming Events" %}</h3>
     <div class="row">
       {% for item in active_events %}
-        <div class="col-md-6 col-lg-4" style="margin-bottom: 20px;">
-          <div class="panel panel-default" style="height: 100%; display: flex; flex-direction: column;">
+        <div class="col-md-6 col-lg-4 teamshifts-event-card-col">
+          <div class="panel panel-default teamshifts-event-card">
             <div class="panel-heading">
-              <h3 class="panel-title" style="font-size: 16px; font-weight: 600;">
+              <h3 class="panel-title">
                 {{ item.event.name }}
               </h3>
             </div>
-            <div class="panel-body" style="flex: 1;">
-              <p class="text-muted" style="margin-bottom: 8px;">
+            <div class="panel-body">
+              <p class="text-muted card-meta">
                 <i class="fa fa-calendar"></i>
                 {% if item.event.get_date_range_display %}
                   {{ item.event.get_date_range_display }}
@@ -48,7 +48,7 @@
                 {% endif %}
               </p>
               {% if item.event.location %}
-                <p class="text-muted" style="margin-bottom: 8px;">
+                <p class="text-muted card-meta">
                   <i class="fa fa-map-marker"></i>
                   {{ item.event.location }}
                 </p>
@@ -72,18 +72,18 @@
   {% endif %}
 
   {% if past_events %}
-    <h3 class="text-muted" style="margin-top: 30px;">{% trans "Past Events" %}</h3>
+    <h3 class="text-muted teamshifts-past-heading">{% trans "Past Events" %}</h3>
     <div class="row">
       {% for item in past_events %}
-        <div class="col-md-6 col-lg-4" style="margin-bottom: 20px;">
-          <div class="panel panel-default text-muted" style="height: 100%; display: flex; flex-direction: column; opacity: 0.85;">
+        <div class="col-md-6 col-lg-4 teamshifts-event-card-col">
+          <div class="panel panel-default text-muted teamshifts-event-card teamshifts-past-event-card">
             <div class="panel-heading">
               <h3 class="panel-title">
                 {{ item.event.name }}
               </h3>
             </div>
-            <div class="panel-body" style="flex: 1;">
-              <p style="margin-bottom: 8px;">
+            <div class="panel-body">
+              <p class="card-meta">
                 <i class="fa fa-calendar"></i>
                 {% if item.event.get_date_range_display %}
                   {{ item.event.get_date_range_display }}

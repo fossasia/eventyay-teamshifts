@@ -284,3 +284,35 @@ label .optional {
 .ts-qa-question {
   width: 40%;
 }
+
+/* Organizer landing event cards */
+.teamshifts-event-card-col {
+  margin-bottom: 20px;
+}
+
+.teamshifts-event-card {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.teamshifts-event-card .panel-title {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.teamshifts-event-card .panel-body {
+  flex: 1;
+}
+
+.teamshifts-event-card .card-meta {
+  margin-bottom: 8px;
+}
+
+.teamshifts-past-heading {
+  margin-top: 30px;
+}
+
+.teamshifts-past-event-card {
+  opacity: 0.85;
+}

@@ -27,7 +27,7 @@ from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.generic import DeleteView, FormView, ListView, TemplateView, View
 from django_scopes import scope, scopes_disabled
 from eventyay.base.i18n import LazyI18nString, language
-from eventyay.base.models import Event, User
+from eventyay.base.models import Event, Organizer, User
 from eventyay.base.templatetags.rich_text import compile_email_body, rich_text
 from eventyay.common.text.phrases import phrases
 from eventyay.control.views import PaginationMixin
@@ -71,7 +71,15 @@ from .models import (
     VoucherStatus,
     normalize_field_order,
 )
-from .permissions import TeamShiftsPermissionRequiredMixin, can_act_on_role, can_view_email_addresses, get_allowed_role_ids, has_teamshifts_permission
+from .permissions import (
+    TeamShiftsPermissionRequiredMixin,
+    can_act_on_role,
+    can_view_email_addresses,
+    get_allowed_role_ids,
+    get_user_teamshifts_events,
+    has_organizer_teamshifts_access,
+    has_teamshifts_permission,
+)
 from .services.certificates import maybe_auto_issue_certificate
 from .services.email import get_recipients, queue_email, queue_lifecycle_email
 from .services.members import AlreadyMemberError, add_member_from_organizer
@@ -3154,3 +3162,65 @@ class BulkSendVouchersView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin,
             organizer=request.organizer.slug,
             event=event.slug,
         )
+
+
+class TeamShiftsOrganizerLandingView(LoginRequiredMixin, TemplateView):
+    """
+    Organizer-level entry point for TeamShifts.
+    - If user has no TeamShifts access for this organizer: 403 Forbidden.
+    - If user has access to exactly 1 event with TeamShifts: 302-redirect to that event's TeamShifts dashboard.
+    - If user has access to multiple events: show event selection cards (active/upcoming vs past).
+    - If 0 events have TeamShifts: show friendly empty-state page.
+    """
+
+    template_name = "teamshifts/organizer_landing.html"
+
+    def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return super().dispatch(request, *args, **kwargs)
+
+        with scopes_disabled():
+            organizer = getattr(request, "organizer", None)
+            if not organizer:
+                organizer = Organizer.objects.filter(slug=kwargs["organizer"]).first()
+            if not organizer:
+                raise Http404(_("The selected organizer was not found."))
+
+            if not has_organizer_teamshifts_access(request.user, organizer, request=request):
+                raise PermissionDenied(_("You do not have permission to access TeamShifts for this organizer."))
+
+            self.organizer = organizer
+            self.eligible_events = get_user_teamshifts_events(request.user, organizer, request=request)
+            if len(self.eligible_events) == 1:
+                return redirect(
+                    "plugins:teamshifts:dashboard",
+                    organizer=organizer.slug,
+                    event=self.eligible_events[0][0].slug,
+                )
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        current_time = now()
+        active_events = []
+        past_events = []
+
+        for event, role in self.eligible_events:
+            role_label = str(_("Event Coordinator")) if role == "coordinator" else str(_("Team Lead"))
+            data = {
+                "event": event,
+                "role": role,
+                "role_label": role_label,
+            }
+            if event.date_to and event.date_to < current_time:
+                past_events.append(data)
+            else:
+                active_events.append(data)
+
+        active_events.sort(key=lambda x: x["event"].date_from or current_time)
+        past_events.sort(key=lambda x: x["event"].date_to or current_time, reverse=True)
+
+        ctx["organizer"] = self.organizer
+        ctx["active_events"] = active_events
+        ctx["past_events"] = past_events
+        return ctx

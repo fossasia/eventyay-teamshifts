@@ -163,14 +163,22 @@ def has_organizer_teamshifts_access(user, organizer, request=None):
     """Check if user has any TeamShifts team or management access for the organizer."""
     if not user.is_authenticated:
         return False
-    if user.has_organizer_permission(organizer, "can_change_organizer_settings", request=request):
-        return True
+    try:
+        if user.has_organizer_permission(organizer, "can_change_organizer_settings", request=request):
+            return True
+    except TypeError:
+        if user.has_organizer_permission(organizer, "can_change_organizer_settings"):
+            return True
     with scopes_disabled():
         if Team.objects.filter(organizer=organizer, members=user).exclude(teamshifts_role="").exists():
             return True
         for event in organizer.events.filter(plugins__contains="teamshifts"):
-            if user.has_event_permission(organizer, event, "can_change_event_settings", request=request):
-                return True
+            try:
+                if user.has_event_permission(organizer, event, "can_change_event_settings", request=request):
+                    return True
+            except TypeError:
+                if user.has_event_permission(organizer, event, "can_change_event_settings"):
+                    return True
     return False
 
 
@@ -189,13 +197,22 @@ def get_user_teamshifts_events(user, organizer, request=None):
                 if team.all_events or event in team.limit_events.all():
                     if ROLE_LEVELS.get(team.teamshifts_role, 0) > ROLE_LEVELS.get(best_role, 0):
                         best_role = team.teamshifts_role
-            if not best_role and user.has_event_permission(
-                organizer,
-                event,
-                "can_change_event_settings",
-                request=request,
-            ):
-                best_role = "coordinator"
+            if not best_role:
+                try:
+                    can_change = user.has_event_permission(
+                        organizer,
+                        event,
+                        "can_change_event_settings",
+                        request=request,
+                    )
+                except TypeError:
+                    can_change = user.has_event_permission(
+                        organizer,
+                        event,
+                        "can_change_event_settings",
+                    )
+                if can_change:
+                    best_role = "coordinator"
             if best_role:
                 eligible_events.append((event, best_role))
         return eligible_events

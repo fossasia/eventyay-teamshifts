@@ -41,7 +41,11 @@
             <div class="panel-body" style="flex: 1;">
               <p class="text-muted" style="margin-bottom: 8px;">
                 <i class="fa fa-calendar"></i>
-                {{ item.event.get_date_range_display|default:_("Dates not set") }}
+                {% if item.event.get_date_range_display %}
+                  {{ item.event.get_date_range_display }}
+                {% else %}
+                  {% trans "Dates not set" %}
+                {% endif %}
               </p>
               {% if item.event.location %}
                 <p class="text-muted" style="margin-bottom: 8px;">
@@ -81,7 +85,11 @@
             <div class="panel-body" style="flex: 1;">
               <p style="margin-bottom: 8px;">
                 <i class="fa fa-calendar"></i>
-                {{ item.event.get_date_range_display }}
+                {% if item.event.get_date_range_display %}
+                  {{ item.event.get_date_range_display }}
+                {% else %}
+                  {% trans "Dates not set" %}
+                {% endif %}
               </p>
               <p>
                 <span class="label label-default">

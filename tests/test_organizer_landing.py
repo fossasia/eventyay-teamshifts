@@ -31,6 +31,14 @@ def test_unauthenticated_user_redirects_to_login(client, organizer):
 
 
 @pytest.mark.django_db
+def test_nonexistent_organizer_returns_404(client, user):
+    client.force_login(user)
+    url = reverse("plugins:teamshifts:organizer_dashboard", kwargs={"organizer": "does-not-exist"})
+    response = client.get(url)
+    assert response.status_code == 404
+
+
+@pytest.mark.django_db
 def test_user_with_no_team_membership_returns_404(client, organizer, user):
     client.force_login(user)
     url = reverse("plugins:teamshifts:organizer_dashboard", kwargs={"organizer": organizer.slug})
@@ -55,6 +63,58 @@ def test_user_in_non_teamshifts_team_returns_403(client, organizer, user):
     url = reverse("plugins:teamshifts:organizer_dashboard", kwargs={"organizer": organizer.slug})
     response = client.get(url)
     assert response.status_code == 403
+
+
+@pytest.mark.django_db
+def test_user_with_event_permission_only_can_access(client, organizer, user):
+    with scopes_disabled():
+        event = Event.objects.create(
+            organizer=organizer,
+            name="Event 1",
+            slug="event-1",
+            date_from=now(),
+            date_to=now() + timedelta(days=2),
+            plugins="teamshifts",
+        )
+        # User is in a team that only has event-level permission, no organizer teamshifts_role
+        team = Team.objects.create(
+            organizer=organizer,
+            name="Event Managers",
+            teamshifts_role="",
+            can_change_event_settings=True,
+            all_events=False,
+        )
+        team.limit_events.add(event)
+        team.members.add(user)
+
+    client.force_login(user)
+    url = reverse("plugins:teamshifts:organizer_dashboard", kwargs={"organizer": organizer.slug})
+    response = client.get(url)
+    assert response.status_code == 302
+    expected_url = reverse(
+        "plugins:teamshifts:dashboard",
+        kwargs={"organizer": organizer.slug, "event": event.slug},
+    )
+    assert response.url == expected_url
+
+
+@pytest.mark.django_db
+def test_organizer_admin_with_no_explicit_teamshifts_role_can_access(client, organizer, user):
+    with scopes_disabled():
+        team = Team.objects.create(
+            organizer=organizer,
+            name="Orga Admin",
+            teamshifts_role="",
+            can_change_organizer_settings=True,
+            all_events=True,
+        )
+        team.members.add(user)
+
+    client.force_login(user)
+    url = reverse("plugins:teamshifts:organizer_dashboard", kwargs={"organizer": organizer.slug})
+    response = client.get(url)
+    assert response.status_code == 200
+    assert "teamshifts/organizer_landing.html" in [t.name for t in response.templates]
 
 
 @pytest.mark.django_db

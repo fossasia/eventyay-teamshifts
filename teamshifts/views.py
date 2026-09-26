@@ -3183,10 +3183,8 @@ class TeamShiftsOrganizerLandingView(LoginRequiredMixin, TemplateView):
             organizer = getattr(request, "organizer", None)
             if not organizer:
                 organizer = Organizer.objects.filter(slug=kwargs["organizer"]).first()
-                if not organizer or not request.user.has_organizer_permission(organizer, request=request):
-                    raise Http404(_("The selected organizer was not found or you have no permission to administrate it."))
-            elif not request.user.has_organizer_permission(organizer, request=request):
-                raise Http404(_("The selected organizer was not found or you have no permission to administrate it."))
+            if not organizer:
+                raise Http404(_("The selected organizer was not found."))
 
             if not has_organizer_teamshifts_access(request.user, organizer, request=request):
                 raise PermissionDenied(_("You do not have permission to access TeamShifts for this organizer."))

@@ -373,3 +373,134 @@ def test_location_create_after_single_zero_position(
 
         assert first.position == 0
         assert second.position == 1
+
+
+@pytest.fixture
+def talks_room(event):
+    from eventyay.base.models.room import Room
+
+    with scope(event=event):
+        return Room.objects.create(event=event, name="Talks Room A")
+
+
+@pytest.mark.django_db
+def test_import_panel_lists_unlinked_talks_rooms(orga_client, event, talks_room):
+    url = reverse("plugins:teamshifts:locations", kwargs={"organizer": event.organizer.slug, "event": event.slug})
+    response = orga_client.get(url)
+    assert response.status_code == 200
+    assert b"Import rooms from Talks" in response.content
+    assert b"Talks Room A" in response.content
+
+
+@pytest.mark.django_db
+def test_import_panel_hides_deleted_and_unscheduled_rooms(orga_client, event):
+    from eventyay.base.models.room import Room
+
+    with scope(event=event):
+        Room.objects.create(event=event, name="Deleted Room", deleted=True)
+        Room.objects.create(event=event, name="Unscheduled Room", is_unscheduled=True)
+    url = reverse("plugins:teamshifts:locations", kwargs={"organizer": event.organizer.slug, "event": event.slug})
+    response = orga_client.get(url)
+    assert response.status_code == 200
+    assert b"Deleted Room" not in response.content
+    assert b"Unscheduled Room" not in response.content
+
+
+@pytest.mark.django_db
+def test_import_creates_linked_location(orga_client, event, talks_room):
+    url = reverse("plugins:teamshifts:import_talks_rooms", kwargs={"organizer": event.organizer.slug, "event": event.slug})
+    response = orga_client.post(url, data={"room_ids": [talks_room.pk]}, content_type="application/json")
+    assert response.status_code == 302
+    with scope(event=event):
+        location = ShiftLocation.objects.get(linked_room=talks_room)
+        assert location.name == "Talks Room A"
+        assert location.is_from_talks
+
+
+@pytest.mark.django_db
+def test_import_links_existing_unlinked_location(orga_client, event, talks_room):
+    with scope(event=event):
+        existing = ShiftLocation.objects.create(event=event, name="Talks Room A")
+    url = reverse("plugins:teamshifts:import_talks_rooms", kwargs={"organizer": event.organizer.slug, "event": event.slug})
+    response = orga_client.post(url, data={"room_ids": [talks_room.pk]}, content_type="application/json")
+    assert response.status_code == 302
+    with scope(event=event):
+        existing.refresh_from_db()
+        assert existing.linked_room_id == talks_room.pk
+        # No duplicate created
+        assert ShiftLocation.objects.filter(event=event, name="Talks Room A").count() == 1
+
+
+@pytest.mark.django_db
+def test_import_skips_already_linked_rooms(orga_client, event, talks_room):
+    with scope(event=event):
+        ShiftLocation.objects.create(event=event, name="Talks Room A", linked_room=talks_room)
+    url = reverse("plugins:teamshifts:import_talks_rooms", kwargs={"organizer": event.organizer.slug, "event": event.slug})
+    response = orga_client.post(url, data={"room_ids": [talks_room.pk]}, content_type="application/json")
+    assert response.status_code == 302
+    with scope(event=event):
+        assert ShiftLocation.objects.filter(event=event, linked_room=talks_room).count() == 1
+
+
+@pytest.mark.django_db
+def test_linked_location_is_read_only_in_list(orga_client, event, talks_room):
+    with scope(event=event):
+        ShiftLocation.objects.create(event=event, name="Talks Room A", linked_room=talks_room)
+    url = reverse("plugins:teamshifts:locations", kwargs={"organizer": event.organizer.slug, "event": event.slug})
+    response = orga_client.get(url)
+    assert response.status_code == 200
+    assert b"Read-only" in response.content
+
+
+@pytest.mark.django_db
+def test_linked_location_edit_is_blocked(orga_client, event, talks_room):
+    with scope(event=event):
+        location = ShiftLocation.objects.create(event=event, name="Talks Room A", linked_room=talks_room)
+    url = reverse(
+        "plugins:teamshifts:location_edit",
+        kwargs={"organizer": event.organizer.slug, "event": event.slug, "pk": location.pk},
+    )
+    response = orga_client.post(url, {"name": "Renamed", "description": ""})
+    assert response.status_code == 302
+    with scope(event=event):
+        location.refresh_from_db()
+        assert location.name == "Talks Room A"
+
+
+@pytest.mark.django_db
+def test_deleted_room_shows_badge(orga_client, event):
+    from eventyay.base.models.room import Room
+
+    with scope(event=event):
+        room = Room.objects.create(event=event, name="Talks Room A")
+        ShiftLocation.objects.create(event=event, name="Talks Room A", linked_room=room)
+        room.deleted = True
+        room.save(update_fields=["deleted"])
+    url = reverse("plugins:teamshifts:locations", kwargs={"organizer": event.organizer.slug, "event": event.slug})
+    response = orga_client.get(url)
+    assert response.status_code == 200
+    assert b"Deleted in Talks" in response.content
+
+
+@pytest.mark.django_db
+def test_shift_form_excludes_unavailable_linked_locations(event, talks_room):
+    from eventyay.base.models.room import Room
+
+    from teamshifts.forms import ShiftForm
+
+    with scope(event=event):
+        available = ShiftLocation.objects.create(event=event, name="Native Location")
+        linked_ok = ShiftLocation.objects.create(event=event, name="Talks Room A", linked_room=talks_room)
+
+        unscheduled_room = Room.objects.create(event=event, name="Unscheduled", is_unscheduled=True)
+        linked_unscheduled = ShiftLocation.objects.create(event=event, name="Unscheduled Loc", linked_room=unscheduled_room)
+        deleted_talks_room = Room.objects.create(event=event, name="Deleted", deleted=True)
+        linked_deleted = ShiftLocation.objects.create(event=event, name="Deleted Loc", linked_room=deleted_talks_room)
+
+        form = ShiftForm(event=event)
+        location_ids = set(form.fields["location"].queryset.values_list("pk", flat=True))
+
+    assert available.pk in location_ids
+    assert linked_ok.pk in location_ids
+    assert linked_unscheduled.pk not in location_ids
+    assert linked_deleted.pk not in location_ids

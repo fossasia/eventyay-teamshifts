@@ -695,7 +695,12 @@ class ShiftForm(forms.ModelForm):
                     self.initial["end_time"] = now_local
 
             with scopes_disabled():
-                self.fields["location"].queryset = ShiftLocation.objects.filter(event=event)
+                self.fields["location"].queryset = (
+                    ShiftLocation.objects.filter(event=event)
+                    .select_related("linked_room")
+                    .exclude(linked_room__deleted=True)
+                    .exclude(linked_room__is_unscheduled=True)
+                )
 
     def clean(self):
         cleaned_data = super().clean()

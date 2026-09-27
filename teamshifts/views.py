@@ -630,22 +630,23 @@ class QuestionEditView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Vie
                     if saved.variant not in ("choices", "choices_dropdown", "multiple_choice"):
                         TeamApplicationQuestionOption.objects.filter(question=saved).delete()
 
-                    option_formset.instance = saved
-                    options = option_formset.save(commit=False)
+                    if saved.variant in ("choices", "choices_dropdown", "multiple_choice"):
+                        option_formset.instance = saved
+                        options = option_formset.save(commit=False)
 
-                    for option in options:
-                        option.question = saved
+                        for option in options:
+                            option.question = saved
 
-                    deleted_options = option_formset.deleted_objects
-                    for option in deleted_options:
-                        option.delete()
+                        deleted_options = option_formset.deleted_objects
+                        for option in deleted_options:
+                            option.delete()
 
-                    ordered_forms = option_formset.ordered_forms
-                    for position, option_form in enumerate(ordered_forms):
-                        option = option_form.instance
-                        option.question = saved
-                        option.position = position
-                        option.save()
+                        ordered_forms = option_formset.ordered_forms
+                        for position, option_form in enumerate(ordered_forms):
+                            option = option_form.instance
+                            option.question = saved
+                            option.position = position
+                            option.save()
 
             if instance is None:
                 with scope(event=request.event):

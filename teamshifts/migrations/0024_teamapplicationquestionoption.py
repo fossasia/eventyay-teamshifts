@@ -30,7 +30,7 @@ def migrate_question_options(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("teamshifts", "0022_membercertificate_notified_at"),
+        ("teamshifts", "0023_shiftlocation_linked_room"),
     ]
 
     operations = [

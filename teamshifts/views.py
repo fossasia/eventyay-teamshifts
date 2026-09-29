@@ -116,6 +116,7 @@ from .permissions import (
     get_allowed_role_ids,
     has_any_teamshifts_permission,
     has_teamshifts_permission,
+    log_permission_denied,
 )
 from .services.calendar import get_calendar_token_user, get_member_assignments, get_or_create_calendar_token
 from .services.certificates import maybe_auto_issue_certificate, send_selected_certificates_task
@@ -389,6 +390,7 @@ class TeamRoleListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Sor
 
     def post(self, request, *args, **kwargs):
         if not has_teamshifts_permission(request.user, request.organizer, request.event, "can_teamshifts_create_roles", request=request):
+            log_permission_denied(request, "create_roles")
             raise PermissionDenied(_("You do not have permission to create roles."))
         form = TeamRoleForm(request.POST)
         if form.is_valid():
@@ -425,6 +427,7 @@ class TeamRoleDeleteView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, V
         with scope(event=event):
             role = get_object_or_404(TeamRole, pk=kwargs["pk"], event=event)
             if not can_act_on_role(request.user, request.organizer, event, role.pk, request=request):
+                log_permission_denied(request, "manage_role")
                 raise PermissionDenied(_("You do not have permission to manage this role."))
             if role.shift_assignments.exists():
                 messages.error(request, _("Cannot delete '%s': it is used by existing shifts.") % role.name)
@@ -443,6 +446,7 @@ class TeamRoleEditView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Vie
         with scope(event=request.event):
             role = get_object_or_404(TeamRole, pk=kwargs["pk"], event=request.event)
             if not can_act_on_role(request.user, request.organizer, request.event, role.pk, request=request):
+                log_permission_denied(request, "manage_role")
                 raise PermissionDenied(_("You do not have permission to manage this role."))
             form = TeamRoleForm(instance=role)
         return render(request, self.template_name, {"form": form, "role": role})
@@ -451,6 +455,7 @@ class TeamRoleEditView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Vie
         with scope(event=request.event):
             role = get_object_or_404(TeamRole, pk=kwargs["pk"], event=request.event)
             if not can_act_on_role(request.user, request.organizer, request.event, role.pk, request=request):
+                log_permission_denied(request, "manage_role")
                 raise PermissionDenied(_("You do not have permission to manage this role."))
             form = TeamRoleForm(request.POST, instance=role)
             if form.is_valid():

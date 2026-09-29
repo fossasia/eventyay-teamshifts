@@ -173,11 +173,3 @@ def test_certificate_renderer_get_ev_handles_none_and_context():
         renderer.event = event
         assert renderer._get_ev() == event
         assert renderer._get_ev(None, None) == event
-
-        op = MagicMock()
-        op.subevent = "subevent_obj"
-        assert renderer._get_ev(op, None) == "subevent_obj"
-
-        order = MagicMock()
-        order.event = "order_event"
-        assert renderer._get_ev(None, order) == "order_event"

@@ -4,9 +4,14 @@ from eventyay.base.models import Event, Organizer, User
 
 
 @pytest.fixture
-def event(db):
+def organizer(db):
+    """Create a test organizer."""
+    return Organizer.objects.create(name="Test Organizer", slug="test-organizer")
+
+
+@pytest.fixture
+def event(db, organizer):
     """Create a test event with an organizer."""
-    organizer = Organizer.objects.create(name="Test Organizer", slug="test-organizer")
     event = Event.objects.create(
         organizer=organizer,
         name="Test Event",

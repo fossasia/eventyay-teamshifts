@@ -13,12 +13,12 @@ from eventyay.base.email import SimpleFunctionalMailTextPlaceholder
 from eventyay.base.models.organizer import Team
 from eventyay.base.signals import register_mail_placeholders
 from eventyay.common.signals import periodic_task, user_menu_items
-from eventyay.control.signals import event_dashboard_components, nav_event_common, nav_global
+from eventyay.control.signals import event_dashboard_components, nav_event_common, nav_global, nav_organizer
 from eventyay.multidomain.urlreverse import build_absolute_uri
 from eventyay.presale.signals import header_nav_tabs
 
 from .models import ApplicationStatus, CallForTeamMembers, ShiftAssignment, TeamMemberApplication, TeamRole, TeamShiftsEmailQueue
-from .permissions import has_any_teamshifts_permission
+from .permissions import has_any_teamshifts_permission, has_organizer_teamshifts_access
 from .tasks import send_queued_email
 
 logger = logging.getLogger(__name__)
@@ -57,6 +57,27 @@ def teamshifts_nav_event_common(sender, request=None, **kwargs):
             "url": reverse("plugins:teamshifts:dashboard", kwargs=url_kwargs),
             "icon": "users",
             "active": bool(match and match.namespace == "plugins:teamshifts"),
+        }
+    ]
+
+
+@receiver(nav_organizer, dispatch_uid="teamshifts_nav_organizer")
+def teamshifts_nav_organizer(sender, request=None, **kwargs):
+    if request is None or not getattr(request, "user", None) or not request.user.is_authenticated:
+        return []
+    with scopes_disabled():
+        if not sender.events.filter(plugins__contains="teamshifts").exists():
+            return []
+    if not has_organizer_teamshifts_access(request.user, sender, request=request):
+        return []
+    url_kwargs = {"organizer": sender.slug}
+    match = getattr(request, "resolver_match", None)
+    return [
+        {
+            "label": _("TeamShifts"),
+            "url": reverse("plugins:teamshifts:organizer_dashboard", kwargs=url_kwargs),
+            "icon": "users",
+            "active": bool(match and match.url_name == "organizer_dashboard"),
         }
     ]
 

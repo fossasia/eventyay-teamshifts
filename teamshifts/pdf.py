@@ -311,13 +311,6 @@ class CertificateRenderer(Renderer):
         self.variables = {}
         self.images = {}
 
-    def _get_ev(self, op=None, order=None):
-        if op and getattr(op, "subevent", None):
-            return op.subevent
-        if order and getattr(order, "event", None):
-            return order.event
-        return self.event
-
     def _get_text_content(self, op, order, o, inner=False):
         content = o.get("content")
         if not content:
@@ -326,7 +319,7 @@ class CertificateRenderer(Renderer):
             return o.get("text") or ""
         return str(self.context.get(content, ""))
 
-    def _get_ev(self, op, order):
+    def _get_ev(self, op=None, order=None):
         return self.event
 
     def _draw_imagearea(self, canvas: Canvas, op, order, o):

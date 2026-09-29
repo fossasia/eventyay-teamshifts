@@ -2856,7 +2856,6 @@ class ShiftWithdrawView(PublicShiftScheduleMixin, View):
 
 
 def _notify_organizers_shift_dropped(event, volunteer, shift):
-
     try:
         cfm = event.call_for_team_members
     except CallForTeamMembers.DoesNotExist:

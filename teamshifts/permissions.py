@@ -23,6 +23,7 @@ def log_permission_denied(request, error_code):
         user_id=user_id,
     )
 
+
 COORDINATOR_PERMISSIONS = frozenset(
     {
         "can_teamshifts_manage_applicants",

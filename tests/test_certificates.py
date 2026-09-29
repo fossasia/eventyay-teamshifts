@@ -1,9 +1,11 @@
 from datetime import timedelta
+from io import BytesIO
 
 import pytest
 from django.utils.timezone import now
 from django_scopes import scope
 from eventyay.base.models import User
+from pypdf import PdfReader
 
 from teamshifts.forms import CertificateSettingsForm
 from teamshifts.models import (
@@ -15,6 +17,7 @@ from teamshifts.models import (
     ShiftLocation,
     TeamMemberApplication,
 )
+from teamshifts.pdf import CertificateRenderer, default_layout, preview_context, render_certificate_pdf
 from teamshifts.services.certificates import completed_shift_count, member_qualifies
 
 
@@ -372,3 +375,53 @@ def test_certificate_editor_view_get_current_layout(event, rf):
         custom_layout = view.get_current_layout()
         custom_title = next(o for o in custom_layout if o.get("content") == "certificate_title")
         assert custom_title["color"] == custom_color
+
+
+@pytest.mark.django_db
+def test_certificate_renderer_get_ev_returns_event(event):
+    """_get_ev must return the event directly, because certificates have no order position."""
+    with scope(event=event, organizer=event.organizer):
+        renderer = CertificateRenderer(event, default_layout(), None, {"_event_color": "#c0392b"})
+
+        # The base implementation dereferences ``op.subevent or order.event``; draw_page()
+        # passes None for both, so the override has to short-circuit to the event.
+        assert renderer._get_ev(None, None) == event
+
+
+@pytest.mark.django_db
+def test_render_certificate_pdf_renders_pinned_and_group_formatted_text(event, settings_obj):
+    """Pinned/group-formatted text objects must still reach the rendered PDF."""
+    with scope(event=event, organizer=event.organizer):
+        context = preview_context(event)
+        layout = default_layout()
+        # The editor writes "pinned" plus the group-formatted properties onto every
+        # selected text object; the renderer has to tolerate and render them.
+        for obj in layout:
+            if obj.get("type") == "textarea":
+                obj["pinned"] = True
+                obj["color"] = [255, 0, 0, 1]
+                obj["fontFamily"] = "Open Sans"
+                obj["fontSize"] = "15.0"
+
+        pdf_bytes = render_certificate_pdf(settings_obj, context, layout=layout)
+
+    assert pdf_bytes.startswith(b"%PDF-")
+
+    reader = PdfReader(BytesIO(pdf_bytes))
+    assert len(reader.pages) == 1
+
+    text = reader.pages[0].extract_text()
+    # Pinning only locks the object in the editor; the text itself must be unchanged.
+    assert "Jane Member" in text
+    assert "Certificate of Appreciation" in text
+    # Every text object in the layout was rendered, including the pinned ones.
+    for obj in layout:
+        if obj.get("type") != "textarea":
+            continue
+        # Mirrors CertificateRenderer._get_text_content: "other" uses the object's own text.
+        rendered = obj.get("text") or "" if obj.get("content") == "other" else context[obj["content"]]
+        assert rendered.split()[0] in text
+
+    # Rendering must not mutate the caller's layout.
+    assert all(obj.get("pinned") is True for obj in layout if obj.get("type") == "textarea")
+    assert all(obj.get("color") == [255, 0, 0, 1] for obj in layout if obj.get("type") == "textarea")

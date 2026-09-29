@@ -319,6 +319,9 @@ class CertificateRenderer(Renderer):
             return o.get("text") or ""
         return str(self.context.get(content, ""))
 
+    def _get_ev(self, op, order):
+        return self.event
+
     def _draw_imagearea(self, canvas: Canvas, op, order, o):
         content = o.get("content")
         if content != "event_logo":

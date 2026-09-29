@@ -6,6 +6,24 @@ from django.utils.translation import gettext as _
 from django_scopes import scopes_disabled
 from eventyay.base.models.organizer import Team
 
+from .operational_log import OUTCOME_FAILURE, log_operation
+
+
+def log_permission_denied(request, error_code):
+    """Record a denial with ids only. Never changes the exception that follows."""
+    event = getattr(request, "event", None)
+    user = getattr(request, "user", None)
+    user_id = getattr(user, "pk", None) if getattr(user, "is_authenticated", False) else None
+    log_operation(
+        "permission.denied",
+        OUTCOME_FAILURE,
+        backend="teamshifts",
+        error_code=error_code,
+        event_id=getattr(event, "pk", None),
+        user_id=user_id,
+    )
+
+
 COORDINATOR_PERMISSIONS = frozenset(
     {
         "can_teamshifts_manage_applicants",
@@ -134,6 +152,7 @@ def teamshifts_permission_required(permission):
         @functools.wraps(function)
         def wrapper(request, *args, **kw):
             if not request.user.is_authenticated:
+                log_permission_denied(request, "unauthenticated")
                 raise PermissionDenied()
 
             if permission:
@@ -143,6 +162,7 @@ def teamshifts_permission_required(permission):
                 if has_any_teamshifts_permission(request.user, request.organizer, request.event, request=request):
                     return function(request, *args, **kw)
 
+            log_permission_denied(request, "permission_denied")
             raise PermissionDenied(_("You do not have permission to view this content."))
 
         return wrapper

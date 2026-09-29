@@ -13,6 +13,7 @@ from eventyay.celery_app import app
 from i18nfield.strings import LazyI18nString
 
 from .models import TeamShiftsEmailQueue
+from .operational_log import OUTCOME_FAILURE, OUTCOME_SUCCESS, log_operation
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,7 @@ def dispatch_scheduled_emails_task():
         cache_key = f"teamshifts_mail_queue_{queue_pk}_enqueued"
         if cache.add(cache_key, True, timeout=300):
             send_queued_email.delay(event_id, queue_pk)
+            log_operation("job.enqueue", OUTCOME_SUCCESS, backend="teamshifts", job_name="teamshifts.send_queued_email", event_id=event_id, object_id=queue_pk)
             logger.info("[TeamShifts] Dispatched scheduled email queue %s", queue_pk)
 
 
@@ -50,6 +52,20 @@ def dispatch_scheduled_emails_task():
     acks_late=True,
 )
 def send_queued_email(self, event_id: int, queue_id: int):
+    def _job(action, outcome, error_code=None):
+        event_pk = event_id.pk if isinstance(event_id, Event) else event_id
+        fields = {
+            "backend": "teamshifts",
+            "job_name": "teamshifts.send_queued_email",
+            "object_id": queue_id,
+        }
+        if isinstance(event_pk, int) and not isinstance(event_pk, bool):
+            fields["event_id"] = event_pk
+        if error_code:
+            fields["error_code"] = error_code
+        log_operation(action, outcome, **fields)
+
+    _job("job.start", OUTCOME_SUCCESS)
     if isinstance(event_id, Event):
         event = event_id
         original_event_id = event.pk
@@ -59,6 +75,7 @@ def send_queued_email(self, event_id: int, queue_id: int):
             event = Event.objects.get(pk=event_id)
         except Event.DoesNotExist:
             logger.error("[TeamShifts] Event %s not found for queue %s", event_id, queue_id)
+            _job("job.fail", OUTCOME_FAILURE, "missing_event")
             return
 
     try:
@@ -66,11 +83,14 @@ def send_queued_email(self, event_id: int, queue_id: int):
             queue = TeamShiftsEmailQueue.objects.select_related("event", "role_filter").filter(pk=queue_id, event=event).first()
             if queue is None:
                 logger.debug("[TeamShifts] Queue %s not found or locked", queue_id)
+                _job("job.finish", OUTCOME_SUCCESS)
                 return
             if queue.sent_at:
+                _job("job.finish", OUTCOME_SUCCESS)
                 return
             if queue.send_after and queue.send_after > now():
                 logger.debug("[TeamShifts] Queue %s not yet due, skipping", queue_id)
+                _job("job.finish", OUTCOME_SUCCESS)
                 return
             recipients = list(queue.recipients.select_related("user").all())
 
@@ -78,6 +98,7 @@ def send_queued_email(self, event_id: int, queue_id: int):
                 logger.warning("[TeamShifts] Queue %s has no recipients", queue_id)
                 queue.sent_at = now()
                 queue.save(update_fields=["sent_at"])
+                _job("job.finish", OUTCOME_SUCCESS)
                 return
 
             subject = LazyI18nString(queue.subject)
@@ -120,28 +141,37 @@ def send_queued_email(self, event_id: int, queue_id: int):
                     recipient.sent_at = None
                     recipient.error = str(exc)
                     recipient.save(update_fields=["error", "sent_at"])
-                    logger.exception("[TeamShifts] Send failed for %s", recipient.email)
+                    logger.exception("[TeamShifts] Send failed for recipient %s", recipient.pk)
+                    log_operation("mail.send", OUTCOME_FAILURE, backend="teamshifts", error_code="send_failed", event_id=event.pk, object_id=queue_id)
                     partial_send = True
 
             has_unsent = queue.recipients.filter(sent_at__isnull=True).exists()
             if not has_unsent:
                 queue.sent_at = now()
                 queue.save(update_fields=["sent_at"])
+                log_operation("mail.send", OUTCOME_SUCCESS, backend="teamshifts", event_id=event.pk, object_id=queue_id, recipient_count=len(recipients))
             else:
                 partial_send = True
     except Exception as exc:
         logger.exception("[TeamShifts] Unexpected failure for queue %s", queue_id)
         try:
+            _job("job.retry", OUTCOME_FAILURE, "retry")
             self.retry(exc=exc, args=[original_event_id, queue_id])
         except MaxRetriesExceededError:
             logger.error("[TeamShifts] Max retries exceeded for queue %s", queue_id)
+            _job("job.fail", OUTCOME_FAILURE, "max_retries")
         return
 
     if partial_send:
         try:
+            _job("job.retry", OUTCOME_FAILURE, "retry")
             self.retry(
                 exc=SendMailException("Partial send: some recipients failed"),
                 args=[original_event_id, queue_id],
             )
         except MaxRetriesExceededError:
             logger.error("[TeamShifts] Max retries exceeded for queue %s (partial send)", queue_id)
+            _job("job.fail", OUTCOME_FAILURE, "max_retries")
+        return
+
+    _job("job.finish", OUTCOME_SUCCESS)

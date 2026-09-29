@@ -13,6 +13,7 @@ from eventyay.celery_app import app
 from i18nfield.strings import LazyI18nString
 
 from .models import TeamShiftsEmailQueue
+from .operational_log import OUTCOME_FAILURE, OUTCOME_SUCCESS, log_operation
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,7 @@ def dispatch_scheduled_emails_task():
         cache_key = f"teamshifts_mail_queue_{queue_pk}_enqueued"
         if cache.add(cache_key, True, timeout=300):
             send_queued_email.delay(event_id, queue_pk)
+            log_operation("job.enqueue", OUTCOME_SUCCESS, backend="teamshifts", job_name="teamshifts.send_queued_email", event_id=event_id, object_id=queue_pk)
             logger.info("[TeamShifts] Dispatched scheduled email queue %s", queue_pk)
 
 
@@ -50,6 +52,14 @@ def dispatch_scheduled_emails_task():
     acks_late=True,
 )
 def send_queued_email(self, event_id: int, queue_id: int):
+    log_operation(
+        "job.start",
+        OUTCOME_SUCCESS,
+        backend="teamshifts",
+        job_name="teamshifts.send_queued_email",
+        event_id=event_id if isinstance(event_id, int) else None,
+        object_id=queue_id,
+    )
     if isinstance(event_id, Event):
         event = event_id
         original_event_id = event.pk
@@ -120,13 +130,15 @@ def send_queued_email(self, event_id: int, queue_id: int):
                     recipient.sent_at = None
                     recipient.error = str(exc)
                     recipient.save(update_fields=["error", "sent_at"])
-                    logger.exception("[TeamShifts] Send failed for %s", recipient.email)
+                    logger.exception("[TeamShifts] Send failed for recipient %s", recipient.pk)
+                    log_operation("mail.send", OUTCOME_FAILURE, backend="teamshifts", error_code="send_failed", event_id=event.pk, object_id=queue_id)
                     partial_send = True
 
             has_unsent = queue.recipients.filter(sent_at__isnull=True).exists()
             if not has_unsent:
                 queue.sent_at = now()
                 queue.save(update_fields=["sent_at"])
+                log_operation("mail.send", OUTCOME_SUCCESS, backend="teamshifts", event_id=event.pk, object_id=queue_id, recipient_count=len(recipients))
             else:
                 partial_send = True
     except Exception as exc:
@@ -135,6 +147,9 @@ def send_queued_email(self, event_id: int, queue_id: int):
             self.retry(exc=exc, args=[original_event_id, queue_id])
         except MaxRetriesExceededError:
             logger.error("[TeamShifts] Max retries exceeded for queue %s", queue_id)
+            log_operation(
+                "job.fail", OUTCOME_FAILURE, backend="teamshifts", job_name="teamshifts.send_queued_email", error_code="max_retries", object_id=queue_id
+            )
         return
 
     if partial_send:

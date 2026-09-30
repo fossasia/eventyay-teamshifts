@@ -2214,7 +2214,12 @@ class ShiftScheduleTalkAPIView(PluginActiveMixin, TeamShiftsPermissionRequiredMi
                 if role_id:
                     ShiftRoleAssignment.objects.create(shift=shift, role_id=role_id, capacity=data.get("capacity", 1))
 
-            return JsonResponse({"status": "ok"})
+            shift = Shift.objects.prefetch_related(
+                "role_assignments__role",
+                "assignments__team_member",
+                "assignments__role",
+            ).get(pk=shift.pk)
+            return JsonResponse({"status": "ok", "talk": _shift_talk_payload(shift)})
 
     def delete(self, request, *args, **kwargs):
         event = request.event
@@ -2341,7 +2346,12 @@ class ShiftScheduleAssignmentsAPIView(PluginActiveMixin, TeamShiftsPermissionReq
                 team_member=user,
                 defaults={"role_id": role_id, "assigned_by": request.user},
             )
-            return JsonResponse({"status": "ok"})
+            shift = Shift.objects.prefetch_related(
+                "role_assignments__role",
+                "assignments__team_member",
+                "assignments__role",
+            ).get(pk=shift.pk)
+            return JsonResponse({"status": "ok", "roles": _shift_roles_payload(shift)})
 
     def delete(self, request, *args, **kwargs):
         event = request.event
@@ -2375,7 +2385,12 @@ class ShiftScheduleAssignmentsAPIView(PluginActiveMixin, TeamShiftsPermissionReq
             assignment = ShiftAssignment.objects.filter(shift=shift, team_member_id=user_id, role_id=role_id).first()
             if assignment:
                 assignment.delete()
-            return JsonResponse({"status": "ok"})
+            shift = Shift.objects.prefetch_related(
+                "role_assignments__role",
+                "assignments__team_member",
+                "assignments__role",
+            ).get(pk=shift.pk)
+            return JsonResponse({"status": "ok", "roles": _shift_roles_payload(shift)})
 
 
 class ShiftScheduleAvailabilitiesAPIView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):
@@ -2626,6 +2641,7 @@ class PublicShiftScheduleAPIView(PublicShiftScheduleMixin, View):
                 "mode": "shifts",
                 "current_user_id": request.user.pk,
                 "current_user_name": request.user.get_full_name() or request.user.email,
+                "can_manage_shifts": has_teamshifts_permission(request.user, request.organizer, event, "can_teamshifts_create_shifts", request=request),
                 "event_start": event.date_from.isoformat() if event.date_from else "",
                 "event_end": event.date_to.isoformat() if event.date_to else "",
                 "timezone": str(event.timezone),
@@ -2667,6 +2683,8 @@ class PublicShiftScheduleView(PublicShiftScheduleMixin, TemplateView):
         with scope(event=event):
             locations = list(event.shift_locations.select_related("linked_room").all())
             shifts = list(_public_shifts_queryset(event))
+            roles = [{"id": role.id, "name": {"en": role.name}, "is_restricted": role.is_restricted} for role in event.team_roles.all()]
+            can_manage_shifts = has_teamshifts_permission(self.request.user, self.organizer, event, "can_teamshifts_create_shifts", request=self.request)
 
         rooms = [_serialize_location_room(loc) for loc in locations if _location_is_available(loc)]
 
@@ -2674,8 +2692,10 @@ class PublicShiftScheduleView(PublicShiftScheduleMixin, TemplateView):
             "mode": "shifts",
             "current_user_id": self.request.user.pk,
             "current_user_name": self.request.user.get_full_name() or self.request.user.email,
+            "can_manage_shifts": can_manage_shifts,
             "talks": [_shift_talk_payload(shift) for shift in shifts],
             "rooms": rooms,
+            "roles": roles,
             "tracks": [],
             "speakers": [],
             "version": None,

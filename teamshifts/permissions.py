@@ -163,23 +163,14 @@ def has_organizer_teamshifts_access(user, organizer, request=None):
     """Check if user has any TeamShifts team or management access for the organizer."""
     if not user.is_authenticated:
         return False
-    try:
-        if user.has_organizer_permission(organizer, "can_change_organizer_settings", request=request):
-            return True
-    except TypeError:
-        if user.has_organizer_permission(organizer, "can_change_organizer_settings"):
-            return True
+    if user.has_organizer_permission(organizer, "can_change_organizer_settings", request=request):
+        return True
     with scopes_disabled():
         if Team.objects.filter(organizer=organizer, members=user).exclude(teamshifts_role="").exists():
             return True
-        for event in organizer.events.filter(plugins__contains="teamshifts"):
-            try:
-                if user.has_event_permission(organizer, event, "can_change_event_settings", request=request):
-                    return True
-            except TypeError:
-                if user.has_event_permission(organizer, event, "can_change_event_settings"):
-                    return True
-    return False
+        return (
+            user.get_events_with_permission("can_change_event_settings", request=request).filter(organizer=organizer, plugins__contains="teamshifts").exists()
+        )
 
 
 def get_user_teamshifts_events(user, organizer, request=None):
@@ -190,6 +181,11 @@ def get_user_teamshifts_events(user, organizer, request=None):
     with scopes_disabled():
         all_events = organizer.events.filter(plugins__contains="teamshifts")
         user_teams = list(Team.objects.filter(organizer=organizer, members=user).exclude(teamshifts_role="").prefetch_related("limit_events"))
+        manageable_event_ids = set(
+            user.get_events_with_permission("can_change_event_settings", request=request)
+            .filter(organizer=organizer, plugins__contains="teamshifts")
+            .values_list("id", flat=True)
+        )
         eligible_events = []
         for event in all_events:
             best_role = ""
@@ -197,22 +193,8 @@ def get_user_teamshifts_events(user, organizer, request=None):
                 if team.all_events or event in team.limit_events.all():
                     if ROLE_LEVELS.get(team.teamshifts_role, 0) > ROLE_LEVELS.get(best_role, 0):
                         best_role = team.teamshifts_role
-            if not best_role:
-                try:
-                    can_change = user.has_event_permission(
-                        organizer,
-                        event,
-                        "can_change_event_settings",
-                        request=request,
-                    )
-                except TypeError:
-                    can_change = user.has_event_permission(
-                        organizer,
-                        event,
-                        "can_change_event_settings",
-                    )
-                if can_change:
-                    best_role = "coordinator"
+            if not best_role and event.id in manageable_event_ids:
+                best_role = "coordinator"
             if best_role:
                 eligible_events.append((event, best_role))
         return eligible_events

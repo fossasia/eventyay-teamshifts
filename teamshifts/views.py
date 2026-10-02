@@ -21,7 +21,7 @@ from django.utils.decorators import method_decorator
 from django.utils.formats import date_format
 from django.utils.html import escape, strip_tags
 from django.utils.http import url_has_allowed_host_and_scheme
-from django.utils.timezone import now
+from django.utils.timezone import localtime, now
 from django.utils.translation import get_language, get_language_info, gettext_lazy as _, ngettext
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.generic import DeleteView, FormView, ListView, TemplateView, View
@@ -1013,6 +1013,7 @@ class PublicApplyView(FormView):
             self.request.user.fullname = full_name
             self.request.user.save(update_fields=["fullname"])
         transaction.on_commit(lambda app=application: queue_lifecycle_email(app, EmailTemplateRoles.APPLICATION_RECEIVED))
+        transaction.on_commit(lambda app=application: _notify_organizers_new_application(event, app))
         messages.success(self.request, _("Your application has been submitted."))
         return redirect(
             reverse(
@@ -2887,6 +2888,107 @@ def _notify_organizers_shift_dropped(event, volunteer, shift):
         recipients=organizer_users,
         status_filter="",
     )
+
+
+def _notify_organizers_new_application(event, application):
+    try:
+        cfm = event.call_for_team_members
+    except CallForTeamMembers.DoesNotExist:
+        return
+
+    try:
+        template = cfm.get_mail_template(EmailTemplateRoles.NEW_APPLICATION_ORGANIZER)
+    except Exception:
+        logger.exception("Failed to load new-application email template for event %s", event.pk)
+        return
+
+    with scopes_disabled():
+        team_users = list(
+            User.objects.filter(
+                teams__organizer=event.organizer,
+            ).distinct()
+        )
+
+        organizer_users = [
+            user
+            for user in team_users
+            if has_teamshifts_permission(
+                user,
+                event.organizer,
+                event,
+                "can_teamshifts_manage_applicants",
+            )
+        ]
+
+        if not organizer_users:
+            organizer_users = [
+                user
+                for user in team_users
+                if user.has_event_permission(
+                    event.organizer,
+                    event,
+                    "can_change_event_settings",
+                )
+            ]
+
+    if not organizer_users:
+        return
+
+    pending_count = TeamMemberApplication.objects.filter(
+        event=event,
+        status=ApplicationStatus.PENDING,
+    ).count()
+
+    application_url = build_absolute_uri(
+        event,
+        "plugins:teamshifts:application_detail",
+        kwargs={
+            "organizer": event.organizer.slug,
+            "event": event.slug,
+            "pk": application.pk,
+        },
+    )
+
+    common_context = {
+        "event_name": event.name,
+        "full_name": application.user.fullname,
+        "submitted_at": localtime(application.created_at).strftime("%Y-%m-%d %H:%M %Z"),
+        "pending_count": pending_count,
+        "application_url": application_url,
+    }
+
+    visible_email_users = []
+    hidden_email_users = []
+
+    for user in organizer_users:
+        if can_view_email_addresses(user, event.organizer, event):
+            visible_email_users.append(user)
+        else:
+            hidden_email_users.append(user)
+
+    if visible_email_users:
+        queue_email(
+            event=event,
+            subject=template.subject,
+            message=str(template.body).format(
+                **common_context,
+                email=application.user.email,
+            ),
+            recipients=visible_email_users,
+            status_filter="",
+        )
+
+    if hidden_email_users:
+        queue_email(
+            event=event,
+            subject=template.subject,
+            message=str(template.body).format(
+                **common_context,
+                email="",
+            ),
+            recipients=hidden_email_users,
+            status_filter="",
+        )
 
 
 class MyShiftsView(PublicShiftScheduleMixin, TemplateView):

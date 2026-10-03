@@ -5,7 +5,7 @@ import re
 import secrets
 from collections import defaultdict
 from datetime import timedelta
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 import dateutil.parser
 from django.contrib import messages
@@ -41,6 +41,7 @@ from .forms import (
     EmailComposeForm,
     EmailQueueEditForm,
     EmailTemplateForm,
+    MyShiftsFilterForm,
     ShiftForm,
     ShiftLocationForm,
     ShiftRoleAssignmentForm,
@@ -56,9 +57,11 @@ from .models import (
     ApplicationStatus,
     CallForTeamMembers,
     EmailTemplateRoles,
+    MemberCertificate,
     MemberVoucher,
     Shift,
     ShiftAssignment,
+    ShiftCalendarToken,
     ShiftLocation,
     ShiftRoleAssignment,
     TeamApplicationAnswer,
@@ -72,6 +75,12 @@ from .models import (
     normalize_field_order,
 )
 from .permissions import TeamShiftsPermissionRequiredMixin, can_act_on_role, can_view_email_addresses, get_allowed_role_ids, has_teamshifts_permission
+from .services.calendar import (
+    build_shift_calendar,
+    get_calendar_token_user,
+    get_member_assignments,
+    get_or_create_calendar_token,
+)
 from .services.certificates import maybe_auto_issue_certificate
 from .services.email import get_recipients, queue_email, queue_lifecycle_email
 from .services.members import AlreadyMemberError, add_member_from_organizer
@@ -2929,41 +2938,24 @@ class MyShiftsGlobalView(LoginRequiredMixin, TemplateView):
     def dispatch(self, request, *args, **kwargs):
         if not request.user.is_authenticated:
             return super().dispatch(request, *args, **kwargs)
-        with scopes_disabled():
-            has_active = ShiftAssignment.objects.filter(team_member=request.user, shift__event__plugins__contains="teamshifts").exists()
-        if not has_active:
+        has_active = get_member_assignments(request.user).exists()
+        has_calendar_token = ShiftCalendarToken.objects.filter(user=request.user).exists()
+        if not has_active and not has_calendar_token:
             raise Http404
         return super().dispatch(request, *args, **kwargs)
 
     def get_context_data(self, **kwargs):
-        from .forms import MyShiftsFilterForm
-
         ctx = super().get_context_data(**kwargs)
         filter_form = MyShiftsFilterForm(self.request.GET, user=self.request.user)
-        with scopes_disabled():
-            qs = (
-                ShiftAssignment.objects.filter(
-                    team_member=self.request.user,
-                    shift__event__plugins__contains="teamshifts",
-                )
-                .select_related(
-                    "shift",
-                    "shift__event",
-                    "shift__event__organizer",
-                    "shift__location",
-                    "role",
-                    "assigned_by",
-                )
-                .order_by("shift__event__name", "shift__start_time")
-            )
+        qs = get_member_assignments(self.request.user).order_by("shift__event__name", "shift__start_time")
 
-            if filter_form.is_valid():
-                event = filter_form.cleaned_data.get("event")
-                search = filter_form.cleaned_data.get("search")
-                if event:
-                    qs = qs.filter(shift__event=event)
-                if search:
-                    qs = qs.filter(shift__name__icontains=search)
+        if filter_form.is_valid():
+            event = filter_form.cleaned_data.get("event")
+            search = filter_form.cleaned_data.get("search")
+            if event:
+                qs = qs.filter(shift__event=event)
+            if search:
+                qs = qs.filter(shift__name__icontains=search)
 
         shifts_by_event = defaultdict(list)
         for assignment in qs:
@@ -2973,8 +2965,6 @@ class MyShiftsGlobalView(LoginRequiredMixin, TemplateView):
 
         event_ids = {e.pk for e in shifts_by_event}
         with scopes_disabled():
-            from .models import MemberCertificate
-
             cert_event_ids = set(
                 MemberCertificate.objects.filter(
                     application__user=self.request.user,
@@ -2985,7 +2975,65 @@ class MyShiftsGlobalView(LoginRequiredMixin, TemplateView):
                 .values_list("application__event_id", flat=True)
             )
         ctx["cert_event_ids"] = cert_event_ids
+
+        token = get_or_create_calendar_token(self.request.user)
+        ctx["calendar_links"] = _build_calendar_links(self.request, token.token)
+        ctx["event_calendar_links"] = {event.pk: _build_calendar_links(self.request, token.token, event.pk) for event in shifts_by_event}
         return ctx
+
+
+def _build_calendar_links(request, token, event_id=None):
+    query = f"?{urlencode({'event': event_id})}" if event_id is not None else ""
+    feed_url = request.build_absolute_uri(reverse("plugins:teamshifts:my_shifts_calendar_feed", kwargs={"token": token})) + query
+    webcal_url = urlparse(feed_url)._replace(scheme="webcal").geturl()
+    download_url = reverse("plugins:teamshifts:my_shifts_calendar_download") + query
+    return {
+        "feed": feed_url,
+        "webcal": webcal_url,
+        "google": f"https://calendar.google.com/calendar/r?{urlencode({'cid': feed_url})}",
+        "download": download_url,
+    }
+
+
+def _parse_calendar_event_filter(request):
+    raw = request.GET.get("event")
+    if raw is None:
+        return None
+    if not raw.isdigit():
+        raise Http404
+    return int(raw)
+
+
+def _calendar_response(request, user, event_id, disposition):
+    assignments = get_member_assignments(user, event_id)
+    my_shifts_url = request.build_absolute_uri(reverse("plugins:teamshifts:my_shifts_global"))
+    response = HttpResponse(build_shift_calendar(assignments, my_shifts_url), content_type="text/calendar; charset=utf-8")
+    response["Cache-Control"] = "private, no-cache"
+    if disposition:
+        response["Content-Disposition"] = f'attachment; filename="{disposition}.ics"'
+    return response
+
+
+class MyShiftsCalendarDownloadView(LoginRequiredMixin, View):
+    def get(self, request):
+        event_id = _parse_calendar_event_filter(request)
+        return _calendar_response(request, request.user, event_id, "my-shifts")
+
+
+class MyShiftsCalendarFeedView(View):
+    def get(self, request, token):
+        user = get_calendar_token_user(token)
+        if user is None:
+            raise Http404
+        event_id = _parse_calendar_event_filter(request)
+        return _calendar_response(request, user, event_id, None)
+
+
+class MyShiftsCalendarResetView(LoginRequiredMixin, View):
+    def post(self, request):
+        get_or_create_calendar_token(request.user).regenerate()
+        messages.success(request, _("Your calendar link has been reset. The old link no longer works."))
+        return redirect("plugins:teamshifts:my_shifts_global")
 
 
 class MyShiftsCertificateDownloadView(LoginRequiredMixin, View):

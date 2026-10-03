@@ -14,6 +14,10 @@ def generate_cfm_secret():
     return secrets.token_urlsafe(24)
 
 
+def generate_calendar_token():
+    return secrets.token_urlsafe(32)
+
+
 CFM_BUILTIN_FIELD_KEYS = ("full_name", "email", "phone", "availability")
 
 CFM_LOCKED_FIELDS = frozenset({"email"})
@@ -443,6 +447,34 @@ class ShiftAssignment(models.Model):
 
     def __str__(self):
         return f"{self.team_member.email} → {self.shift}"
+
+
+class ShiftCalendarToken(models.Model):
+    user = models.OneToOneField(
+        "base.User",
+        on_delete=models.CASCADE,
+        related_name="shift_calendar_token",
+    )
+    token = models.CharField(
+        max_length=64,
+        unique=True,
+        default=generate_calendar_token,
+        verbose_name=_("Calendar token"),
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    regenerated_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = _("Shift calendar token")
+        verbose_name_plural = _("Shift calendar tokens")
+
+    def __str__(self):
+        return f"Calendar token for {self.user.email}"
+
+    def regenerate(self):
+        self.token = generate_calendar_token()
+        self.regenerated_at = timezone.now()
+        self.save(update_fields=["token", "regenerated_at"])
 
 
 class QuestionVariant(models.TextChoices):

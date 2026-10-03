@@ -37,6 +37,21 @@
     </form>
 
     <div class='pull-right'>
+      {% if can_download_members %}
+        <details class='dropdown teamshifts-download-dropdown' aria-haspopup='menu' role='menu'>
+          <summary class='btn btn-default'>
+            <i class='fa fa-download'></i> {% trans 'Download' %} <i class='fa fa-caret-down'></i>
+          </summary>
+          <div class='dropdown-content dropdown-front dropdown-content-sw'>
+            <a class='dropdown-item' href='{{ download_xlsx_url }}' role='menuitem'>
+              <i class='fa fa-file-excel-o'></i> {% trans 'Excel (.xlsx)' %}
+            </a>
+            <a class='dropdown-item' href='{{ download_csv_url }}' role='menuitem'>
+              <i class='fa fa-file-text-o'></i> {% trans 'CSV' %}
+            </a>
+          </div>
+        </details>
+      {% endif %}
       {% if vouchers_enabled %}
         <button type='button' class='btn btn-primary' id='bulk-send-btn'
           {% if voucher_batch_empty %}title='{% trans "Voucher batch is empty — only resends are possible. Add more codes in Tickets → Vouchers." %}'{% endif %}>

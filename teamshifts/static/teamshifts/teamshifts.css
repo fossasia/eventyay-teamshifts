@@ -98,7 +98,11 @@ label .optional {
 
 .teamshifts-filter-bar {
     margin-bottom: 1em;
-    overflow: hidden;
+}
+
+.teamshifts-download-dropdown {
+    display: inline-block;
+    vertical-align: top;
 }
 
 .teamshifts-select-all-col {

@@ -75,6 +75,16 @@ from .permissions import TeamShiftsPermissionRequiredMixin, can_act_on_role, can
 from .services.certificates import maybe_auto_issue_certificate
 from .services.email import get_recipients, queue_email, queue_lifecycle_email
 from .services.members import AlreadyMemberError, add_member_from_organizer
+from .services.members_export import (
+    EXPORT_FORMAT_CSV,
+    EXPORT_FORMAT_XLSX,
+    EXPORT_FORMATS,
+    build_header,
+    build_rows,
+    export_filename,
+    get_export_questions,
+    render_export,
+)
 from .tasks import send_queued_email
 
 logger = logging.getLogger(__name__)
@@ -1836,11 +1846,7 @@ class ShiftDeleteView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Dele
         return super().delete(request, *args, **kwargs)
 
 
-class MembersListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, PaginationMixin, ListView):
-    permission = None
-    template_name = "teamshifts/members.html"
-    context_object_name = "members"
-
+class MembersQuerysetMixin:
     def get_queryset(self):
         event = self.request.event
         with scope(event=event):
@@ -1853,6 +1859,12 @@ class MembersListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Pagi
                     qs = qs.filter(Q(user__email__icontains=search) | Q(user__fullname__icontains=search))
                 else:
                     qs = qs.filter(Q(user__fullname__icontains=search))
+
+            role_id = self.request.GET.get("role", "").strip()
+            if role_id.isdigit():
+                qs = qs.filter(
+                    user_id__in=ShiftAssignment.objects.filter(shift__event=event, role_id=int(role_id)).values("team_member_id"),
+                )
 
             qs = (
                 qs.annotate(
@@ -1881,6 +1893,12 @@ class MembersListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Pagi
 
         return qs
 
+
+class MembersListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, MembersQuerysetMixin, PaginationMixin, ListView):
+    permission = None
+    template_name = "teamshifts/members.html"
+    context_object_name = "members"
+
     def _get_voucher_settings(self):
         try:
             return self.request.event.volunteer_voucher_settings
@@ -1901,6 +1919,15 @@ class MembersListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Pagi
             "can_teamshifts_manage_applicants",
             request=self.request,
         )
+        ctx["can_download_members"] = ctx["can_add_member"]
+        if ctx["can_download_members"]:
+            download_url = reverse(
+                "plugins:teamshifts:members_download",
+                kwargs={"organizer": self.request.organizer.slug, "event": self.request.event.slug},
+            )
+            filters = {key: self.request.GET[key].strip() for key in ("q", "role") if self.request.GET.get(key, "").strip()}
+            ctx["download_xlsx_url"] = f"{download_url}?{urlencode({**filters, 'format': EXPORT_FORMAT_XLSX})}"
+            ctx["download_csv_url"] = f"{download_url}?{urlencode({**filters, 'format': EXPORT_FORMAT_CSV})}"
 
         voucher_settings = self._get_voucher_settings()
         ctx["vouchers_enabled"] = bool(voucher_settings and voucher_settings.enabled and voucher_settings.voucher_tag)
@@ -1921,6 +1948,24 @@ class MembersListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Pagi
             ctx["voucher_batch_empty"] = False
 
         return ctx
+
+
+class MembersExportView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, MembersQuerysetMixin, View):
+    permission = "can_teamshifts_manage_applicants"
+
+    def get(self, request, *args, **kwargs):
+        export_format = request.GET.get("format", EXPORT_FORMAT_XLSX)
+        if export_format not in EXPORT_FORMATS:
+            return HttpResponseBadRequest("Unsupported export format.")
+        event = request.event
+        with scope(event=event):
+            members = list(self.get_queryset())
+        questions = get_export_questions(event)
+        payload = render_export(export_format, build_header(questions), build_rows(event, members, questions))
+        response = HttpResponse(payload, content_type=EXPORT_FORMATS[export_format])
+        response["Content-Disposition"] = f'attachment; filename="{export_filename(event, export_format)}"'
+        response["Cache-Control"] = "no-store"
+        return response
 
 
 class MemberCreateView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, FormView):

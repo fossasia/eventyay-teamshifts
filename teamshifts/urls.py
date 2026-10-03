@@ -202,6 +202,11 @@ urlpatterns = [
         name="members",
     ),
     path(
+        "teamshifts/event/<orgslug:organizer>/<slug:event>/members/download/",
+        views.MembersExportView.as_view(),
+        name="members_download",
+    ),
+    path(
         "teamshifts/event/<orgslug:organizer>/<slug:event>/members/add/",
         views.MemberCreateView.as_view(),
         name="member_add",

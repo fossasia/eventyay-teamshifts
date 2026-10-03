@@ -77,6 +77,52 @@ def test_apply_view_queues_received_email(mock_queue, client, event, call_for_te
         assert found, "queue_lifecycle_email callback not registered"
         mock_queue.assert_called_once()
 
+@pytest.mark.django_db
+@patch("teamshifts.views.queue_email")
+@patch("teamshifts.views.queue_lifecycle_email")
+def test_apply_view_queues_organizer_notification(
+    mock_lifecycle,
+    mock_queue_email,
+    client,
+    event,
+    call_for_team_members,
+    team_role,
+    applicant,
+    orga_user,
+    settings,
+):
+    settings.SITE_URL = "https://testserver"
+    client.force_login(applicant)
+
+    url = reverse(
+        "plugins:teamshifts:apply",
+        kwargs={"organizer": event.organizer.slug, "event": event.slug},
+    )
+    data = {
+        "full_name": "Applicant Name",
+        "email": applicant.email,
+        "phone_0": "+1",
+        "phone_1": "201 555 0123",
+        "accept_terms": True,
+    }
+
+    tc = TestCase()
+    with tc.captureOnCommitCallbacks(execute=False) as callbacks:
+        response = client.post(url, data)
+
+    with scope(event=event):
+        for cb in callbacks:
+            if "_notify_organizers_new_application" in cb.__code__.co_names:
+                cb()
+                break
+
+    assert response.status_code in (200, 302)
+    mock_queue_email.assert_called_once()
+
+    call = mock_queue_email.call_args
+    assert orga_user in call.kwargs["recipients"]
+    assert "Applicant Name" in call.kwargs["message"]
+    assert applicant.email in call.kwargs["message"]
 
 @pytest.fixture
 def pending_application(event, team_role, applicant):

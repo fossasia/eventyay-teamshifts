@@ -1012,8 +1012,16 @@ class PublicApplyView(FormView):
         if full_name and full_name != self.request.user.fullname:
             self.request.user.fullname = full_name
             self.request.user.save(update_fields=["fullname"])
-        transaction.on_commit(lambda app=application: queue_lifecycle_email(app, EmailTemplateRoles.APPLICATION_RECEIVED))
-        transaction.on_commit(lambda app=application: _notify_organizers_new_application(event, app))
+        transaction.on_commit(
+            lambda app=application: queue_lifecycle_email(
+                app, EmailTemplateRoles.APPLICATION_RECEIVED
+            ),
+            robust=True,
+        )
+        transaction.on_commit(
+            lambda app=application: _notify_organizers_new_application(event, app),
+            robust=True,
+        )
         messages.success(self.request, _("Your application has been submitted."))
         return redirect(
             reverse(

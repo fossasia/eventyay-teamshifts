@@ -95,7 +95,7 @@ def teamshifts_public_schedule_nav_tab(sender, request=None, **kwargs):
             user=request.user,
             status=ApplicationStatus.ACCEPTED,
         ).exists()
-    if not is_accepted:
+    if not is_accepted and not has_any_teamshifts_permission(request.user, sender.organizer, sender, request=request):
         return ""
     schedule_url = reverse(
         "plugins:teamshifts:public_shift_schedule",

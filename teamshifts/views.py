@@ -71,7 +71,14 @@ from .models import (
     VoucherStatus,
     normalize_field_order,
 )
-from .permissions import TeamShiftsPermissionRequiredMixin, can_act_on_role, can_view_email_addresses, get_allowed_role_ids, has_teamshifts_permission
+from .permissions import (
+    TeamShiftsPermissionRequiredMixin,
+    can_act_on_role,
+    can_view_email_addresses,
+    get_allowed_role_ids,
+    has_any_teamshifts_permission,
+    has_teamshifts_permission,
+)
 from .services.certificates import maybe_auto_issue_certificate
 from .services.email import get_recipients, queue_email, queue_lifecycle_email
 from .services.members import AlreadyMemberError, add_member_from_organizer
@@ -2575,6 +2582,7 @@ def _wants_json(request):
 
 class PublicShiftScheduleMixin:
     redirect_unpublished_to_schedule = True
+    allow_teamshifts_managers = False
 
     def dispatch(self, request, *args, **kwargs):
         if "teamshifts" not in request.event.get_plugins():
@@ -2588,7 +2596,14 @@ class PublicShiftScheduleMixin:
         self.event = request.event
         self.organizer = request.organizer
         self.member_application = _get_accepted_application(request, self.event)
-        if self.member_application is None:
+        if self.member_application is None and not (
+            self.allow_teamshifts_managers and has_any_teamshifts_permission(request.user, self.organizer, self.event, request=request)
+        ):
+            if _wants_json(request):
+                return JsonResponse(
+                    {"status": "error", "error": str(_("You need to be an accepted team member to view the shift schedule."))},
+                    status=403,
+                )
             messages.error(
                 request,
                 _("You need to be an accepted team member to view the shift schedule."),
@@ -2617,6 +2632,8 @@ class PublicShiftScheduleMixin:
 
 
 class PublicShiftScheduleAPIView(PublicShiftScheduleMixin, View):
+    allow_teamshifts_managers = True
+
     def get(self, request, *args, **kwargs):
         event = self.event
 
@@ -2655,6 +2672,7 @@ class PublicShiftScheduleAPIView(PublicShiftScheduleMixin, View):
 class PublicShiftScheduleView(PublicShiftScheduleMixin, TemplateView):
     template_name = "teamshifts/shift_schedule.html"
     redirect_unpublished_to_schedule = False
+    allow_teamshifts_managers = True
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -2701,6 +2719,8 @@ class PublicShiftScheduleView(PublicShiftScheduleMixin, TemplateView):
 
 
 class ShiftClaimView(PublicShiftScheduleMixin, View):
+    allow_teamshifts_managers = True
+
     def post(self, request, *args, **kwargs):
         event = self.event
         shift_pk = kwargs["pk"]
@@ -2772,6 +2792,7 @@ class ShiftClaimView(PublicShiftScheduleMixin, View):
 
 class ShiftDetailView(PublicShiftScheduleMixin, TemplateView):
     template_name = "teamshifts/shift_detail.html"
+    allow_teamshifts_managers = True
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -2808,6 +2829,8 @@ class ShiftDetailView(PublicShiftScheduleMixin, TemplateView):
 
 
 class ShiftWithdrawView(PublicShiftScheduleMixin, View):
+    allow_teamshifts_managers = True
+
     def post(self, request, *args, **kwargs):
         event = self.event
         shift_pk = kwargs["pk"]
@@ -2892,6 +2915,7 @@ def _notify_organizers_shift_dropped(event, volunteer, shift):
 class MyShiftsView(PublicShiftScheduleMixin, TemplateView):
     template_name = "teamshifts/my_shifts.html"
     redirect_unpublished_to_schedule = False
+    allow_teamshifts_managers = True
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)

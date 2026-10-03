@@ -105,8 +105,8 @@ def send_queued_email(self, event_id: int, queue_id: int):
                             event=event,
                             user=queue.user,
                         ).first()
-                    if application:
-                        ctx_kwargs["application"] = application
+                        if application:
+                            ctx_kwargs["application"] = application
 
                     context = get_email_context(**ctx_kwargs)
                     mail(

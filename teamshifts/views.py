@@ -2854,27 +2854,6 @@ class ShiftWithdrawView(PublicShiftScheduleMixin, View):
         return redirect(schedule_url)
 
 
-def _get_event_organizers(event):
-    with scopes_disabled():
-        organizer_users = list(
-            User.objects.filter(
-                teams__organizer=event.organizer,
-                teams__can_change_event_settings=True,
-                teams__all_events=True,
-            ).distinct()
-        )
-        if not organizer_users:
-            organizer_users = list(
-                User.objects.filter(
-                    teams__organizer=event.organizer,
-                    teams__limit_events=event,
-                    teams__can_change_event_settings=True,
-                ).distinct()
-            )
-
-    return organizer_users
-
-
 def _notify_organizers_shift_dropped(event, volunteer, shift):
 
     try:
@@ -2888,7 +2867,15 @@ def _notify_organizers_shift_dropped(event, volunteer, shift):
         logger.exception("Failed to load shift-dropped email template for event %s", event.pk)
         return
 
-    organizer_users = _get_event_organizers(event)
+    with scopes_disabled():
+        organizer_users = list(
+            User.objects.filter(
+                teams__organizer=event.organizer,
+                teams__can_change_event_settings=True,
+            )
+            .filter(Q(teams__all_events=True) | Q(teams__limit_events=event))
+            .distinct()
+        )
 
     if not organizer_users:
         return
@@ -2910,7 +2897,37 @@ def _notify_organizers_new_application(event, application):
 
     template = cfm.get_mail_template(EmailTemplateRoles.NEW_APPLICATION_ORGANIZER)
 
-    organizer_users = _get_event_organizers(event)
+    with scopes_disabled():
+        team_users = list(
+            User.objects.filter(
+                teams__organizer=event.organizer,
+            )
+            .filter(Q(teams__all_events=True) | Q(teams__limit_events=event))
+            .distinct()
+        )
+
+        organizer_users = [
+            user
+            for user in team_users
+            if has_teamshifts_permission(
+                user,
+                event.organizer,
+                event,
+                "can_teamshifts_manage_applicants",
+            )
+        ]
+
+        if not organizer_users:
+            organizer_users = [
+                user
+                for user in team_users
+                if has_teamshifts_permission(
+                    user,
+                    event.organizer,
+                    event,
+                    "can_change_event_settings",
+                )
+            ]
 
     if not organizer_users:
         return

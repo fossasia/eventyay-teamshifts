@@ -14,6 +14,7 @@ from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.db.models import Count, DurationField, ExpressionWrapper, F, Max, Prefetch, Q, Sum
 from django.forms import inlineformset_factory
+from django.forms.models import model_to_dict
 from django.http import FileResponse, Http404, HttpResponse, HttpResponseBadRequest, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -91,7 +92,11 @@ _TEMPLATE_PLACEHOLDERS = [
 ]
 
 
-ShiftRoleFormSet = inlineformset_factory(Shift, ShiftRoleAssignment, form=ShiftRoleAssignmentForm, formset=BaseShiftRoleFormSet, extra=1, can_delete=True)
+def build_shift_role_formset(extra=1):
+    return inlineformset_factory(Shift, ShiftRoleAssignment, form=ShiftRoleAssignmentForm, formset=BaseShiftRoleFormSet, extra=extra, can_delete=True)
+
+
+ShiftRoleFormSet = build_shift_role_formset()
 
 
 class PluginActiveMixin:
@@ -1760,6 +1765,19 @@ class ShiftCreateView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Temp
         ctx = self.get_context_data(form=form, formset=formset, has_locations=has_locations)
         messages.error(request, _("We could not save your changes. See below for details."))
         return self.render_to_response(ctx)
+
+
+class ShiftCloneView(ShiftCreateView):
+    def get_context_data(self, **kwargs):
+        source = get_object_or_404(Shift.objects.prefetch_related("role_assignments"), pk=self.kwargs.get("pk"), event=self.request.event)
+        if self.request.method == "GET":
+            role_initial = [{"role": assignment.role_id, "capacity": assignment.capacity} for assignment in source.role_assignments.all()]
+            formset_class = build_shift_role_formset(extra=max(len(role_initial), 1))
+            kwargs["form"] = ShiftForm(event=self.request.event, initial=model_to_dict(source, fields=ShiftForm._meta.fields))
+            kwargs["formset"] = formset_class(prefix="roles", initial=role_initial, form_kwargs={"event": self.request.event})
+        ctx = super().get_context_data(**kwargs)
+        ctx["is_clone"] = True
+        return ctx
 
 
 class ShiftUpdateView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, TemplateView):

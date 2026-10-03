@@ -6,8 +6,7 @@ RECEIVED_TEXT = LazyI18nString.from_gettext(
     _(
         "Hi {full_name},\n\n"
         "Thanks for applying to join the team for {event_name}. "
-        "We have received your application for the role of {role_name} "
-        "and will get back to you soon.\n\n"
+        "We have received your application and will get back to you soon.\n\n"
         "Best regards,\n"
         "The {event_name} team"
     )
@@ -17,9 +16,10 @@ ACCEPTED_SUBJECT = LazyI18nString.from_gettext(_("Your application was accepted"
 ACCEPTED_TEXT = LazyI18nString.from_gettext(
     _(
         "Hi {full_name},\n\n"
-        "Great news — your application for the role of {role_name} at "
-        "{event_name} has been accepted. Welcome to the team.\n\n"
-        "You will receive further details about your shift shortly.\n\n"
+        "Great news — your application to volunteer at {event_name} has "
+        "been accepted. Welcome to the team!\n\n"
+        "You can now browse the shift schedule and claim your shifts here:\n"
+        "{shift_schedule_url}\n\n"
         "Best regards,\n"
         "The {event_name} team"
     )
@@ -29,9 +29,9 @@ REJECTED_SUBJECT = LazyI18nString.from_gettext(_("Update on your application"))
 REJECTED_TEXT = LazyI18nString.from_gettext(
     _(
         "Hi {full_name},\n\n"
-        "Thank you for your interest in joining the {event_name} team as "
-        "a {role_name}. Unfortunately, we are unable to accept your "
-        "application at this time.\n\n"
+        "Thank you for your interest in joining the {event_name} team. "
+        "Unfortunately, we are unable to accept your application at this "
+        "time.\n\n"
         "We appreciate your enthusiasm and hope you enjoy the event.\n\n"
         "Best regards,\n"
         "The {event_name} team"
@@ -82,6 +82,37 @@ CERTIFICATE_GENERATED_TEXT = LazyI18nString.from_gettext(
     )
 )
 
+SHIFT_ASSIGNED_BY_ORGANIZER_SUBJECT = LazyI18nString.from_gettext(_("You have been assigned to a shift — {event_name}"))
+SHIFT_ASSIGNED_BY_ORGANIZER_TEXT = LazyI18nString.from_gettext(
+    _(
+        "Hi {full_name},\n\n"
+        "An organiser has assigned you to a shift for {event_name}.\n\n"
+        "Shift: {shift_name}\n"
+        "Time: {shift_time}\n"
+        "Role: {role_name}\n\n"
+        "View the full schedule here:\n"
+        "{shift_schedule_url}\n\n"
+        "If you have any questions, contact the organiser directly.\n\n"
+        "Best regards,\n"
+        "The {event_name} team"
+    )
+)
+
+SHIFT_CLAIMED_BY_VOLUNTEER_SUBJECT = LazyI18nString.from_gettext(_("Shift sign-up confirmation — {event_name}"))
+SHIFT_CLAIMED_BY_VOLUNTEER_TEXT = LazyI18nString.from_gettext(
+    _(
+        "Hi {full_name},\n\n"
+        "You have successfully signed up for a shift at {event_name}.\n\n"
+        "Shift: {shift_name}\n"
+        "Time: {shift_time}\n"
+        "Role: {role_name}\n\n"
+        "You can view your shifts and the full schedule here:\n"
+        "{shift_schedule_url}\n\n"
+        "See you at the event!\n"
+        "The {event_name} team"
+    )
+)
+
 
 def get_default_template(role: str) -> tuple[LazyI18nString, LazyI18nString]:
     from ..models import EmailTemplateRoles
@@ -91,6 +122,8 @@ def get_default_template(role: str) -> tuple[LazyI18nString, LazyI18nString]:
         EmailTemplateRoles.APPLICATION_ACCEPTED: (ACCEPTED_SUBJECT, ACCEPTED_TEXT),
         EmailTemplateRoles.APPLICATION_REJECTED: (REJECTED_SUBJECT, REJECTED_TEXT),
         EmailTemplateRoles.MEMBER_ADDED_BY_ORGANIZER: (MEMBER_ADDED_BY_ORGANIZER_SUBJECT, MEMBER_ADDED_BY_ORGANIZER_TEXT),
+        EmailTemplateRoles.SHIFT_ASSIGNED_BY_ORGANIZER: (SHIFT_ASSIGNED_BY_ORGANIZER_SUBJECT, SHIFT_ASSIGNED_BY_ORGANIZER_TEXT),
+        EmailTemplateRoles.SHIFT_CLAIMED_BY_VOLUNTEER: (SHIFT_CLAIMED_BY_VOLUNTEER_SUBJECT, SHIFT_CLAIMED_BY_VOLUNTEER_TEXT),
         EmailTemplateRoles.VOUCHER_SENT: (VOUCHER_SENT_SUBJECT, VOUCHER_SENT_TEXT),
         EmailTemplateRoles.CERTIFICATE_GENERATED: (CERTIFICATE_GENERATED_SUBJECT, CERTIFICATE_GENERATED_TEXT),
     }

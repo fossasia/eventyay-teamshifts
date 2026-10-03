@@ -21,6 +21,7 @@ from ..models import (
     VolunteerVoucherSettings,
     VoucherStatus,
 )
+from ..tasks import MarkdownBreakString
 
 logger = logging.getLogger(__name__)
 
@@ -152,7 +153,7 @@ def _send_voucher_email(event, user, voucher, template, locale) -> bool:
     context["ticket_claim_url"] = ticket_claim_url
 
     subject = LazyI18nString(template.subject)
-    body = LazyI18nString(template.body)
+    body = MarkdownBreakString(LazyI18nString(template.body))
 
     try:
         mail(

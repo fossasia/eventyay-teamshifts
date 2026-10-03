@@ -2,7 +2,7 @@ import logging
 
 from django.core.cache import cache
 from django.db import transaction
-from django.db.models.signals import post_delete
+from django.db.models.signals import post_delete, pre_delete
 from django.dispatch import receiver
 from django.urls import reverse
 from django.utils.html import format_html
@@ -17,7 +17,7 @@ from eventyay.control.signals import event_dashboard_components, nav_event_commo
 from eventyay.multidomain.urlreverse import build_absolute_uri
 from eventyay.presale.signals import header_nav_tabs
 
-from .models import ApplicationStatus, CallForTeamMembers, ShiftAssignment, TeamMemberApplication, TeamRole, TeamShiftsEmailQueue
+from .models import ApplicationStatus, CallForTeamMembers, Shift, ShiftAssignment, TeamMemberApplication, TeamRole, TeamShiftsEmailQueue
 from .permissions import has_any_teamshifts_permission
 from .tasks import send_queued_email
 
@@ -110,6 +110,14 @@ def teamshifts_public_schedule_nav_tab(sender, request=None, **kwargs):
     )
 
 
+def _format_shift_time(shift):
+    start = shift.start_time.astimezone(shift.event.tz)
+    end = shift.end_time.astimezone(shift.event.tz)
+    if start.date() == end.date():
+        return f"{start:%Y-%m-%d %H:%M} – {end:%H:%M}"
+    return f"{start:%Y-%m-%d %H:%M} – {end:%Y-%m-%d %H:%M}"
+
+
 @receiver(register_mail_placeholders, dispatch_uid="teamshifts_mail_placeholders")
 def teamshifts_mail_placeholders(sender, **kwargs):
     return [
@@ -122,7 +130,7 @@ def teamshifts_mail_placeholders(sender, **kwargs):
         SimpleFunctionalMailTextPlaceholder(
             "role_name",
             ["role"],
-            lambda role: role.name,
+            lambda role: role.name if role else _("no specific role"),
             lambda event: _("Volunteer role"),
         ),
         SimpleFunctionalMailTextPlaceholder(
@@ -148,6 +156,18 @@ def teamshifts_mail_placeholders(sender, **kwargs):
             ["event"],
             lambda event: build_absolute_uri(event, "plugins:teamshifts:public_shift_schedule"),
             lambda event: "https://example.com/fossasia/my-event/teamshifts/shifts/",
+        ),
+        SimpleFunctionalMailTextPlaceholder(
+            "shift_name",
+            ["shift"],
+            lambda shift: str(shift),
+            lambda event: _("Morning Shift (2026-01-15 09:00 – 12:00)"),
+        ),
+        SimpleFunctionalMailTextPlaceholder(
+            "shift_time",
+            ["shift"],
+            _format_shift_time,
+            lambda event: "2026-01-15 09:00 – 12:00",
         ),
         SimpleFunctionalMailTextPlaceholder(
             "voucher_code",
@@ -262,6 +282,13 @@ def team_role_post_delete(sender, instance, **kwargs):
     for team in teams:
         team.limit_teamshifts_roles.remove(instance.pk)
         team.save(update_fields=["limit_teamshifts_roles"])
+
+
+@receiver(pre_delete, sender=Shift)
+@scopes_disabled()
+def shift_pre_delete(sender, instance, **kwargs):
+    # FK is SET_NULL; drop unsent notifications instead of sending them with the shift details missing.
+    TeamShiftsEmailQueue.objects.filter(shift=instance, sent_at__isnull=True).delete()
 
 
 # ---------------------------------------------------------------------------

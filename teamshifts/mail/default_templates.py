@@ -82,6 +82,20 @@ CERTIFICATE_GENERATED_TEXT = LazyI18nString.from_gettext(
     )
 )
 
+SHIFT_REMINDER_SUBJECT = LazyI18nString.from_gettext(_("Reminder: your shifts tomorrow at {event_name}"))
+SHIFT_REMINDER_TEXT = LazyI18nString.from_gettext(
+    _(
+        "Hi {full_name},\n\n"
+        "This is a reminder about your shifts tomorrow at {event_name}:\n\n"
+        "{shift_list}\n\n"
+        "If you can no longer make a shift, please drop it on My Shifts so "
+        "the organizers can find a replacement in time:\n"
+        "{my_shifts_url}\n\n"
+        "Thank you for volunteering!\n"
+        "The {event_name} team"
+    )
+)
+
 
 def get_default_template(role: str) -> tuple[LazyI18nString, LazyI18nString]:
     from ..models import EmailTemplateRoles
@@ -93,5 +107,6 @@ def get_default_template(role: str) -> tuple[LazyI18nString, LazyI18nString]:
         EmailTemplateRoles.MEMBER_ADDED_BY_ORGANIZER: (MEMBER_ADDED_BY_ORGANIZER_SUBJECT, MEMBER_ADDED_BY_ORGANIZER_TEXT),
         EmailTemplateRoles.VOUCHER_SENT: (VOUCHER_SENT_SUBJECT, VOUCHER_SENT_TEXT),
         EmailTemplateRoles.CERTIFICATE_GENERATED: (CERTIFICATE_GENERATED_SUBJECT, CERTIFICATE_GENERATED_TEXT),
+        EmailTemplateRoles.SHIFT_REMINDER: (SHIFT_REMINDER_SUBJECT, SHIFT_REMINDER_TEXT),
     }
     return mapping[role]

@@ -445,6 +445,31 @@ class ShiftAssignment(models.Model):
         return f"{self.team_member.email} → {self.shift}"
 
 
+class ShiftReminder(models.Model):
+    event = models.ForeignKey(
+        "base.Event",
+        on_delete=models.CASCADE,
+        related_name="teamshifts_shift_reminders",
+    )
+    user = models.ForeignKey(
+        "base.User",
+        on_delete=models.CASCADE,
+        related_name="teamshifts_shift_reminders",
+    )
+    day = models.DateField(help_text=_("Event-local date of the shifts this reminder covered."))
+    sent_at = models.DateTimeField(auto_now_add=True)
+
+    objects = ScopedManager(event="event")
+
+    class Meta:
+        verbose_name = _("Shift reminder")
+        verbose_name_plural = _("Shift reminders")
+        unique_together = ("event", "user", "day")
+
+    def __str__(self):
+        return f"{self.user.email} · {self.day}"
+
+
 class QuestionVariant(models.TextChoices):
     STRING = "string", _("Text (one line)")
     TEXT = "text", _("Multi-line text")
@@ -615,6 +640,7 @@ class EmailTemplateRoles(models.TextChoices):
     MEMBER_ADDED_BY_ORGANIZER = "teamshifts.member.added_by_organizer", _("Added as volunteer by organizer")
     VOUCHER_SENT = "teamshifts.voucher.sent", _("Voucher sent to volunteer")
     CERTIFICATE_GENERATED = "teamshifts.certificate.generated", _("Certificate of participation generated")
+    SHIFT_REMINDER = "teamshifts.shift.reminder", _("Shift reminder (24 hours before)")
 
 
 class TeamShiftsEmailTemplate(models.Model):

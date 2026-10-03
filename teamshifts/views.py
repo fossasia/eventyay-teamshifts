@@ -86,6 +86,8 @@ _TEMPLATE_PLACEHOLDERS = [
     ("{event_dates}", _("The event's date range")),
     ("{event_location}", _("The event's location")),
     ("{shift_schedule_url}", _("Link to the shift schedule")),
+    ("{my_shifts_url}", _("Link to the volunteer's My Shifts page")),
+    ("{shift_list}", _("The volunteer's shifts for the day (shift reminder emails only)")),
     ("{voucher_code}", _("The volunteer's voucher code (voucher emails only)")),
     ("{ticket_claim_url}", _("Link to claim the ticket (voucher emails only)")),
 ]
@@ -493,6 +495,8 @@ class EmailTemplatePreviewView(PluginActiveMixin, TeamShiftsPermissionRequiredMi
                 "event_dates": event.get_date_range_display(),
                 "event_location": str(event.location) if event.location else "",
                 "shift_schedule_url": build_absolute_uri(event, "plugins:teamshifts:public_shift_schedule"),
+                "my_shifts_url": build_absolute_uri(event, "plugins:teamshifts:my_shifts"),
+                "shift_list": "- Sat, Oct 10, 2026, 8 a.m.–12 p.m.: Registration desk (Role: Greeter, Location: Main hall)",
                 "voucher_code": "ABCD-1234-EFGH",
                 "ticket_claim_url": build_absolute_uri(event, "presale:event.redeem") + "?voucher=ABCD-1234-EFGH",
             },

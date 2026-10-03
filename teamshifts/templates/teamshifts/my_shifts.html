@@ -106,6 +106,19 @@
                   <i class="fa fa-external-link"></i>
                   {% translate "Event" %}
                 </a>
+                {% if not assignment.started_at %}
+                  <form method="post"
+                        action="{% url 'plugins:teamshifts:public_shift_withdraw' organizer=assignment.shift.event.organizer.slug event=assignment.shift.event.slug pk=assignment.shift_id %}">
+                    {% csrf_token %}
+                    {% if assignment.role_id %}
+                      <input type="hidden" name="role_id" value="{{ assignment.role_id }}">
+                    {% endif %}
+                    <button type="submit" class="btn btn-danger btn-xs">
+                      <i class="fa fa-times"></i>
+                      {% translate "Drop shift" %}
+                    </button>
+                  </form>
+                {% endif %}
               </div>
             </div>
             {% endtimezone %}

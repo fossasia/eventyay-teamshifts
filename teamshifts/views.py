@@ -2870,11 +2870,10 @@ def _notify_organizers_shift_dropped(event, volunteer, shift):
     with scopes_disabled():
         organizer_users = list(
             User.objects.filter(
+                Q(teams__all_events=True) | Q(teams__limit_events=event),
                 teams__organizer=event.organizer,
                 teams__can_change_event_settings=True,
-            )
-            .filter(Q(teams__all_events=True) | Q(teams__limit_events=event))
-            .distinct()
+            ).distinct()
         )
 
     if not organizer_users:

@@ -161,6 +161,41 @@ def teamshifts_mail_placeholders(sender, **kwargs):
             lambda ticket_claim_url: ticket_claim_url,
             "https://example.com/my-event/?voucher=ABCD-1234-EFGH",
         ),
+        SimpleFunctionalMailTextPlaceholder(
+            "applicant_name",
+            ["application"],
+            lambda application: application.user.fullname,
+            lambda event: _("Applicant"),
+        ),
+        SimpleFunctionalMailTextPlaceholder(
+            "submitted_at",
+            ["application"],
+            lambda application: application.created_at.astimezone(application.event.tz).strftime("%Y-%m-%d %H:%M %Z"),
+            lambda event: "",
+        ),
+        SimpleFunctionalMailTextPlaceholder(
+            "pending_count",
+            ["application"],
+            lambda application: TeamMemberApplication.objects.filter(
+                event=application.event,
+                status=ApplicationStatus.PENDING,
+            ).count(),
+            lambda event: "0",
+        ),
+        SimpleFunctionalMailTextPlaceholder(
+            "application_url",
+            ["application"],
+            lambda application: build_absolute_uri(
+                application.event,
+                "plugins:teamshifts:application_detail",
+                kwargs={
+                    "organizer": application.event.organizer.slug,
+                    "event": application.event.slug,
+                    "pk": application.pk,
+                },
+            ),
+            lambda event: "",
+        ),
     ]
 
 

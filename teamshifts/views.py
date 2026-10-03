@@ -1012,7 +1012,14 @@ class PublicApplyView(FormView):
         if full_name and full_name != self.request.user.fullname:
             self.request.user.fullname = full_name
             self.request.user.save(update_fields=["fullname"])
-        transaction.on_commit(lambda app=application: queue_lifecycle_email(app, EmailTemplateRoles.APPLICATION_RECEIVED))
+        transaction.on_commit(
+            lambda app=application: queue_lifecycle_email(app, EmailTemplateRoles.APPLICATION_RECEIVED),
+            robust=True,
+        )
+        transaction.on_commit(
+            lambda app=application: _notify_organizers_new_application(event, app),
+            robust=True,
+        )
         messages.success(self.request, _("Your application has been submitted."))
         return redirect(
             reverse(
@@ -2863,19 +2870,11 @@ def _notify_organizers_shift_dropped(event, volunteer, shift):
     with scopes_disabled():
         organizer_users = list(
             User.objects.filter(
+                Q(teams__all_events=True) | Q(teams__limit_events=event),
                 teams__organizer=event.organizer,
                 teams__can_change_event_settings=True,
-                teams__all_events=True,
             ).distinct()
         )
-        if not organizer_users:
-            organizer_users = list(
-                User.objects.filter(
-                    teams__organizer=event.organizer,
-                    teams__limit_events=event,
-                    teams__can_change_event_settings=True,
-                ).distinct()
-            )
 
     if not organizer_users:
         return
@@ -2885,6 +2884,59 @@ def _notify_organizers_shift_dropped(event, volunteer, shift):
         subject=template.subject,
         message=template.body,
         recipients=organizer_users,
+        status_filter="",
+    )
+
+
+def _notify_organizers_new_application(event, application):
+    try:
+        cfm = event.call_for_team_members
+    except CallForTeamMembers.DoesNotExist:
+        return
+
+    template = cfm.get_mail_template(EmailTemplateRoles.NEW_APPLICATION_ORGANIZER)
+
+    with scopes_disabled():
+        team_users = list(
+            User.objects.filter(
+                teams__organizer=event.organizer,
+            )
+            .filter(Q(teams__all_events=True) | Q(teams__limit_events=event))
+            .distinct()
+        )
+
+        organizer_users = [
+            user
+            for user in team_users
+            if has_teamshifts_permission(
+                user,
+                event.organizer,
+                event,
+                "can_teamshifts_manage_applicants",
+            )
+        ]
+
+        if not organizer_users:
+            organizer_users = [
+                user
+                for user in team_users
+                if has_teamshifts_permission(
+                    user,
+                    event.organizer,
+                    event,
+                    "can_change_event_settings",
+                )
+            ]
+
+    if not organizer_users:
+        return
+
+    queue_email(
+        event=event,
+        subject=template.subject,
+        message=template.body,
+        recipients=organizer_users,
+        user=application.user,
         status_filter="",
     )
 

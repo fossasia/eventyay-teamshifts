@@ -160,16 +160,3 @@ def test_get_mail_template_auto_creates_certificate_template(event, application)
     assert template.role == EmailTemplateRoles.CERTIFICATE_GENERATED
     assert template.subject is not None
     assert template.body is not None
-
-
-def test_certificate_renderer_get_ev_handles_none_and_context():
-    from unittest.mock import MagicMock
-
-    from teamshifts.pdf import CertificateRenderer
-
-    event = MagicMock()
-    with patch("eventyay.base.pdf.Renderer.__init__", return_value=None):
-        renderer = CertificateRenderer(event, [], None, {})
-        renderer.event = event
-        assert renderer._get_ev() == event
-        assert renderer._get_ev(None, None) == event

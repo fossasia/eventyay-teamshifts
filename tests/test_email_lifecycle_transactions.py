@@ -122,8 +122,12 @@ def test_apply_view_queues_organizer_notification(
 
     call = mock_queue_email.call_args
     assert orga_user in call.kwargs["recipients"]
-    assert "Applicant Name" in call.kwargs["message"]
-    assert applicant.email in call.kwargs["message"]
+    assert call.kwargs["user"] == applicant
+    assert "{applicant_name}" in str(call.kwargs["message"])
+    assert "{submitted_at}" in str(call.kwargs["message"])
+    assert "{pending_count}" in str(call.kwargs["message"])
+    assert "{application_url}" in str(call.kwargs["message"])
+    assert applicant.email not in str(call.kwargs["message"])
 
 
 @pytest.fixture

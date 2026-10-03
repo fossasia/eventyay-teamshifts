@@ -21,7 +21,7 @@ from django.utils.decorators import method_decorator
 from django.utils.formats import date_format
 from django.utils.html import escape, strip_tags
 from django.utils.http import url_has_allowed_host_and_scheme
-from django.utils.timezone import localtime, now
+from django.utils.timezone import now
 from django.utils.translation import get_language, get_language_info, gettext_lazy as _, ngettext
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.generic import DeleteView, FormView, ListView, TemplateView, View
@@ -2854,19 +2854,7 @@ class ShiftWithdrawView(PublicShiftScheduleMixin, View):
         return redirect(schedule_url)
 
 
-def _notify_organizers_shift_dropped(event, volunteer, shift):
-
-    try:
-        cfm = event.call_for_team_members
-    except CallForTeamMembers.DoesNotExist:
-        return
-
-    try:
-        template = cfm.get_mail_template(EmailTemplateRoles.SHIFT_DROPPED)
-    except Exception:
-        logger.exception("Failed to load shift-dropped email template for event %s", event.pk)
-        return
-
+def _get_event_organizers(event):
     with scopes_disabled():
         organizer_users = list(
             User.objects.filter(
@@ -2883,6 +2871,24 @@ def _notify_organizers_shift_dropped(event, volunteer, shift):
                     teams__can_change_event_settings=True,
                 ).distinct()
             )
+
+    return organizer_users
+
+
+def _notify_organizers_shift_dropped(event, volunteer, shift):
+
+    try:
+        cfm = event.call_for_team_members
+    except CallForTeamMembers.DoesNotExist:
+        return
+
+    try:
+        template = cfm.get_mail_template(EmailTemplateRoles.SHIFT_DROPPED)
+    except Exception:
+        logger.exception("Failed to load shift-dropped email template for event %s", event.pk)
+        return
+
+    organizer_users = _get_event_organizers(event)
 
     if not organizer_users:
         return
@@ -2902,99 +2908,21 @@ def _notify_organizers_new_application(event, application):
     except CallForTeamMembers.DoesNotExist:
         return
 
-    try:
-        template = cfm.get_mail_template(EmailTemplateRoles.NEW_APPLICATION_ORGANIZER)
-    except Exception:
-        logger.exception("Failed to load new-application email template for event %s", event.pk)
-        return
+    template = cfm.get_mail_template(EmailTemplateRoles.NEW_APPLICATION_ORGANIZER)
 
-    with scopes_disabled():
-        team_users = list(
-            User.objects.filter(
-                teams__organizer=event.organizer,
-            ).distinct()
-        )
-
-        organizer_users = [
-            user
-            for user in team_users
-            if has_teamshifts_permission(
-                user,
-                event.organizer,
-                event,
-                "can_teamshifts_manage_applicants",
-            )
-        ]
-
-        if not organizer_users:
-            organizer_users = [
-                user
-                for user in team_users
-                if user.has_event_permission(
-                    event.organizer,
-                    event,
-                    "can_change_event_settings",
-                )
-            ]
+    organizer_users = _get_event_organizers(event)
 
     if not organizer_users:
         return
 
-    pending_count = TeamMemberApplication.objects.filter(
+    queue_email(
         event=event,
-        status=ApplicationStatus.PENDING,
-    ).count()
-
-    application_url = build_absolute_uri(
-        event,
-        "plugins:teamshifts:application_detail",
-        kwargs={
-            "organizer": event.organizer.slug,
-            "event": event.slug,
-            "pk": application.pk,
-        },
+        subject=template.subject,
+        message=template.body,
+        recipients=organizer_users,
+        user=application.user,
+        status_filter="",
     )
-
-    common_context = {
-        "event_name": event.name,
-        "full_name": application.user.fullname,
-        "submitted_at": localtime(application.created_at).strftime("%Y-%m-%d %H:%M %Z"),
-        "pending_count": pending_count,
-        "application_url": application_url,
-    }
-
-    visible_email_users = []
-    hidden_email_users = []
-
-    for user in organizer_users:
-        if can_view_email_addresses(user, event.organizer, event):
-            visible_email_users.append(user)
-        else:
-            hidden_email_users.append(user)
-
-    if visible_email_users:
-        queue_email(
-            event=event,
-            subject=template.subject,
-            message=str(template.body).format(
-                **common_context,
-                email=application.user.email,
-            ),
-            recipients=visible_email_users,
-            status_filter="",
-        )
-
-    if hidden_email_users:
-        queue_email(
-            event=event,
-            subject=template.subject,
-            message=str(template.body).format(
-                **common_context,
-                email="",
-            ),
-            recipients=hidden_email_users,
-            status_filter="",
-        )
 
 
 class MyShiftsView(PublicShiftScheduleMixin, TemplateView):

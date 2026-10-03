@@ -42,8 +42,7 @@ NEW_APPLICATION_ORGANIZER_SUBJECT = LazyI18nString.from_gettext(_("New team memb
 NEW_APPLICATION_ORGANIZER_TEXT = LazyI18nString.from_gettext(
     _(
         "A new team member application has been submitted for {event_name}.\n\n"
-        "Applicant: {full_name}\n\n"
-        "Email: {email}\n\n"
+        "Applicant: {applicant_name}\n\n"
         "Submitted: {submitted_at}\n\n"
         "Pending applications: {pending_count}\n\n"
         "Review the application here:\n"

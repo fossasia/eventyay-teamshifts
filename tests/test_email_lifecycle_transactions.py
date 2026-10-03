@@ -77,6 +77,7 @@ def test_apply_view_queues_received_email(mock_queue, client, event, call_for_te
         assert found, "queue_lifecycle_email callback not registered"
         mock_queue.assert_called_once()
 
+
 @pytest.mark.django_db
 @patch("teamshifts.views.queue_email")
 @patch("teamshifts.views.queue_lifecycle_email")
@@ -123,6 +124,7 @@ def test_apply_view_queues_organizer_notification(
     assert orga_user in call.kwargs["recipients"]
     assert "Applicant Name" in call.kwargs["message"]
     assert applicant.email in call.kwargs["message"]
+
 
 @pytest.fixture
 def pending_application(event, team_role, applicant):

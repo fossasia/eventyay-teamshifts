@@ -100,6 +100,7 @@ def send_queued_email(self, event_id: int, queue_id: int):
                         ctx_kwargs["user"] = recipient.user
                     if queue.role_filter_id:
                         ctx_kwargs["role"] = queue.role_filter
+                    application = None
                     if queue.user:
                         application = TeamMemberApplication.objects.filter(
                             event=event,

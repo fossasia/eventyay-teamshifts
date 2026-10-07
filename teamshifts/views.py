@@ -969,12 +969,17 @@ class PublicApplyView(FormView):
         kwargs["user"] = self.request.user if self.request.user.is_authenticated else None
         kwargs["cfm"] = self.cfm
         return TeamMemberApplicationForm(**kwargs)
+    
+    def _cfm_open_for_request(self):
+        return self.cfm is not None and self.cfm.active and (
+            self.cfm.is_open or getattr(self.request, "_cfm_secret_verified", False)
+        )
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx["event"] = self.event
         ctx["cfm"] = self.cfm
-        ctx["cfm_open"] = self.cfm is not None and self.cfm.is_open
+        ctx["cfm_open"] = self._cfm_open_for_request()
         ctx["cfm_deadline_passed"] = self.cfm is not None and self.cfm.active and self.cfm.deadline is not None and not self.cfm.is_open
         if self.request.user.is_authenticated:
             with scope(event=self.event):
@@ -991,7 +996,7 @@ class PublicApplyView(FormView):
             )
             return redirect(f"{login_url}?{urlencode({'next': self.request.get_full_path()})}")
         event = self.event
-        if self.cfm is None or not self.cfm.is_open:
+        if not self._cfm_open_for_request():
             messages.error(self.request, _("Applications are not currently open for this event."))
             return self.form_invalid(form)
         full_name = form.cleaned_data.get("full_name", "").strip()

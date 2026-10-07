@@ -1,6 +1,12 @@
 {% extends 'teamshifts/base.html' %}
 {% load i18n %}
 {% load bootstrap3 %}
+{% load static %}
+
+{% block custom_header %}
+  {{ block.super }}
+  <script type='module' src='{% static "teamshifts/voucher_settings.js" %}'></script>
+{% endblock %}
 
 {% block title %}{% trans 'Ticket Vouchers' %} :: {{ request.event.name }}{% endblock %}
 
@@ -9,15 +15,16 @@
 {% endblock %}
 
 {% block teamshifts_content %}
+  {% url 'plugins:teamshifts:members' organizer=request.organizer.slug event=request.event.slug as members_url %}
   <p>
     {% blocktrans trimmed %}
       Configure free or discounted tickets for team members.
       Select a voucher batch created in Tickets → Vouchers, then send
-      individual codes to members from the Members page.
+      individual codes to members from the <a href='{{ members_url }}'>Members page</a>.
     {% endblocktrans %}
   </p>
 
-  <form method='post' class='form-horizontal'>
+  <form method='post' class='form-horizontal' id='voucher-settings-form'>
     {% csrf_token %}
     {% bootstrap_form_errors form %}
 
@@ -31,9 +38,11 @@
         <div class='form-group'>
           <label class='col-md-3 control-label'>{% trans 'Vouchers remaining' %}</label>
           <div class='col-md-9'>
-            <p class='form-control-static'>
-              {{ voucher_settings.batch_remaining_count }} / {{ voucher_settings.batch_total_count }}
-            </p>
+            {% with remaining=voucher_settings.batch_remaining_count %}
+              <p class='form-control-static{% if not remaining %} text-danger{% endif %}'>
+                {{ remaining }} / {{ voucher_settings.batch_total_count }}
+              </p>
+            {% endwith %}
           </div>
         </div>
       {% endif %}
@@ -44,10 +53,25 @@
         <button type='submit' class='btn btn-primary'>
           <i class='fa fa-save'></i> {% trans 'Save' %}
         </button>
+        <a id='send-vouchers-btn'
+           class='btn btn-success{% if send_vouchers_blocker %} disabled{% endif %}'
+           data-href='{{ send_vouchers_url }}'
+           {% if send_vouchers_blocker %}aria-disabled='true' tabindex='-1'{% else %}href='{{ send_vouchers_url }}'{% endif %}
+           aria-describedby='send-vouchers-hint send-vouchers-unsaved-hint'>
+          <i class='fa fa-paper-plane'></i> {% trans 'Send vouchers' %}
+        </a>
         <a class='btn btn-default'
            href='{% url "control:event.vouchers.bulk" organizer=request.organizer.slug event=request.event.slug %}'>
           <i class='fa fa-plus'></i> {% trans 'Create a voucher batch in Tickets →' %}
         </a>
+        <div>
+          <p id='send-vouchers-hint' class='ts-send-vouchers-hint'{% if not send_vouchers_blocker %} hidden{% endif %}>
+            <i class='fa fa-info-circle'></i> {{ send_vouchers_blocker|default:'' }}
+          </p>
+          <p id='send-vouchers-unsaved-hint' class='ts-send-vouchers-hint' hidden>
+            <i class='fa fa-info-circle'></i> {% trans 'Save your changes first.' %}
+          </p>
+        </div>
       </div>
     </div>
   </form>

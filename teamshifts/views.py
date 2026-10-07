@@ -19,7 +19,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.decorators import method_decorator
 from django.utils.formats import date_format
-from django.utils.html import escape, strip_tags
+from django.utils.html import escape, format_html, strip_tags
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.timezone import now
 from django.utils.translation import get_language, get_language_info, gettext_lazy as _, ngettext
@@ -1854,6 +1854,10 @@ class MembersListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Pagi
                 else:
                     qs = qs.filter(Q(user__fullname__icontains=search))
 
+            voucher_status = self.request.GET.get("voucher", "")
+            if voucher_status in VoucherStatus.values:
+                qs = qs.filter(self._voucher_status_filter(voucher_status))
+
             qs = (
                 qs.annotate(
                     shifts_assigned=Count("user__shift_assignments", filter=Q(user__shift_assignments__shift__event=event)),
@@ -1881,6 +1885,16 @@ class MembersListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Pagi
 
         return qs
 
+    @staticmethod
+    def _voucher_status_filter(voucher_status):
+        # A redeemed voucher counts as claimed even before its status has been synced.
+        claimed = Q(voucher_assignment__status=VoucherStatus.CLAIMED) | Q(voucher_assignment__voucher__redeemed__gt=0)
+        if voucher_status == VoucherStatus.CLAIMED:
+            return claimed
+        if voucher_status == VoucherStatus.SENT:
+            return Q(voucher_assignment__status=VoucherStatus.SENT) & ~claimed
+        return (Q(voucher_assignment__isnull=True) | Q(voucher_assignment__status=VoucherStatus.NOT_SENT)) & ~claimed
+
     def _get_voucher_settings(self):
         try:
             return self.request.event.volunteer_voucher_settings
@@ -1892,6 +1906,7 @@ class MembersListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Pagi
         event = self.request.event
         with scope(event=event):
             ctx["roles"] = list(TeamRole.objects.filter(event=event))
+        ctx["voucher_status_choices"] = VoucherStatus.choices
 
         ctx["can_view_email"] = can_view_email_addresses(self.request.user, self.request.organizer, self.request.event, request=self.request)
         ctx["can_add_member"] = has_teamshifts_permission(
@@ -3021,6 +3036,36 @@ class VoucherSettingsView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, 
             obj, _created = VolunteerVoucherSettings.objects.get_or_create(event=self.request.event)
         return obj
 
+    def _send_vouchers_url(self):
+        url = reverse(
+            "plugins:teamshifts:members",
+            kwargs={"organizer": self.request.organizer.slug, "event": self.request.event.slug},
+        )
+        return f"{url}?{urlencode({'voucher': VoucherStatus.NOT_SENT})}"
+
+    def _send_vouchers_blocker(self, settings):
+        """Return why vouchers cannot be sent yet with the saved settings, or None if they can."""
+        if not settings.enabled:
+            return _("Enable volunteer vouchers and save to start sending.")
+        if not settings.voucher_tag:
+            return _("Select a voucher batch and save to start sending.")
+        with scope(event=self.request.event):
+            if settings.batch_remaining_count() == 0:
+                return _("All codes in this batch have been used. Add more codes in Tickets → Vouchers.")
+        return None
+
+    def _render(self, form, settings):
+        return render(
+            self.request,
+            self.template_name,
+            {
+                "form": form,
+                "voucher_settings": settings,
+                "send_vouchers_url": self._send_vouchers_url(),
+                "send_vouchers_blocker": self._send_vouchers_blocker(settings),
+            },
+        )
+
     def get(self, request, *args, **kwargs):
         settings = self._get_settings()
         form = VoucherSettingsForm(
@@ -3030,14 +3075,7 @@ class VoucherSettingsView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, 
                 "voucher_tag": settings.voucher_tag,
             },
         )
-        return render(
-            request,
-            self.template_name,
-            {
-                "form": form,
-                "voucher_settings": settings,
-            },
-        )
+        return self._render(form, settings)
 
     def post(self, request, *args, **kwargs):
         settings = self._get_settings()
@@ -3046,20 +3084,22 @@ class VoucherSettingsView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, 
             settings.enabled = form.cleaned_data["enabled"]
             settings.voucher_tag = form.cleaned_data["voucher_tag"]
             settings.save(update_fields=["enabled", "voucher_tag"])
-            messages.success(request, _("Voucher settings saved."))
+            if self._send_vouchers_blocker(settings) is None:
+                messages.success(
+                    request,
+                    format_html(
+                        _('Voucher settings saved. Next: <a href="{url}">send vouchers to your team members</a>.'),
+                        url=self._send_vouchers_url(),
+                    ),
+                )
+            else:
+                messages.success(request, _("Voucher settings saved."))
             return redirect(
                 "plugins:teamshifts:voucher_settings",
                 organizer=request.organizer.slug,
                 event=request.event.slug,
             )
-        return render(
-            request,
-            self.template_name,
-            {
-                "form": form,
-                "voucher_settings": settings,
-            },
-        )
+        return self._render(form, settings)
 
 
 class BulkSendVouchersView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):

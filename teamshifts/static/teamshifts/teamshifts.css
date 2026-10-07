@@ -284,3 +284,17 @@ label .optional {
 .ts-qa-question {
   width: 40%;
 }
+
+.ts-send-vouchers-hint {
+  display: inline-block;
+  margin: 10px 0 0;
+  padding: 6px 12px;
+  color: #8a6d3b;
+  background-color: #fcf8e3;
+  border: 1px solid #faebcc;
+  border-radius: 3px;
+}
+
+.ts-send-vouchers-hint[hidden] {
+  display: none;
+}

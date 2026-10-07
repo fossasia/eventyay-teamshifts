@@ -963,6 +963,15 @@ class PublicApplyView(FormView):
                     raise Http404
         return super().dispatch(request, *args, **kwargs)
 
+    @property
+    def cfm_accepting_applications(self):
+        if self.cfm is None:
+            return False
+        # A valid secret link bypasses the deadline, so organizers can share it to accept late applications.
+        if getattr(self.request, "_cfm_secret_verified", False):
+            return self.cfm.active
+        return self.cfm.is_open
+
     def get_form(self, form_class=None):
         kwargs = self.get_form_kwargs()
         kwargs["event"] = self.event
@@ -974,8 +983,8 @@ class PublicApplyView(FormView):
         ctx = super().get_context_data(**kwargs)
         ctx["event"] = self.event
         ctx["cfm"] = self.cfm
-        ctx["cfm_open"] = self.cfm is not None and self.cfm.is_open
-        ctx["cfm_deadline_passed"] = self.cfm is not None and self.cfm.active and self.cfm.deadline is not None and not self.cfm.is_open
+        ctx["cfm_open"] = self.cfm_accepting_applications
+        ctx["cfm_deadline_passed"] = self.cfm is not None and self.cfm.active and self.cfm.deadline is not None and not self.cfm_accepting_applications
         if self.request.user.is_authenticated:
             with scope(event=self.event):
                 ctx["existing_application"] = TeamMemberApplication.objects.filter(event=self.event, user=self.request.user).first()
@@ -991,7 +1000,7 @@ class PublicApplyView(FormView):
             )
             return redirect(f"{login_url}?{urlencode({'next': self.request.get_full_path()})}")
         event = self.event
-        if self.cfm is None or not self.cfm.is_open:
+        if not self.cfm_accepting_applications:
             messages.error(self.request, _("Applications are not currently open for this event."))
             return self.form_invalid(form)
         full_name = form.cleaned_data.get("full_name", "").strip()

@@ -969,11 +969,9 @@ class PublicApplyView(FormView):
         kwargs["user"] = self.request.user if self.request.user.is_authenticated else None
         kwargs["cfm"] = self.cfm
         return TeamMemberApplicationForm(**kwargs)
-    
+
     def _cfm_open_for_request(self):
-        return self.cfm is not None and self.cfm.active and (
-            self.cfm.is_open or getattr(self.request, "_cfm_secret_verified", False)
-        )
+        return self.cfm is not None and self.cfm.active and (self.cfm.is_open or getattr(self.request, "_cfm_secret_verified", False))
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)

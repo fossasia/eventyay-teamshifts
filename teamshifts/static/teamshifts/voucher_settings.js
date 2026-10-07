@@ -1,23 +1,21 @@
-function fieldValues(form) {
-    return Array.from(form.querySelectorAll("input[name], select[name]"))
-        .filter((field) => field.name !== "csrfmiddlewaretoken")
-        .map((field) => (field.type === "checkbox" ? field.checked : field.value));
-}
-
 function initSendVouchersButton() {
     const form = document.getElementById("voucher-settings-form");
     const button = document.getElementById("send-vouchers-btn");
     const hint = document.getElementById("send-vouchers-hint");
     const unsavedHint = document.getElementById("send-vouchers-unsaved-hint");
-    if (!form || !button || !hint || !unsavedHint) return;
+    const enabledField = form && form.querySelector("[name='enabled']");
+    const tagField = form && form.querySelector("[name='voucher_tag']");
+    if (!form || !button || !hint || !unsavedHint || !enabledField || !tagField) return;
 
-    const savedValues = JSON.stringify(fieldValues(form));
-    const savedDisabled = button.classList.contains("disabled");
-    const savedHintHidden = hint.hidden;
+    // Compare against the persisted settings, not the rendered form: after an
+    // invalid POST the form shows the rejected values, which are not saved.
+    const savedEnabled = form.dataset.savedEnabled === "true";
+    const savedTag = form.dataset.savedVoucherTag || "";
+    const blocked = button.dataset.blocked === "true";
 
     function update() {
-        const dirty = JSON.stringify(fieldValues(form)) !== savedValues;
-        const disabled = dirty || savedDisabled;
+        const dirty = enabledField.checked !== savedEnabled || tagField.value !== savedTag;
+        const disabled = dirty || blocked;
         button.classList.toggle("disabled", disabled);
         if (disabled) {
             button.removeAttribute("href");
@@ -29,11 +27,12 @@ function initSendVouchersButton() {
             button.removeAttribute("tabindex");
         }
         unsavedHint.hidden = !dirty;
-        hint.hidden = dirty || savedHintHidden;
+        hint.hidden = dirty || !blocked;
     }
 
     form.addEventListener("input", update);
     form.addEventListener("change", update);
+    update();
 }
 
 if (document.readyState === "loading") {

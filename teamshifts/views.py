@@ -1854,8 +1854,9 @@ class MembersListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Pagi
                 else:
                     qs = qs.filter(Q(user__fullname__icontains=search))
 
+            # The voucher filter is only shown while vouchers are enabled, so only apply it then.
             voucher_status = self.request.GET.get("voucher", "")
-            if voucher_status in VoucherStatus.values:
+            if voucher_status in VoucherStatus.values and self._vouchers_enabled(self._get_voucher_settings()):
                 qs = qs.filter(self._voucher_status_filter(voucher_status))
 
             qs = (
@@ -1901,6 +1902,10 @@ class MembersListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Pagi
         except VolunteerVoucherSettings.DoesNotExist:
             return None
 
+    @staticmethod
+    def _vouchers_enabled(voucher_settings):
+        return bool(voucher_settings and voucher_settings.enabled and voucher_settings.voucher_tag)
+
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         event = self.request.event
@@ -1918,7 +1923,7 @@ class MembersListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Pagi
         )
 
         voucher_settings = self._get_voucher_settings()
-        ctx["vouchers_enabled"] = bool(voucher_settings and voucher_settings.enabled and voucher_settings.voucher_tag)
+        ctx["vouchers_enabled"] = self._vouchers_enabled(voucher_settings)
         ctx["vouchers_not_configured"] = bool(voucher_settings and voucher_settings.enabled and not voucher_settings.voucher_tag)
         if ctx["vouchers_enabled"]:
             with scope(event=event):

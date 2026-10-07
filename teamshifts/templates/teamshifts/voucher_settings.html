@@ -24,7 +24,9 @@
     {% endblocktrans %}
   </p>
 
-  <form method='post' class='form-horizontal' id='voucher-settings-form'>
+  <form method='post' class='form-horizontal' id='voucher-settings-form'
+        data-saved-enabled='{{ voucher_settings.enabled|yesno:"true,false" }}'
+        data-saved-voucher-tag='{{ voucher_settings.voucher_tag }}'>
     {% csrf_token %}
     {% bootstrap_form_errors form %}
 
@@ -54,9 +56,10 @@
           <i class='fa fa-save'></i> {% trans 'Save' %}
         </button>
         <a id='send-vouchers-btn'
-           class='btn btn-success{% if send_vouchers_blocker %} disabled{% endif %}'
+           class='btn btn-success{% if send_vouchers_blocker or form.is_bound %} disabled{% endif %}'
            data-href='{{ send_vouchers_url }}'
-           {% if send_vouchers_blocker %}aria-disabled='true' tabindex='-1'{% else %}href='{{ send_vouchers_url }}'{% endif %}
+           data-blocked='{{ send_vouchers_blocker|yesno:"true,false" }}'
+           {% if send_vouchers_blocker or form.is_bound %}aria-disabled='true' tabindex='-1'{% else %}href='{{ send_vouchers_url }}'{% endif %}
            aria-describedby='send-vouchers-hint send-vouchers-unsaved-hint'>
           <i class='fa fa-paper-plane'></i> {% trans 'Send vouchers' %}
         </a>
@@ -65,10 +68,10 @@
           <i class='fa fa-plus'></i> {% trans 'Create a voucher batch in Tickets →' %}
         </a>
         <div>
-          <p id='send-vouchers-hint' class='ts-send-vouchers-hint'{% if not send_vouchers_blocker %} hidden{% endif %}>
+          <p id='send-vouchers-hint' class='ts-send-vouchers-hint'{% if not send_vouchers_blocker or form.is_bound %} hidden{% endif %}>
             <i class='fa fa-info-circle'></i> {{ send_vouchers_blocker|default:'' }}
           </p>
-          <p id='send-vouchers-unsaved-hint' class='ts-send-vouchers-hint' hidden>
+          <p id='send-vouchers-unsaved-hint' class='ts-send-vouchers-hint'{% if not form.is_bound %} hidden{% endif %}>
             <i class='fa fa-info-circle'></i> {% trans 'Save your changes first.' %}
           </p>
         </div>

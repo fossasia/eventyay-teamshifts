@@ -77,26 +77,25 @@ function setupPreviewOccurrences() {
             return;
         }
 
-        const fragment = document.createDocumentFragment();
-
-        const durationMins = (endDate - startDate) / (1000 * 60);
-        if (durationMins % lengthMins !== 0) {
-            const warn = document.createElement("p");
-            warn.className = "text-warning";
-            warn.textContent = gettext("Warning: The shift length does not divide evenly into the total duration.");
-            fragment.appendChild(warn);
+        if (startDate.getTime() + lengthMins * 60000 > endDate.getTime()) {
+            showPreviewMessage(previewDiv, "text-danger", gettext("The shift length is longer than the time between start and end."));
+            return;
         }
+
+        const fragment = document.createDocumentFragment();
 
         let curr = new Date(startDate);
         const occurrences = [];
         let safetyCounter = 0;
 
         while (curr < endDate && safetyCounter < 100) {
-            const next = new Date(curr.getTime() + lengthMins * 60000);
-            if (next > endDate) {
-                break;
+            const next = new Date(Math.min(curr.getTime() + lengthMins * 60000, endDate.getTime()));
+            const mins = Math.round((next - curr) / 60000);
+            let text = `${formatDt(curr)} – ${formatDt(next)}`;
+            if (mins < lengthMins) {
+                text += ` (${gettext("%(minutes)s min, shorter than the others").replace("%(minutes)s", mins)})`;
             }
-            occurrences.push(`${formatDt(curr)} \u2013 ${formatDt(next)}`);
+            occurrences.push(text);
             curr = next;
             safetyCounter++;
         }

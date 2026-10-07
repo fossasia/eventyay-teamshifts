@@ -86,34 +86,31 @@ function setupPreviewOccurrences() {
 
         let curr = new Date(startDate);
         const occurrences = [];
-        let safetyCounter = 0;
+        const maxShifts = 50;
 
-        while (curr < endDate && safetyCounter < 100) {
+        while (curr < endDate && occurrences.length < maxShifts) {
             const next = new Date(Math.min(curr.getTime() + lengthMins * 60000, endDate.getTime()));
             const mins = Math.round((next - curr) / 60000);
-            let text = `${formatDt(curr)} – ${formatDt(next)}`;
+            let text = `${formatDt(curr)} \u2013 ${formatDt(next)}`;
             if (mins < lengthMins) {
                 text += ` (${gettext("%(minutes)s min, shorter than the others").replace("%(minutes)s", mins)})`;
             }
             occurrences.push(text);
             curr = next;
-            safetyCounter++;
         }
 
-        if (safetyCounter >= 100) {
-            const warn = document.createElement("p");
-            warn.className = "text-warning";
-            warn.textContent = gettext("Too many occurrences (limited to 100 for preview).");
-            fragment.appendChild(warn);
-        } else {
-            const summary = document.createElement("strong");
-            summary.textContent = `${gettext("Will create")} ${occurrences.length} ${gettext("shifts:")}`;
-            fragment.appendChild(summary);
-            occurrences.forEach((text, i) => {
-                fragment.appendChild(document.createElement("br"));
-                fragment.appendChild(document.createTextNode(text));
-            });
+        if (curr < endDate) {
+            showPreviewMessage(previewDiv, "text-danger", gettext("The maximum allowed is 50 per action. Please adjust the interval or date range."));
+            return;
         }
+
+        const summary = document.createElement("strong");
+        summary.textContent = `${gettext("Will create")} ${occurrences.length} ${gettext("shifts:")}`;
+        fragment.appendChild(summary);
+        occurrences.forEach((text, i) => {
+            fragment.appendChild(document.createElement("br"));
+            fragment.appendChild(document.createTextNode(text));
+        });
 
         previewDiv.replaceChildren(fragment);
         previewDiv.style.display = "block";

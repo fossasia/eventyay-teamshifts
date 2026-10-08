@@ -25,7 +25,15 @@
       <div class='form-group'>
         <input type='text' name='q' value='{{ request.GET.q|default:"" }}' class='form-control' placeholder='{% trans "Search by name or email" %}'>
       </div>
-            <div class='form-group'>
+      <div class='form-group'>
+        <select name='role' class='form-control'>
+          <option value=''>{% trans 'All roles' %}</option>
+          {% for r in roles %}
+            <option value='{{ r.pk }}' {% if request.GET.role == r.pk|stringformat:'s' %}selected{% endif %}>{{ r.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class='form-group'>
         <select name='hours' class='form-control'>
           <option value=''>{% trans 'All hours' %}</option>
           <option value='none' {% if request.GET.hours == 'none' %}selected{% endif %}>
@@ -52,14 +60,6 @@
         </select>
       </div>
       {% endif %}
-      <div class='form-group'>
-        <select name='role' class='form-control'>
-          <option value=''>{% trans 'All roles' %}</option>
-          {% for r in roles %}
-            <option value='{{ r.pk }}' {% if request.GET.role == r.pk|stringformat:'s' %}selected{% endif %}>{{ r.name }}</option>
-          {% endfor %}
-        </select>
-      </div>
       <button type='submit' class='btn btn-default'>{% trans 'Filter' %}</button>
     </form>
 
@@ -93,17 +93,45 @@
                 <input type='checkbox' id='select-all' title='{% trans "Select all" %}'>
               </th>
             {% endif %}
-            <th>{% trans 'Name' %}</th>
+            <th>
+              {% trans 'Name' %}
+              <a href="{% querystring sort='user__fullname' %}"><i class='fa fa-caret-down' title="{% trans 'Sort (a-z)' %}"></i></a>
+              <a href="{% querystring sort='-user__fullname' %}"><i class='fa fa-caret-up' title="{% trans 'Sort (z-a)' %}"></i></a>
+            </th>
             {% if can_view_email %}
-              <th>{% trans 'Email' %}</th>
+              <th>
+                {% trans 'Email' %}
+                <a href="{% querystring sort='user__email' %}"><i class='fa fa-caret-down' title="{% trans 'Sort (a-z)' %}"></i></a>
+                <a href="{% querystring sort='-user__email' %}"><i class='fa fa-caret-up' title="{% trans 'Sort (z-a)' %}"></i></a>
+              </th>
             {% endif %}
-            <th>{% trans 'Role' %}</th>
-            <th>{% trans 'Shifts assigned' %}</th>
-            <th>{% trans 'Hours scheduled' %}</th>
+            <th>
+              {% trans 'Role' %}
+              <a href="{% querystring sort='role_sort' %}"><i class='fa fa-caret-down' title="{% trans 'Sort (a-z)' %}"></i></a>
+              <a href="{% querystring sort='-role_sort' %}"><i class='fa fa-caret-up' title="{% trans 'Sort (z-a)' %}"></i></a>
+            </th>
+            <th>
+              {% trans 'Shifts assigned' %}
+              <a href="{% querystring sort='shifts_assigned' %}"><i class='fa fa-caret-down' title="{% trans 'Sort (ascending)' %}"></i></a>
+              <a href="{% querystring sort='-shifts_assigned' %}"><i class='fa fa-caret-up' title="{% trans 'Sort (descending)' %}"></i></a>
+            </th>
+            <th>
+              {% trans 'Hours scheduled' %}
+                <a href="{% querystring sort='hours_scheduled' %}"><i class='fa fa-caret-up' title="{% trans 'Sort (ascending)' %}"></i></a>
+                <a href="{% querystring sort='-hours_scheduled' %}"><i class='fa fa-caret-down' title="{% trans 'Sort (descending)' %}"></i></a>
+            </th>
             {% if vouchers_enabled %}
-              <th>{% trans 'Voucher' %}</th>
+              <th>
+                {% trans 'Voucher' %}
+                <a href="{% querystring sort='voucher_sort' %}"><i class='fa fa-caret-down' title="{% trans 'Sort (ascending)' %}"></i></a>
+                <a href="{% querystring sort='-voucher_sort' %}"><i class='fa fa-caret-up' title="{% trans 'Sort (descending)' %}"></i></a>
+              </th>
             {% endif %}
-            <th>{% trans 'Arrived' %}</th>
+            <th>
+              {% trans 'Arrived' %}
+              <a href="{% querystring sort='arrived' %}"><i class='fa fa-caret-down' title="{% trans 'Sort (ascending)' %}"></i></a>
+              <a href="{% querystring sort='-arrived' %}"><i class='fa fa-caret-up' title="{% trans 'Sort (descending)' %}"></i></a>
+            </th>
           </tr>
         </thead>
         <tbody>

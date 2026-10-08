@@ -41,6 +41,10 @@ function restoreButtonChildren(button, originalChildren) {
 function submitBulkVouchers() {
     const form = document.getElementById("bulk-voucher-form");
     if (!form) return;
+    const params = new URLSearchParams(window.location.search);
+    const action = new URL(form.action, window.location.origin);
+    action.search = params.toString();
+    form.action = action.toString();
 
     // Clear any previously injected hidden inputs
     form.querySelectorAll('input[name="member_ids"]').forEach((el) => el.remove());

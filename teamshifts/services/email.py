@@ -1,5 +1,6 @@
 import logging
 from collections.abc import Iterable
+from datetime import timedelta
 
 from django.db import transaction
 from django.utils.timezone import now
@@ -9,6 +10,7 @@ from eventyay.base.models import Event, User
 from ..models import (
     ApplicationStatus,
     CallForTeamMembers,
+    EmailTemplateRoles,
     Shift,
     TeamMemberApplication,
     TeamRole,
@@ -18,6 +20,9 @@ from ..models import (
 from ..tasks import send_queued_email
 
 logger = logging.getLogger(__name__)
+
+SHIFT_SUMMARY_DELAY = timedelta(minutes=30)
+SHIFT_SUMMARY_IMMEDIATE_WINDOW = timedelta(hours=2)
 
 
 def get_recipients(
@@ -49,6 +54,7 @@ def queue_email(
     status_filter: str = "",
     send_after=None,
     dispatch: bool = True,
+    is_shift_summary: bool = False,
 ) -> TeamShiftsEmailQueue:
     with scope(event=event):
         queue = TeamShiftsEmailQueue.objects.create(
@@ -64,6 +70,7 @@ def queue_email(
             shift_role=shift_role,
             status_filter=status_filter or "",
             send_after=send_after,
+            is_shift_summary=is_shift_summary,
         )
         seen: set[str] = set()
         rows: list[TeamShiftsEmailQueueRecipient] = []
@@ -155,3 +162,67 @@ def queue_shift_notification_email(
         shift=shift,
         shift_role=role,
     )
+
+
+def queue_shift_summary_email(
+    event: Event,
+    user: User,
+    *,
+    shift: Shift | None = None,
+    signed_up: bool = False,
+) -> TeamShiftsEmailQueue | None:
+    """Queue one debounced summary of the volunteer's shifts.
+
+    Every sign-up or drop pushes the pending summary back by SHIFT_SUMMARY_DELAY.
+    A sign-up for a shift starting within SHIFT_SUMMARY_IMMEDIATE_WINDOW sends it right away.
+    The shift list is rendered when the email is sent, so it reflects the final state.
+    """
+    if not user.email:
+        logger.warning("[TeamShifts] Skipping shift summary email: user has no email")
+        return None
+
+    try:
+        cfm = event.call_for_team_members
+    except CallForTeamMembers.DoesNotExist:
+        logger.warning("[TeamShifts] No CFM found for event %s, skipping shift summary email", event.slug)
+        return None
+
+    if not cfm.shift_schedule_published:
+        logger.info("[TeamShifts] Skipping shift summary email: shift schedule not published for event %s", event.slug)
+        return None
+
+    current = now()
+    immediate = bool(signed_up and shift is not None and shift.start_time <= current + SHIFT_SUMMARY_IMMEDIATE_WINDOW)
+    send_after = None if immediate else current + SHIFT_SUMMARY_DELAY
+
+    with scope(event=event), transaction.atomic():
+        pending = (
+            TeamShiftsEmailQueue.objects.select_for_update()
+            .filter(
+                event=event,
+                is_shift_summary=True,
+                sent_at__isnull=True,
+                send_after__gt=current,
+                recipients__user=user,
+            )
+            .first()
+        )
+        if pending is not None:
+            pending.send_after = current if immediate else send_after
+            pending.save(update_fields=["send_after", "updated"])
+            queue = pending
+        else:
+            template = cfm.get_mail_template(EmailTemplateRoles.SHIFT_SUMMARY)
+            queue = queue_email(
+                event=event,
+                subject=template.subject,
+                message=template.body,
+                recipients=[user],
+                send_after=send_after,
+                dispatch=False,
+                is_shift_summary=True,
+            )
+
+    if immediate:
+        _dispatch(event.pk, queue.pk)
+    return queue

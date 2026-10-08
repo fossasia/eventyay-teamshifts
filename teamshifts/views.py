@@ -73,8 +73,9 @@ from .models import (
 )
 from .permissions import TeamShiftsPermissionRequiredMixin, can_act_on_role, can_view_email_addresses, get_allowed_role_ids, has_teamshifts_permission
 from .services.certificates import maybe_auto_issue_certificate
-from .services.email import get_recipients, queue_email, queue_lifecycle_email, queue_shift_notification_email
+from .services.email import get_recipients, queue_email, queue_lifecycle_email, queue_shift_summary_email
 from .services.members import AlreadyMemberError, add_member_from_organizer
+from .services.shift_summary import build_shift_summary_sample
 from .tasks import send_queued_email
 
 logger = logging.getLogger(__name__)
@@ -85,6 +86,8 @@ _TEMPLATE_PLACEHOLDERS = [
     ("{event_dates}", _("The event's date range")),
     ("{event_location}", _("The event's location")),
     ("{shift_schedule_url}", _("Link to the shift schedule")),
+    ("{my_shifts_url}", _("Link to the volunteer's My Shifts page, where they can view their shifts")),
+    ("{shift_summary}", _("The volunteer's current shifts (shift summary emails only)")),
     ("{shift_name}", _("The shift name (shift emails only)")),
     ("{shift_time}", _("The shift date and time range (shift emails only)")),
     ("{role_name}", _("The assigned role name (shift emails only)")),
@@ -495,6 +498,8 @@ class EmailTemplatePreviewView(PluginActiveMixin, TeamShiftsPermissionRequiredMi
                 "event_dates": event.get_date_range_display(),
                 "event_location": str(event.location) if event.location else "",
                 "shift_schedule_url": build_absolute_uri(event, "plugins:teamshifts:public_shift_schedule"),
+                "my_shifts_url": build_absolute_uri(event, "plugins:teamshifts:my_shifts"),
+                "shift_summary": build_shift_summary_sample(event),
                 "shift_name": "Morning Shift (2026-01-15 09:00 – 12:00)",
                 "shift_time": "2026-01-15 09:00 – 12:00",
                 "voucher_code": "ABCD-1234-EFGH",
@@ -2249,19 +2254,12 @@ class ShiftScheduleMembersAPIView(PluginActiveMixin, TeamShiftsPermissionRequire
             return JsonResponse({"members": members})
 
 
-def _notify_shift_change_safely(event, user, shift, role, template_role):
+def _notify_shift_change_safely(event, user, shift, signed_up):
     try:
-        queue_shift_notification_email(
-            event=event,
-            user=user,
-            shift=shift,
-            role=role,
-            template_role=template_role,
-        )
+        queue_shift_summary_email(event=event, user=user, shift=shift, signed_up=signed_up)
     except Exception:
         logger.exception(
-            "[TeamShifts] Failed to queue %s notification for user %s, shift %s",
-            template_role,
+            "[TeamShifts] Failed to queue shift summary for user %s, shift %s",
             user.pk,
             shift.pk,
         )
@@ -2367,13 +2365,7 @@ class ShiftScheduleAssignmentsAPIView(PluginActiveMixin, TeamShiftsPermissionReq
                 defaults={"role_id": role_id, "assigned_by": request.user},
             )
             if created or previous_role_id != role_id:
-                shift_role_assignment = shift.role_assignments.select_related("role").filter(role_id=role_id).first() if role_id else None
-                role = shift_role_assignment.role if shift_role_assignment else None
-                transaction.on_commit(
-                    lambda event=event, user=user, shift=shift, role=role: _notify_shift_change_safely(
-                        event, user, shift, role, EmailTemplateRoles.SHIFT_ASSIGNED_BY_ORGANIZER
-                    )
-                )
+                transaction.on_commit(lambda event=event, user=user, shift=shift: _notify_shift_change_safely(event, user, shift, signed_up=True))
             return JsonResponse({"status": "ok"})
 
     def delete(self, request, *args, **kwargs):
@@ -2405,9 +2397,11 @@ class ShiftScheduleAssignmentsAPIView(PluginActiveMixin, TeamShiftsPermissionReq
                     {"detail": "You cannot unassign members from this role."},
                     status=400,
                 )
-            assignment = ShiftAssignment.objects.filter(shift=shift, team_member_id=user_id, role_id=role_id).first()
+            assignment = ShiftAssignment.objects.select_related("team_member").filter(shift=shift, team_member_id=user_id, role_id=role_id).first()
             if assignment:
+                member = assignment.team_member
                 assignment.delete()
+                transaction.on_commit(lambda event=event, user=member, shift=shift: _notify_shift_change_safely(event, user, shift, signed_up=False))
             return JsonResponse({"status": "ok"})
 
 
@@ -2790,11 +2784,7 @@ class ShiftClaimView(PublicShiftScheduleMixin, View):
                     defaults={"role_id": sra.role_id, "assigned_by": None},
                 )
             if created or previous_role_id != sra.role_id:
-                transaction.on_commit(
-                    lambda event=event, user=request.user, shift=shift, role=sra.role: _notify_shift_change_safely(
-                        event, user, shift, role, EmailTemplateRoles.SHIFT_CLAIMED_BY_VOLUNTEER
-                    )
-                )
+                transaction.on_commit(lambda event=event, user=request.user, shift=shift: _notify_shift_change_safely(event, user, shift, signed_up=True))
             shift = Shift.objects.prefetch_related(
                 "role_assignments__role",
                 "assignments__team_member",
@@ -2874,6 +2864,7 @@ class ShiftWithdrawView(PublicShiftScheduleMixin, View):
                 return fail(_("You are not signed up for this shift."))
 
             assignment.delete()
+            transaction.on_commit(lambda event=event, user=request.user, shift=shift: _notify_shift_change_safely(event, user, shift, signed_up=False))
             shift = Shift.objects.prefetch_related(
                 "role_assignments__role",
                 "assignments__team_member",

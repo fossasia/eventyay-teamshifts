@@ -14,6 +14,7 @@ from eventyay.celery_app import app
 from i18nfield.strings import LazyI18nString
 
 from .models import TeamShiftsEmailQueue
+from .services.shift_summary import build_shift_summary
 
 logger = logging.getLogger(__name__)
 
@@ -121,6 +122,8 @@ def send_queued_email(self, event_id: int, queue_id: int):
                     if queue.shift_id:
                         ctx_kwargs["shift"] = queue.shift
                         ctx_kwargs["role"] = queue.shift_role
+                    if queue.is_shift_summary and recipient.user:
+                        ctx_kwargs["shift_summary"] = build_shift_summary(event, recipient.user)
                     context = get_email_context(**ctx_kwargs)
                     mail(
                         email=recipient.email,

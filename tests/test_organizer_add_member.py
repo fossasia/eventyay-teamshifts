@@ -342,15 +342,14 @@ def test_saved_legacy_phone_still_renders_in_organizer_views(client, event, call
     assert detail_response.status_code == 200
     assert legacy_phone in detail_response.content.decode()
 
+
 @pytest.mark.django_db
 def test_members_filters(client, event, orga_user, django_user_model, call_for_team_members, settings):
     settings.SITE_URL = "https://testserver"
     with scope(event=event):
         members = []
 
-        for i, email in enumerate(
-            ["none@example.com", "sent@example.com", "claimed@example.com"]
-        ):
+        for i, email in enumerate(["none@example.com", "sent@example.com", "claimed@example.com"]):
             user = django_user_model.objects.create_user(
                 email=email,
                 password="x",
@@ -399,19 +398,13 @@ def test_members_filters(client, event, orga_user, django_user_model, call_for_t
 
     response = client.get(url, {"voucher": "not_sent"})
     assert response.status_code == 200
-    assert list(response.context["members"].values_list("user__email", flat=True)) == [
-        "none@example.com"
-    ]
+    assert list(response.context["members"].values_list("user__email", flat=True)) == ["none@example.com"]
 
     response = client.get(url, {"voucher": "sent"})
-    assert list(response.context["members"].values_list("user__email", flat=True)) == [
-        "sent@example.com"
-    ]
+    assert list(response.context["members"].values_list("user__email", flat=True)) == ["sent@example.com"]
 
     response = client.get(url, {"voucher": "claimed"})
-    assert list(response.context["members"].values_list("user__email", flat=True)) == [
-        "claimed@example.com"
-    ]
+    assert list(response.context["members"].values_list("user__email", flat=True)) == ["claimed@example.com"]
 
 
 @pytest.mark.django_db
@@ -432,9 +425,7 @@ def test_members_filters(client, event, orga_user, django_user_model, call_for_t
         ("-arrived", "Bob"),
     ],
 )
-def test_members_sorting(
-    client, event, orga_user, django_user_model, sort, expected_first, settings
-):
+def test_members_sorting(client, event, orga_user, django_user_model, sort, expected_first, settings):
     settings.SITE_URL = "https://testserver"
     with scope(event=event):
         alice = django_user_model.objects.create_user(
@@ -517,10 +508,9 @@ def test_members_sorting(
 
     assert actual_first == expected_first
 
+
 @pytest.mark.django_db
-def test_bulk_vouchers_preserves_filters_and_sort(
-    client, event, orga_user, django_user_model
-):
+def test_bulk_vouchers_preserves_filters_and_sort(client, event, orga_user, django_user_model):
     with scope(event=event):
         user = django_user_model.objects.create_user(
             email="voucher@example.com",

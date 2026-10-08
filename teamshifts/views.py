@@ -1884,6 +1884,15 @@ class MembersListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Pagi
             elif hours == "has":
                 qs = qs.filter(hours_scheduled__isnull=False)
 
+            voucher = self.request.GET.get("voucher", "").strip()
+            if voucher == "not_sent":
+                qs = qs.filter(
+                    Q(voucher_assignment__isnull=True)
+                    | Q(voucher_assignment__status=VoucherStatus.NOT_SENT)
+                )
+            elif voucher in {VoucherStatus.SENT, VoucherStatus.CLAIMED}:
+                qs = qs.filter(voucher_assignment__status=voucher)
+
         return qs
 
     def _get_voucher_settings(self):

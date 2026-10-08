@@ -1,10 +1,12 @@
+from datetime import timedelta
 from unittest.mock import patch
-from django.utils.timezone import now
+
 import pytest
 from django.urls import reverse
-from django_scopes import scope, scopes_disabled
+from django.utils.timezone import now
+from django_scopes import scope
 from eventyay.base.models import Team, User, Voucher
-from datetime import timedelta
+
 from teamshifts.forms import TeamMemberApplicationForm
 from teamshifts.models import (
     ApplicationStatus,

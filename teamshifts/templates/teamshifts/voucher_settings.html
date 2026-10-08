@@ -30,6 +30,13 @@
     {% csrf_token %}
     {% bootstrap_form_errors form %}
 
+    <div id='send-vouchers-hint' class='alert alert-info'{% if not send_vouchers_blocker or form.is_bound %} hidden{% endif %}>
+      {{ send_vouchers_blocker|default:'' }}
+    </div>
+    <div id='send-vouchers-unsaved-hint' class='alert alert-info'{% if not form.is_bound %} hidden{% endif %}>
+      {% trans 'Save your changes first.' %}
+    </div>
+
     <fieldset>
       <legend>{% trans 'Voucher batch' %}</legend>
 
@@ -56,7 +63,7 @@
           <i class='fa fa-save'></i> {% trans 'Save' %}
         </button>
         <a id='send-vouchers-btn'
-           class='btn btn-success{% if send_vouchers_blocker or form.is_bound %} disabled{% endif %}'
+           class='btn btn-default{% if send_vouchers_blocker or form.is_bound %} disabled{% endif %}'
            data-href='{{ send_vouchers_url }}'
            data-blocked='{{ send_vouchers_blocker|yesno:"true,false" }}'
            {% if send_vouchers_blocker or form.is_bound %}aria-disabled='true' tabindex='-1'{% else %}href='{{ send_vouchers_url }}'{% endif %}
@@ -67,14 +74,6 @@
            href='{% url "control:event.vouchers.bulk" organizer=request.organizer.slug event=request.event.slug %}'>
           <i class='fa fa-plus'></i> {% trans 'Create a voucher batch in Tickets →' %}
         </a>
-        <div>
-          <p id='send-vouchers-hint' class='ts-send-vouchers-hint'{% if not send_vouchers_blocker or form.is_bound %} hidden{% endif %}>
-            <i class='fa fa-info-circle'></i> {{ send_vouchers_blocker|default:'' }}
-          </p>
-          <p id='send-vouchers-unsaved-hint' class='ts-send-vouchers-hint'{% if not form.is_bound %} hidden{% endif %}>
-            <i class='fa fa-info-circle'></i> {% trans 'Save your changes first.' %}
-          </p>
-        </div>
       </div>
     </div>
   </form>

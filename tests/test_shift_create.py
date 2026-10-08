@@ -228,6 +228,34 @@ def test_shift_create_repeating_shorter_last_shift_counts_toward_cap(orga_client
     assert b"The maximum allowed is 50 per action" in response.content
 
 
+@pytest.mark.django_db
+def test_shift_create_repeating_cap_checked_before_splitting(orga_client, event, location, team_role, monkeypatch):
+    def fail(*args, **kwargs):
+        raise AssertionError("split_shift_range must not run for a range over the cap")
+
+    monkeypatch.setattr("teamshifts.forms.split_shift_range", fail)
+    monkeypatch.setattr("teamshifts.views.split_shift_range", fail)
+    url = reverse("plugins:teamshifts:shift_create", kwargs={"organizer": event.organizer.slug, "event": event.slug})
+    start = now() + timedelta(days=1)
+    end = start + timedelta(days=3650)  # ten years of one-minute shifts
+
+    response = orga_client.post(url, _repeating_data(location, team_role, start, end, 1))
+    assert response.status_code == 200
+    assert b"The maximum allowed is 50 per action" in response.content
+
+
+@pytest.mark.django_db
+def test_shift_create_repeating_huge_length_rejected(orga_client, event, location, team_role):
+    url = reverse("plugins:teamshifts:shift_create", kwargs={"organizer": event.organizer.slug, "event": event.slug})
+    start = now() + timedelta(days=1)
+    end = start + timedelta(hours=2)
+
+    # Adding this many minutes to a datetime overflows past year 9999.
+    response = orga_client.post(url, _repeating_data(location, team_role, start, end, 10**10))
+    assert response.status_code == 200
+    assert b"The shift length is longer than the time between start and end." in response.content
+
+
 def test_split_shift_range_exact_and_remainder():
     start = now().replace(hour=9, minute=0, second=0, microsecond=0)
     assert split_shift_range(start, start + timedelta(hours=2), 60) == [

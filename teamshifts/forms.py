@@ -1,3 +1,4 @@
+import math
 import re
 from datetime import timedelta
 from zoneinfo import ZoneInfo
@@ -703,9 +704,11 @@ class ShiftForm(forms.ModelForm):
             if not shift_length:
                 self.add_error("shift_length_minutes", _("Please provide a shift length."))
             elif start_time and end_time and end_time > start_time:
-                if start_time + timedelta(minutes=shift_length) > end_time:
+                duration_seconds = int((end_time - start_time).total_seconds())
+                length_seconds = shift_length * 60
+                if length_seconds > duration_seconds:
                     self.add_error("shift_length_minutes", _("The shift length is longer than the time between start and end."))
-                elif len(split_shift_range(start_time, end_time, shift_length)) > 50:
+                elif math.ceil(duration_seconds / length_seconds) > 50:
                     self.add_error(
                         "shift_length_minutes",
                         _("The maximum allowed is 50 per action. Please adjust the interval or date range."),

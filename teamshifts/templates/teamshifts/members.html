@@ -25,6 +25,17 @@
       <div class='form-group'>
         <input type='text' name='q' value='{{ request.GET.q|default:"" }}' class='form-control' placeholder='{% trans "Search by name or email" %}'>
       </div>
+            <div class='form-group'>
+        <select name='hours' class='form-control'>
+          <option value=''>{% trans 'All hours' %}</option>
+          <option value='none' {% if request.GET.hours == 'none' %}selected{% endif %}>
+            {% trans 'No hours scheduled' %}
+          </option>
+          <option value='has' {% if request.GET.hours == 'has' %}selected{% endif %}>
+            {% trans 'Has hours scheduled' %}
+          </option>
+        </select>
+      </div>
       <div class='form-group'>
         <select name='role' class='form-control'>
           <option value=''>{% trans 'All roles' %}</option>

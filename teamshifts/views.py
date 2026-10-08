@@ -1878,6 +1878,11 @@ class MembersListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Pagi
                 )
                 .order_by("user__fullname", "user__email")
             )
+            hours = self.request.GET.get("hours", "").strip()
+            if hours == "none":
+                qs = qs.filter(hours_scheduled__isnull=True)
+            elif hours == "has":
+                qs = qs.filter(hours_scheduled__isnull=False)
 
         return qs
 

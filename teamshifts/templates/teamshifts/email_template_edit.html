@@ -9,17 +9,20 @@
 {% endblock %}
 
 {% block teamshifts_content %}
-    <p class='help-block'>
-        {% blocktrans trimmed %}
-        Available placeholders: <code>{full_name}</code>, <code>{event_name}</code>,
-        <code>{role_name}</code>.
-        {% endblocktrans %}
-    </p>
     <form action='' method='post' class='form-horizontal'>
         {% csrf_token %}
         {% bootstrap_form_errors form %}
         {% bootstrap_field form.subject layout='control' %}
         {% bootstrap_field form.body layout='control' %}
+        <fieldset>
+            <legend>{% trans "Available placeholders" %}</legend>
+            <dl class='dl-horizontal'>
+                {% for token, description in email_placeholders %}
+                    <dt><code>{{ token }}</code></dt>
+                    <dd>{{ description }}</dd>
+                {% endfor %}
+            </dl>
+        </fieldset>
         <div class='form-group submit-group'>
             <button type='submit' class='btn btn-primary btn-save'>{% trans "Save" %}</button>
             <a href='{% url "plugins:teamshifts:email_templates" organizer=request.organizer.slug event=request.event.slug %}'

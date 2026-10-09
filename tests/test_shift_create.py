@@ -8,7 +8,7 @@ from django.utils.timezone import now
 from django_scopes import scope
 from eventyay.base.models import Team, User
 
-from teamshifts.forms import split_shift_range
+from teamshifts.forms import count_shifts, split_shift_range
 from teamshifts.models import (
     ApplicationStatus,
     Shift,
@@ -266,6 +266,52 @@ def test_split_shift_range_exact_and_remainder():
         (start, start + timedelta(hours=1)),
         (start + timedelta(hours=1), start + timedelta(minutes=100)),
     ]
+
+
+def test_split_shift_range_merges_leftover_under_15_minutes():
+    start = now().replace(hour=9, minute=0, second=0, microsecond=0)
+    # 14 minutes left over: added to the last full shift.
+    assert split_shift_range(start, start + timedelta(minutes=134), 60) == [
+        (start, start + timedelta(hours=1)),
+        (start + timedelta(hours=1), start + timedelta(minutes=134)),
+    ]
+    # Exactly 15 minutes left over: kept as its own shift.
+    assert split_shift_range(start, start + timedelta(minutes=135), 60)[-1] == (start + timedelta(hours=2), start + timedelta(minutes=135))
+
+
+def test_count_shifts_matches_split_shift_range():
+    start = now().replace(hour=9, minute=0, second=0, microsecond=0)
+    for minutes, length in [(120, 60), (100, 60), (134, 60), (135, 60), (481, 60), (540, 120), (45, 30), (40, 30)]:
+        end = start + timedelta(minutes=minutes)
+        assert count_shifts(start, end, length) == len(split_shift_range(start, end, length)), (minutes, length)
+
+
+@pytest.mark.django_db
+def test_shift_create_repeating_merges_tiny_last_shift(orga_client, event, location, team_role):
+    url = reverse("plugins:teamshifts:shift_create", kwargs={"organizer": event.organizer.slug, "event": event.slug})
+    start = (now() + timedelta(days=1)).replace(hour=9, minute=0, second=0, microsecond=0)
+    end = start.replace(hour=17, minute=1)  # 09:00-17:01 in 1-hour shifts
+
+    response = orga_client.post(url, _repeating_data(location, team_role, start, end, 60))
+    assert response.status_code == 302
+
+    with scope(event=event):
+        shifts = list(Shift.objects.order_by("start_time"))
+        assert len(shifts) == 8
+        assert shifts[-1].start_time == start.replace(hour=16)
+        assert shifts[-1].end_time == end
+
+
+@pytest.mark.django_db
+def test_shift_create_repeating_merged_leftover_does_not_count_toward_cap(orga_client, event, location, team_role):
+    url = reverse("plugins:teamshifts:shift_create", kwargs={"organizer": event.organizer.slug, "event": event.slug})
+    start = now() + timedelta(days=1)
+    end = start + timedelta(hours=50, minutes=10)  # 50 full shifts, 10 minutes added to the last one
+
+    response = orga_client.post(url, _repeating_data(location, team_role, start, end, 60))
+    assert response.status_code == 302
+    with scope(event=event):
+        assert Shift.objects.count() == 50
 
 
 @pytest.mark.django_db

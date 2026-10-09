@@ -4,6 +4,13 @@ function gettext(msgid) {
     return typeof window.gettext === "function" ? window.gettext(msgid) : msgid;
 }
 
+function interpolate(fmt, params) {
+    if (typeof window.interpolate === "function") {
+        return window.interpolate(fmt, params, true);
+    }
+    return fmt.replace(/%\((\w+)\)s/g, (match, name) => String(params[name]));
+}
+
 function setupModeToggle() {
     const modeRadios = document.querySelectorAll('input[name="mode"]');
     const repeatOptionsDiv = document.getElementById("repeat-options");
@@ -83,25 +90,39 @@ function setupPreviewOccurrences() {
         }
 
         const fragment = document.createDocumentFragment();
+        const maxShifts = parseInt(previewBtn.dataset.maxShifts, 10);
+        const minFinalShiftMins = parseInt(previewBtn.dataset.minFinalShift, 10);
 
-        let curr = new Date(startDate);
+        // Mirrors count_shifts() and split_shift_range() in forms.py.
+        const durationMins = Math.round((endDate - startDate) / 60000);
+        const remainderMins = durationMins % lengthMins;
+        let shiftCount = Math.floor(durationMins / lengthMins);
+        if (remainderMins > 0 && remainderMins >= minFinalShiftMins) {
+            shiftCount += 1;
+        }
+
+        if (shiftCount > maxShifts) {
+            showPreviewMessage(
+                previewDiv,
+                "text-danger",
+                interpolate(gettext("The maximum allowed is %(max)s per action. Please adjust the interval or date range."), { max: maxShifts }),
+            );
+            return;
+        }
+
         const occurrences = [];
-        const maxShifts = 50;
-
-        while (curr < endDate && occurrences.length < maxShifts) {
-            const next = new Date(Math.min(curr.getTime() + lengthMins * 60000, endDate.getTime()));
+        let curr = new Date(startDate);
+        for (let i = 0; i < shiftCount; i++) {
+            const next = i === shiftCount - 1 ? endDate : new Date(curr.getTime() + lengthMins * 60000);
             const mins = Math.round((next - curr) / 60000);
             let text = `${formatDt(curr)} \u2013 ${formatDt(next)}`;
             if (mins < lengthMins) {
-                text += ` (${gettext("%(minutes)s min, shorter than the others").replace("%(minutes)s", mins)})`;
+                text += ` (${interpolate(gettext("%(minutes)s min, shorter than the others"), { minutes: mins })})`;
+            } else if (mins > lengthMins) {
+                text += ` (${interpolate(gettext("%(minutes)s min, longer than the others"), { minutes: mins })})`;
             }
             occurrences.push(text);
             curr = next;
-        }
-
-        if (curr < endDate) {
-            showPreviewMessage(previewDiv, "text-danger", gettext("The maximum allowed is 50 per action. Please adjust the interval or date range."));
-            return;
         }
 
         const summary = document.createElement("strong");

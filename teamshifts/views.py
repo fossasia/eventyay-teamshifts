@@ -34,6 +34,8 @@ from eventyay.control.views import PaginationMixin
 from eventyay.multidomain.urlreverse import build_absolute_uri
 
 from .forms import (
+    MAX_SHIFTS_PER_ACTION,
+    MIN_FINAL_SHIFT_MINUTES,
     BaseShiftRoleFormSet,
     CallForTeamMembersApplicationSettingsForm,
     CallForTeamMembersSettingsForm,
@@ -1698,6 +1700,8 @@ class ShiftCreateView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Temp
             if self.request.method == "POST"
             else ShiftRoleFormSet(prefix="roles", form_kwargs={"event": self.request.event})
         )
+        ctx["max_shifts_per_action"] = MAX_SHIFTS_PER_ACTION
+        ctx["min_final_shift_minutes"] = MIN_FINAL_SHIFT_MINUTES
         return ctx
 
     def post(self, request, *args, **kwargs):

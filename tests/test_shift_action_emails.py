@@ -19,6 +19,7 @@ from teamshifts.models import (
     ShiftRoleAssignment,
     TeamMemberApplication,
     TeamRole,
+    TeamShiftsEmailQueue,
 )
 
 JSON_HEADERS = {"HTTP_ACCEPT": "application/json", "HTTP_X_REQUESTED_WITH": "XMLHttpRequest"}
@@ -44,6 +45,14 @@ def volunteer(django_user_model):
 def application(event, cfm, volunteer):
     with scope(event=event):
         return TeamMemberApplication.objects.create(event=event, user=volunteer, status=ApplicationStatus.ACCEPTED)
+
+
+@pytest.fixture
+def organizer_user(event, user):
+    with scope(event=event):
+        team = Team.objects.create(organizer=event.organizer, name="Orga", can_change_event_settings=True, all_events=True)
+        team.members.add(user)
+    return user
 
 
 @pytest.fixture
@@ -152,9 +161,9 @@ def test_drop_emails_by_default(mock_queue, _mock_orga, client, event, applicati
 
 
 @pytest.mark.django_db
-@patch("teamshifts.views._notify_organizers_shift_dropped")
+@patch("teamshifts.services.email.send_queued_email")
 @patch("teamshifts.views.queue_shift_notification_email")
-def test_drop_opt_out_skips_email(mock_queue, mock_orga, client, event, application, volunteer, shift, team_role):
+def test_drop_opt_out_skips_email(mock_queue, _mock_send, client, event, application, volunteer, organizer_user, shift, team_role):
     with scope(event=event):
         ShiftAssignment.objects.create(shift=shift, team_member=volunteer, role=team_role)
     client.force_login(volunteer)
@@ -167,8 +176,30 @@ def test_drop_opt_out_skips_email(mock_queue, mock_orga, client, event, applicat
     assert _stored_choice(event, application) is False
     with scope(event=event):
         assert not ShiftAssignment.objects.filter(shift=shift, team_member=volunteer).exists()
-    # Organizers are still told about the drop.
-    mock_orga.assert_called_once()
+        # Organizers are still told about the drop.
+        queue = TeamShiftsEmailQueue.objects.get(event=event)
+        assert [r.email for r in queue.recipients.all()] == [organizer_user.email]
+        assert str(queue.subject) == str(get_default_template(EmailTemplateRoles.SHIFT_DROPPED_ORGANIZER)[0])
+        assert (queue.user, queue.shift, queue.shift_role) == (volunteer, shift, team_role)
+
+
+@pytest.mark.django_db
+@patch("teamshifts.services.email.send_queued_email")
+@patch("teamshifts.views.queue_shift_notification_email")
+def test_concurrent_drop_sends_no_emails(mock_queue, _mock_send, client, event, application, volunteer, organizer_user, shift, team_role):
+    with scope(event=event):
+        ShiftAssignment.objects.create(shift=shift, team_member=volunteer, role=team_role)
+    client.force_login(volunteer)
+
+    # Another request deleted the assignment between this request's lookup and its delete.
+    with patch("django.db.models.query.QuerySet.delete", return_value=(0, {})):
+        response = _drop(client, event, shift, team_role, send_email=False)
+
+    assert response.status_code == 400
+    assert mock_queue.call_count == 0
+    assert _stored_choice(event, application) is True
+    with scope(event=event):
+        assert not TeamShiftsEmailQueue.objects.filter(event=event).exists()
 
 
 @pytest.mark.django_db
@@ -222,12 +253,10 @@ def test_choice_is_stored_per_event(mock_queue, client, event, application, volu
 
 @pytest.mark.django_db
 @patch("teamshifts.views.queue_shift_notification_email")
-def test_organizer_assignment_still_emails_after_opt_out(mock_queue, client, event, application, volunteer, user, shift, team_role):
+def test_organizer_assignment_still_emails_after_opt_out(mock_queue, client, event, application, volunteer, organizer_user, shift, team_role):
     with scope(event=event):
         TeamMemberApplication.objects.filter(pk=application.pk).update(shift_action_emails=False)
-        team = Team.objects.create(organizer=event.organizer, name="Orga", can_change_event_settings=True, all_events=True)
-        team.members.add(user)
-    client.force_login(user)
+    client.force_login(organizer_user)
     url = reverse("plugins:teamshifts:api_assignments", kwargs={"organizer": event.organizer.slug, "event": event.slug})
 
     with TestCase.captureOnCommitCallbacks(execute=True):

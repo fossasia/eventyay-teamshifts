@@ -332,6 +332,11 @@ class TeamMemberApplication(models.Model):
         verbose_name=_("Added by organizer"),
         help_text=_("Whether this member was added directly by an organizer instead of applying through the public Call for Team Members."),
     )
+    shift_action_emails = models.BooleanField(
+        default=True,
+        verbose_name=_("Email on shift sign-up and drop"),
+        help_text=_("Whether the member gets an email when they sign up for or drop a shift on the shift schedule."),
+    )
     created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Applied At"))
     updated_at = models.DateTimeField(auto_now=True, verbose_name=_("Updated At"))
 
@@ -630,6 +635,7 @@ class EmailTemplateRoles(models.TextChoices):
     MEMBER_ADDED_BY_ORGANIZER = "teamshifts.member.added_by_organizer", _("Added as volunteer by organizer")
     SHIFT_ASSIGNED_BY_ORGANIZER = "teamshifts.shift.assigned_by_organizer", _("Shift assigned by organizer")
     SHIFT_CLAIMED_BY_VOLUNTEER = "teamshifts.shift.claimed_by_volunteer", _("Shift sign-up confirmation")
+    SHIFT_DROPPED_BY_VOLUNTEER = "teamshifts.shift.dropped_by_volunteer", _("Shift drop confirmation")
     VOUCHER_SENT = "teamshifts.voucher.sent", _("Voucher sent to volunteer")
     CERTIFICATE_GENERATED = "teamshifts.certificate.generated", _("Certificate of participation generated")
 

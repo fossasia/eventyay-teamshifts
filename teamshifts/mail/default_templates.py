@@ -141,6 +141,21 @@ SHIFT_DROPPED_BY_VOLUNTEER_TEXT = LazyI18nString.from_gettext(
     )
 )
 
+SHIFT_DROPPED_ORGANIZER_SUBJECT = LazyI18nString.from_gettext(_("A team member dropped a shift — {event_name}"))
+SHIFT_DROPPED_ORGANIZER_TEXT = LazyI18nString.from_gettext(
+    _(
+        "A team member has dropped a shift at {event_name}.\n\n"
+        "Team member: {applicant_name}\n"
+        "Shift: {shift_name}\n"
+        "Time: {shift_time}\n"
+        "Role: {role_name}\n\n"
+        "The slot is open again for other team members.\n\n"
+        "View the team member's application here:\n"
+        "{application_url}\n\n"
+        "The {event_name} team"
+    )
+)
+
 
 def get_default_template(role: str) -> tuple[LazyI18nString, LazyI18nString]:
     from ..models import EmailTemplateRoles
@@ -153,6 +168,7 @@ def get_default_template(role: str) -> tuple[LazyI18nString, LazyI18nString]:
         EmailTemplateRoles.SHIFT_ASSIGNED_BY_ORGANIZER: (SHIFT_ASSIGNED_BY_ORGANIZER_SUBJECT, SHIFT_ASSIGNED_BY_ORGANIZER_TEXT),
         EmailTemplateRoles.SHIFT_CLAIMED_BY_VOLUNTEER: (SHIFT_CLAIMED_BY_VOLUNTEER_SUBJECT, SHIFT_CLAIMED_BY_VOLUNTEER_TEXT),
         EmailTemplateRoles.SHIFT_DROPPED_BY_VOLUNTEER: (SHIFT_DROPPED_BY_VOLUNTEER_SUBJECT, SHIFT_DROPPED_BY_VOLUNTEER_TEXT),
+        EmailTemplateRoles.SHIFT_DROPPED_ORGANIZER: (SHIFT_DROPPED_ORGANIZER_SUBJECT, SHIFT_DROPPED_ORGANIZER_TEXT),
         EmailTemplateRoles.VOUCHER_SENT: (VOUCHER_SENT_SUBJECT, VOUCHER_SENT_TEXT),
         EmailTemplateRoles.CERTIFICATE_GENERATED: (CERTIFICATE_GENERATED_SUBJECT, CERTIFICATE_GENERATED_TEXT),
         EmailTemplateRoles.NEW_APPLICATION_ORGANIZER: (

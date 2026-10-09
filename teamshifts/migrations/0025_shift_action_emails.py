@@ -29,6 +29,7 @@ class Migration(migrations.Migration):
                     ("teamshifts.shift.assigned_by_organizer", "Shift assigned by organizer"),
                     ("teamshifts.shift.claimed_by_volunteer", "Shift sign-up confirmation"),
                     ("teamshifts.shift.dropped_by_volunteer", "Shift drop confirmation"),
+                    ("teamshifts.shift.dropped_organizer", "Shift dropped (organizer notification)"),
                     ("teamshifts.voucher.sent", "Voucher sent to volunteer"),
                     ("teamshifts.certificate.generated", "Certificate of participation generated"),
                 ],

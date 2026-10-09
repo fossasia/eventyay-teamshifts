@@ -2930,7 +2930,11 @@ class ShiftWithdrawView(PublicShiftScheduleMixin, View):
                 return fail(_("You are not signed up for this shift."))
 
             role = assignment.role
-            assignment.delete()
+            # A concurrent withdrawal may have deleted the row since the lookup. Only the
+            # request that actually deletes it sends the drop emails.
+            deleted, _details = ShiftAssignment.objects.filter(pk=assignment.pk).delete()
+            if not deleted:
+                return fail(_("You are not signed up for this shift."))
             send_email = _resolve_shift_action_emails(self.member_application, requested_send_email)
             if send_email:
                 transaction.on_commit(
@@ -2944,14 +2948,14 @@ class ShiftWithdrawView(PublicShiftScheduleMixin, View):
                 "assignments__role",
             ).get(pk=shift.pk)
 
-        transaction.on_commit(lambda: _notify_organizers_shift_dropped(event, request.user, shift))
+        transaction.on_commit(lambda: _notify_organizers_shift_dropped(event, request.user, shift, role))
         if _wants_json(request):
             return JsonResponse({"status": "ok", "roles": _shift_roles_payload(shift), "shift_action_emails": send_email})
         messages.success(request, _("You have been withdrawn from the shift."))
         return redirect(schedule_url)
 
 
-def _notify_organizers_shift_dropped(event, volunteer, shift):
+def _notify_organizers_shift_dropped(event, volunteer, shift, role=None):
 
     try:
         cfm = event.call_for_team_members
@@ -2959,7 +2963,7 @@ def _notify_organizers_shift_dropped(event, volunteer, shift):
         return
 
     try:
-        template = cfm.get_mail_template(EmailTemplateRoles.SHIFT_DROPPED)
+        template = cfm.get_mail_template(EmailTemplateRoles.SHIFT_DROPPED_ORGANIZER)
     except Exception:
         logger.exception("Failed to load shift-dropped email template for event %s", event.pk)
         return
@@ -2981,6 +2985,9 @@ def _notify_organizers_shift_dropped(event, volunteer, shift):
         subject=template.subject,
         message=template.body,
         recipients=organizer_users,
+        user=volunteer,
+        shift=shift,
+        shift_role=role,
         status_filter="",
     )
 

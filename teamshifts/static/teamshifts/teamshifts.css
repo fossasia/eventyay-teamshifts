@@ -284,3 +284,34 @@ label .optional {
 .ts-qa-question {
   width: 40%;
 }
+
+/* Certificate Editor specific styles */
+#toolbox-pin {
+  display: none;
+}
+
+#toolbox[data-type=text] #toolbox-pin {
+  display: inline-block;
+}
+
+#toolbox[data-type=textarea] #toolbox-pin {
+  display: inline-block;
+}
+
+#toolbox[data-type=group-text] .text {
+  display: block;
+}
+
+#toolbox[data-type=group-text] .certificate-group-color {
+  display: block;
+}
+
+#toolbox[data-type=group-text] .object-buttons {
+  display: block;
+}
+
+#toolbox-pin.is-pinned {
+  background-color: #337ab7;
+  border-color: #2e6da4;
+  color: #fff;
+}

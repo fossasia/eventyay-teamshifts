@@ -808,7 +808,7 @@ class VolunteerVoucherSettings(models.Model):
         if not self.voucher_tag:
             return Voucher.objects.none()
         assigned_voucher_ids = MemberVoucher.objects.filter(
-            application__event=self.event,
+            event=self.event,
         ).values_list("voucher_id", flat=True)
         with scopes_disabled():
             return Voucher.objects.filter(
@@ -828,9 +828,18 @@ class VolunteerVoucherSettings(models.Model):
 
 
 class MemberVoucher(models.Model):
+    event = models.ForeignKey(
+        "base.Event",
+        on_delete=models.CASCADE,
+        related_name="teamshifts_member_vouchers",
+    )
+    # Kept (with application=NULL) when the application is deleted, so a code that
+    # was already emailed is never handed to another member.
     application = models.OneToOneField(
         TeamMemberApplication,
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
         related_name="voucher_assignment",
     )
     voucher = models.OneToOneField(
@@ -851,13 +860,15 @@ class MemberVoucher(models.Model):
     )
     created_at = models.DateTimeField(auto_now_add=True)
 
-    objects = ScopedManager(event="application__event")
+    objects = ScopedManager(event="event")
 
     class Meta:
         verbose_name = _("Member voucher")
         verbose_name_plural = _("Member vouchers")
 
     def __str__(self):
+        if self.application is None:
+            return f"(deleted member) → {self.voucher.code}"
         return f"{self.application.user.email} → {self.voucher.code}"
 
     def refresh_claimed_status(self) -> bool:

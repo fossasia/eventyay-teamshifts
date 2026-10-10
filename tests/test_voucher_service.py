@@ -156,3 +156,42 @@ def test_voucher_email_uses_redeem_url(event, cfm, voucher_settings, voucher_bat
     with scopes_disabled():
         mv = MemberVoucher.objects.get(application=app)
     assert context["ticket_claim_url"] == f"https://example.com/test-organizer/test-event/redeem/?voucher={mv.voucher.code}"
+
+
+@pytest.mark.django_db
+def test_send_in_separate_rounds(event, cfm, voucher_settings, voucher_batch, django_user_model):
+    first = [_make_member(event, f"first{i}@example.com", django_user_model) for i in range(2)]
+    second = [_make_member(event, f"second{i}@example.com", django_user_model) for i in range(2)]
+
+    with patch("teamshifts.services.vouchers._send_voucher_email", return_value=True) as send:
+        first_result = allocate_and_send_vouchers(event, voucher_settings, first)
+        send.reset_mock()
+        second_result = allocate_and_send_vouchers(event, voucher_settings, second)
+
+    assert first_result["sent"] == 2
+    assert second_result["sent"] == 1
+    assert second_result["skipped_no_vouchers"] == 1
+    assert [call.args[1] for call in send.call_args_list] == [second[0].user]
+    with scopes_disabled():
+        codes = list(MemberVoucher.objects.values_list("voucher__code", flat=True))
+    assert len(codes) == len(set(codes)) == 3
+
+
+@pytest.mark.django_db
+def test_deleted_member_code_is_not_reallocated(event, cfm, voucher_settings, voucher_batch, django_user_model):
+    removed = _make_member(event, "removed@example.com", django_user_model)
+    with patch("teamshifts.services.vouchers._send_voucher_email", return_value=True):
+        allocate_and_send_vouchers(event, voucher_settings, [removed])
+    with scopes_disabled():
+        sent_code = MemberVoucher.objects.get(application=removed).voucher.code
+        removed.delete()
+        assert MemberVoucher.objects.filter(application__isnull=True).count() == 1
+        assert voucher_settings.batch_remaining_count() == len(voucher_batch) - 1
+
+    newcomer = _make_member(event, "newcomer@example.com", django_user_model)
+    with patch("teamshifts.services.vouchers._send_voucher_email", return_value=True):
+        result = allocate_and_send_vouchers(event, voucher_settings, [newcomer])
+
+    assert result["sent"] == 1
+    with scopes_disabled():
+        assert MemberVoucher.objects.get(application=newcomer).voucher.code != sent_code

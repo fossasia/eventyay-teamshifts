@@ -53,6 +53,24 @@ event_patterns = [
         name="public_shift_withdraw",
         require_live=False,
     ),
+    event_url(
+        r"^teamshifts/shifts/(?P<pk>\d+)/manage/$",
+        views.ShiftScheduleTalkAPIView.as_view(),
+        name="public_shift_manage",
+        require_live=False,
+    ),
+    event_url(
+        r"^teamshifts/shifts/assignments/$",
+        views.ShiftScheduleAssignmentsAPIView.as_view(),
+        name="public_shift_assignments",
+        require_live=False,
+    ),
+    event_url(
+        r"^teamshifts/shifts/members/$",
+        views.ShiftScheduleMembersAPIView.as_view(),
+        name="public_shift_members",
+        require_live=False,
+    ),
     path(
         "teamshifts/my-shifts/",
         views.MyShiftsView.as_view(),

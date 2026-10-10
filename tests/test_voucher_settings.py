@@ -130,7 +130,11 @@ def test_send_vouchers_button_disabled_with_reason(orga_client, event, enabled, 
     elements = _elements(response)
     _assert_send_button_disabled(elements)
     assert "hidden" not in elements["send-vouchers-hint"]
-    assert message in response.content.decode("utf-8")
+    assert elements["send-vouchers-hint"]["class"] == "ts-send-vouchers-hint"
+    content = response.content.decode("utf-8")
+    assert message in content
+    # The hint sits directly under the buttons, not at the top of the form.
+    assert content.index("id='send-vouchers-btn'") < content.index("id='send-vouchers-hint'")
 
 
 @pytest.mark.django_db
@@ -156,6 +160,7 @@ def test_send_vouchers_button_disabled_after_invalid_post(orga_client, event):
     elements = _elements(response)
     _assert_send_button_disabled(elements)
     assert "hidden" not in elements["send-vouchers-unsaved-hint"]
+    assert elements["send-vouchers-unsaved-hint"]["class"] == "ts-send-vouchers-hint"
     assert "hidden" in elements["send-vouchers-hint"]
     form = elements["voucher-settings-form"]
     assert form["data-saved-enabled"] == "true"

@@ -19,7 +19,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.decorators import method_decorator
 from django.utils.formats import date_format
-from django.utils.html import escape, strip_tags
+from django.utils.html import escape, format_html, strip_tags
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.timezone import now
 from django.utils.translation import get_language, get_language_info, gettext_lazy as _, ngettext
@@ -74,10 +74,18 @@ from .models import (
     VoucherStatus,
     normalize_field_order,
 )
-from .permissions import TeamShiftsPermissionRequiredMixin, can_act_on_role, can_view_email_addresses, get_allowed_role_ids, has_teamshifts_permission
+from .permissions import (
+    TeamShiftsPermissionRequiredMixin,
+    can_act_on_role,
+    can_view_email_addresses,
+    get_allowed_role_ids,
+    has_any_teamshifts_permission,
+    has_teamshifts_permission,
+)
 from .services.certificates import maybe_auto_issue_certificate
+from .services.checkin import evaluate_shift_certificate, stamp_shift_end
 from .services.email import get_recipients, queue_email, queue_lifecycle_email, queue_shift_notification_email
-from .services.members import AlreadyMemberError, add_member_from_organizer
+from .services.members import AlreadyMemberError, accept_manager_as_member, add_member_from_organizer
 from .tasks import send_queued_email
 
 logger = logging.getLogger(__name__)
@@ -932,7 +940,9 @@ class ApplicationDetailView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin
                     "answers__question",
                     Prefetch(
                         "user__shift_assignments",
-                        queryset=ShiftAssignment.objects.filter(shift__event=event).select_related("role"),
+                        queryset=ShiftAssignment.objects.filter(shift__event=event)
+                        .select_related("role", "shift", "shift__location")
+                        .order_by("shift__start_time"),
                         to_attr="event_assignments",
                     ),
                 ),
@@ -1021,7 +1031,14 @@ class PublicApplyView(FormView):
         if full_name and full_name != self.request.user.fullname:
             self.request.user.fullname = full_name
             self.request.user.save(update_fields=["fullname"])
-        transaction.on_commit(lambda app=application: queue_lifecycle_email(app, EmailTemplateRoles.APPLICATION_RECEIVED))
+        transaction.on_commit(
+            lambda app=application: queue_lifecycle_email(app, EmailTemplateRoles.APPLICATION_RECEIVED),
+            robust=True,
+        )
+        transaction.on_commit(
+            lambda app=application: _notify_organizers_new_application(event, app),
+            robust=True,
+        )
         messages.success(self.request, _("Your application has been submitted."))
         return redirect(
             reverse(
@@ -1861,9 +1878,22 @@ class MembersListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Pagi
                 else:
                     qs = qs.filter(Q(user__fullname__icontains=search))
 
+            # The voucher filter is only shown while vouchers are enabled, so only apply it then.
+            voucher_status = self.request.GET.get("voucher", "")
+            if voucher_status in VoucherStatus.values and self._vouchers_enabled(self._get_voucher_settings()):
+                qs = qs.filter(self._voucher_status_filter(voucher_status))
+
             qs = (
                 qs.annotate(
                     shifts_assigned=Count("user__shift_assignments", filter=Q(user__shift_assignments__shift__event=event)),
+                    shifts_checked_in=Count(
+                        "user__shift_assignments",
+                        filter=Q(user__shift_assignments__shift__event=event, user__shift_assignments__started_at__isnull=False),
+                    ),
+                    shifts_completed=Count(
+                        "user__shift_assignments",
+                        filter=Q(user__shift_assignments__shift__event=event, user__shift_assignments__ended_at__isnull=False),
+                    ),
                     hours_scheduled=Sum(
                         ExpressionWrapper(
                             F("user__shift_assignments__shift__end_time") - F("user__shift_assignments__shift__start_time"),
@@ -1888,17 +1918,32 @@ class MembersListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Pagi
 
         return qs
 
+    @staticmethod
+    def _voucher_status_filter(voucher_status):
+        # A redeemed voucher counts as claimed even before its status has been synced.
+        claimed = Q(voucher_assignment__status=VoucherStatus.CLAIMED) | Q(voucher_assignment__voucher__redeemed__gt=0)
+        if voucher_status == VoucherStatus.CLAIMED:
+            return claimed
+        if voucher_status == VoucherStatus.SENT:
+            return Q(voucher_assignment__status=VoucherStatus.SENT) & ~claimed
+        return (Q(voucher_assignment__isnull=True) | Q(voucher_assignment__status=VoucherStatus.NOT_SENT)) & ~claimed
+
     def _get_voucher_settings(self):
         try:
             return self.request.event.volunteer_voucher_settings
         except VolunteerVoucherSettings.DoesNotExist:
             return None
 
+    @staticmethod
+    def _vouchers_enabled(voucher_settings):
+        return bool(voucher_settings and voucher_settings.enabled and voucher_settings.voucher_tag)
+
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         event = self.request.event
         with scope(event=event):
             ctx["roles"] = list(TeamRole.objects.filter(event=event))
+        ctx["voucher_status_choices"] = VoucherStatus.choices
 
         ctx["can_view_email"] = can_view_email_addresses(self.request.user, self.request.organizer, self.request.event, request=self.request)
         ctx["can_add_member"] = has_teamshifts_permission(
@@ -1910,7 +1955,7 @@ class MembersListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Pagi
         )
 
         voucher_settings = self._get_voucher_settings()
-        ctx["vouchers_enabled"] = bool(voucher_settings and voucher_settings.enabled and voucher_settings.voucher_tag)
+        ctx["vouchers_enabled"] = self._vouchers_enabled(voucher_settings)
         ctx["vouchers_not_configured"] = bool(voucher_settings and voucher_settings.enabled and not voucher_settings.voucher_tag)
         if ctx["vouchers_enabled"]:
             with scope(event=event):
@@ -2065,7 +2110,14 @@ class ShiftScheduleTalksAPIView(PluginActiveMixin, TeamShiftsPermissionRequiredM
                     for assignment in shift.assignments.all():
                         if assignment.team_member_id and assignment.role_id == role_assignment.role_id:
                             name = assignment.team_member.get_full_name() or assignment.team_member.email
-                            assignments.append({"id": assignment.team_member.id, "name": name})
+                            assignments.append(
+                                {
+                                    "id": assignment.team_member.id,
+                                    "name": name,
+                                    "started_at": assignment.started_at.isoformat() if assignment.started_at else None,
+                                    "ended_at": assignment.ended_at.isoformat() if assignment.ended_at else None,
+                                }
+                            )
                     roles_data.append(
                         {
                             "id": role_assignment.role.id,
@@ -2248,6 +2300,17 @@ class ShiftScheduleMembersAPIView(PluginActiveMixin, TeamShiftsPermissionRequire
                         member["email"] = app.user.email
                     members.append(member)
             return JsonResponse({"members": members})
+
+
+def _queue_lifecycle_email_safely(application, template_role):
+    try:
+        queue_lifecycle_email(application, template_role)
+    except Exception:
+        logger.exception(
+            "[TeamShifts] Failed to queue %s email for application %s",
+            template_role,
+            application.pk,
+        )
 
 
 def _notify_shift_change_safely(event, user, shift, role, template_role):
@@ -2609,6 +2672,12 @@ def _wants_json(request):
 
 class PublicShiftScheduleMixin:
     redirect_unpublished_to_schedule = True
+    allow_teamshifts_managers = False
+
+    def _can_access_schedule(self, request):
+        if self.member_application is not None:
+            return True
+        return self.allow_teamshifts_managers and has_any_teamshifts_permission(request.user, self.organizer, self.event, request=request)
 
     def dispatch(self, request, *args, **kwargs):
         if "teamshifts" not in request.event.get_plugins():
@@ -2622,7 +2691,12 @@ class PublicShiftScheduleMixin:
         self.event = request.event
         self.organizer = request.organizer
         self.member_application = _get_accepted_application(request, self.event)
-        if self.member_application is None:
+        if not self._can_access_schedule(request):
+            if _wants_json(request):
+                return JsonResponse(
+                    {"status": "error", "error": str(_("You need to be an accepted team member to view the shift schedule."))},
+                    status=403,
+                )
             messages.error(
                 request,
                 _("You need to be an accepted team member to view the shift schedule."),
@@ -2651,6 +2725,8 @@ class PublicShiftScheduleMixin:
 
 
 class PublicShiftScheduleAPIView(PublicShiftScheduleMixin, View):
+    allow_teamshifts_managers = True
+
     def get(self, request, *args, **kwargs):
         event = self.event
 
@@ -2689,6 +2765,7 @@ class PublicShiftScheduleAPIView(PublicShiftScheduleMixin, View):
 class PublicShiftScheduleView(PublicShiftScheduleMixin, TemplateView):
     template_name = "teamshifts/shift_schedule.html"
     redirect_unpublished_to_schedule = False
+    allow_teamshifts_managers = True
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -2735,6 +2812,8 @@ class PublicShiftScheduleView(PublicShiftScheduleMixin, TemplateView):
 
 
 class ShiftClaimView(PublicShiftScheduleMixin, View):
+    allow_teamshifts_managers = True
+
     def post(self, request, *args, **kwargs):
         event = self.event
         shift_pk = kwargs["pk"]
@@ -2785,6 +2864,10 @@ class ShiftClaimView(PublicShiftScheduleMixin, View):
                     if conflicting:
                         return fail(_("You are already assigned to another shift during this time."))
                 previous_role_id = existing.role_id if existing else None
+                if self.member_application is None:
+                    application, promoted = accept_manager_as_member(event=event, user=request.user)
+                    if promoted:
+                        transaction.on_commit(lambda app=application: _queue_lifecycle_email_safely(app, EmailTemplateRoles.APPLICATION_ACCEPTED))
                 _assignment, created = ShiftAssignment.objects.update_or_create(
                     shift=shift,
                     team_member=request.user,
@@ -2813,6 +2896,7 @@ class ShiftClaimView(PublicShiftScheduleMixin, View):
 
 class ShiftDetailView(PublicShiftScheduleMixin, TemplateView):
     template_name = "teamshifts/shift_detail.html"
+    allow_teamshifts_managers = True
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -2849,6 +2933,8 @@ class ShiftDetailView(PublicShiftScheduleMixin, TemplateView):
 
 
 class ShiftWithdrawView(PublicShiftScheduleMixin, View):
+    allow_teamshifts_managers = True
+
     def post(self, request, *args, **kwargs):
         event = self.event
         shift_pk = kwargs["pk"]
@@ -2904,19 +2990,11 @@ def _notify_organizers_shift_dropped(event, volunteer, shift):
     with scopes_disabled():
         organizer_users = list(
             User.objects.filter(
+                Q(teams__all_events=True) | Q(teams__limit_events=event),
                 teams__organizer=event.organizer,
                 teams__can_change_event_settings=True,
-                teams__all_events=True,
             ).distinct()
         )
-        if not organizer_users:
-            organizer_users = list(
-                User.objects.filter(
-                    teams__organizer=event.organizer,
-                    teams__limit_events=event,
-                    teams__can_change_event_settings=True,
-                ).distinct()
-            )
 
     if not organizer_users:
         return
@@ -2930,9 +3008,63 @@ def _notify_organizers_shift_dropped(event, volunteer, shift):
     )
 
 
+def _notify_organizers_new_application(event, application):
+    try:
+        cfm = event.call_for_team_members
+    except CallForTeamMembers.DoesNotExist:
+        return
+
+    template = cfm.get_mail_template(EmailTemplateRoles.NEW_APPLICATION_ORGANIZER)
+
+    with scopes_disabled():
+        team_users = list(
+            User.objects.filter(
+                teams__organizer=event.organizer,
+            )
+            .filter(Q(teams__all_events=True) | Q(teams__limit_events=event))
+            .distinct()
+        )
+
+        organizer_users = [
+            user
+            for user in team_users
+            if has_teamshifts_permission(
+                user,
+                event.organizer,
+                event,
+                "can_teamshifts_manage_applicants",
+            )
+        ]
+
+        if not organizer_users:
+            organizer_users = [
+                user
+                for user in team_users
+                if has_teamshifts_permission(
+                    user,
+                    event.organizer,
+                    event,
+                    "can_change_event_settings",
+                )
+            ]
+
+    if not organizer_users:
+        return
+
+    queue_email(
+        event=event,
+        subject=template.subject,
+        message=template.body,
+        recipients=organizer_users,
+        user=application.user,
+        status_filter="",
+    )
+
+
 class MyShiftsView(PublicShiftScheduleMixin, TemplateView):
     template_name = "teamshifts/my_shifts.html"
     redirect_unpublished_to_schedule = False
+    allow_teamshifts_managers = True
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -2961,7 +3093,48 @@ class MyShiftsView(PublicShiftScheduleMixin, TemplateView):
             shifts_by_day[day].append(assignment)
         ctx["shifts_by_day"] = dict(shifts_by_day)
         ctx["event"] = event
+        ctx["now"] = now()
         return ctx
+
+
+class ShiftCheckOutView(PublicShiftScheduleMixin, View):
+    redirect_unpublished_to_schedule = False
+
+    def post(self, request, *args, **kwargs):
+        event = self.event
+        assignment_pk = kwargs["pk"]
+
+        with scope(event=event), transaction.atomic():
+            assignment = (
+                ShiftAssignment.objects.select_for_update()
+                .filter(
+                    pk=assignment_pk,
+                    team_member=request.user,
+                    shift__event=event,
+                )
+                .select_related("shift")
+                .first()
+            )
+
+            if assignment is None:
+                return JsonResponse({"status": "error", "error": str(_("Shift assignment not found."))}, status=404)
+
+            current_time = now()
+
+            if not assignment.started_at:
+                return JsonResponse({"status": "error", "error": str(_("You have not checked in for this shift yet."))}, status=400)
+
+            if assignment.shift.start_time > current_time:
+                return JsonResponse({"status": "error", "error": str(_("This shift has not started yet."))}, status=400)
+
+            if assignment.ended_at:
+                return JsonResponse({"status": "error", "error": str(_("You have already checked out of this shift."))}, status=400)
+
+            stamp_shift_end(assignment, current_time)
+
+        evaluate_shift_certificate(assignment)
+
+        return JsonResponse({"status": "ok", "ended_at": assignment.ended_at.isoformat()})
 
 
 class MyShiftsGlobalView(LoginRequiredMixin, TemplateView):
@@ -3062,6 +3235,36 @@ class VoucherSettingsView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, 
             obj, _created = VolunteerVoucherSettings.objects.get_or_create(event=self.request.event)
         return obj
 
+    def _send_vouchers_url(self):
+        url = reverse(
+            "plugins:teamshifts:members",
+            kwargs={"organizer": self.request.organizer.slug, "event": self.request.event.slug},
+        )
+        return f"{url}?{urlencode({'voucher': VoucherStatus.NOT_SENT})}"
+
+    def _send_vouchers_blocker(self, settings):
+        """Return why vouchers cannot be sent yet with the saved settings, or None if they can."""
+        if not settings.enabled:
+            return _("Enable volunteer vouchers and save to start sending.")
+        if not settings.voucher_tag:
+            return _("Select a voucher batch and save to start sending.")
+        with scope(event=self.request.event):
+            if settings.batch_remaining_count() == 0:
+                return _("All codes in this batch have been used. Add more codes in Tickets → Vouchers.")
+        return None
+
+    def _render(self, form, settings):
+        return render(
+            self.request,
+            self.template_name,
+            {
+                "form": form,
+                "voucher_settings": settings,
+                "send_vouchers_url": self._send_vouchers_url(),
+                "send_vouchers_blocker": self._send_vouchers_blocker(settings),
+            },
+        )
+
     def get(self, request, *args, **kwargs):
         settings = self._get_settings()
         form = VoucherSettingsForm(
@@ -3071,14 +3274,7 @@ class VoucherSettingsView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, 
                 "voucher_tag": settings.voucher_tag,
             },
         )
-        return render(
-            request,
-            self.template_name,
-            {
-                "form": form,
-                "voucher_settings": settings,
-            },
-        )
+        return self._render(form, settings)
 
     def post(self, request, *args, **kwargs):
         settings = self._get_settings()
@@ -3087,20 +3283,22 @@ class VoucherSettingsView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, 
             settings.enabled = form.cleaned_data["enabled"]
             settings.voucher_tag = form.cleaned_data["voucher_tag"]
             settings.save(update_fields=["enabled", "voucher_tag"])
-            messages.success(request, _("Voucher settings saved."))
+            if self._send_vouchers_blocker(settings) is None:
+                messages.success(
+                    request,
+                    format_html(
+                        _('Voucher settings saved. Next: <a href="{url}">send vouchers to your team members</a>.'),
+                        url=self._send_vouchers_url(),
+                    ),
+                )
+            else:
+                messages.success(request, _("Voucher settings saved."))
             return redirect(
                 "plugins:teamshifts:voucher_settings",
                 organizer=request.organizer.slug,
                 event=request.event.slug,
             )
-        return render(
-            request,
-            self.template_name,
-            {
-                "form": form,
-                "voucher_settings": settings,
-            },
-        )
+        return self._render(form, settings)
 
 
 class BulkSendVouchersView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):

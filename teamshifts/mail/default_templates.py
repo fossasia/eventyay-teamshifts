@@ -38,6 +38,19 @@ REJECTED_TEXT = LazyI18nString.from_gettext(
     )
 )
 
+NEW_APPLICATION_ORGANIZER_SUBJECT = LazyI18nString.from_gettext(_("New team member application — {event_name}"))
+NEW_APPLICATION_ORGANIZER_TEXT = LazyI18nString.from_gettext(
+    _(
+        "A new team member application has been submitted for {event_name}.\n\n"
+        "Applicant: {applicant_name}\n\n"
+        "Submitted: {submitted_at}\n\n"
+        "Pending applications: {pending_count}\n\n"
+        "Review the application here:\n"
+        "{application_url}\n\n"
+        "The {event_name} team"
+    )
+)
+
 MEMBER_ADDED_BY_ORGANIZER_SUBJECT = LazyI18nString.from_gettext(_("You have been added as a volunteer — {event_name}"))
 MEMBER_ADDED_BY_ORGANIZER_TEXT = LazyI18nString.from_gettext(
     _(
@@ -126,5 +139,9 @@ def get_default_template(role: str) -> tuple[LazyI18nString, LazyI18nString]:
         EmailTemplateRoles.SHIFT_CLAIMED_BY_VOLUNTEER: (SHIFT_CLAIMED_BY_VOLUNTEER_SUBJECT, SHIFT_CLAIMED_BY_VOLUNTEER_TEXT),
         EmailTemplateRoles.VOUCHER_SENT: (VOUCHER_SENT_SUBJECT, VOUCHER_SENT_TEXT),
         EmailTemplateRoles.CERTIFICATE_GENERATED: (CERTIFICATE_GENERATED_SUBJECT, CERTIFICATE_GENERATED_TEXT),
+        EmailTemplateRoles.NEW_APPLICATION_ORGANIZER: (
+            NEW_APPLICATION_ORGANIZER_SUBJECT,
+            NEW_APPLICATION_ORGANIZER_TEXT,
+        ),
     }
     return mapping[role]

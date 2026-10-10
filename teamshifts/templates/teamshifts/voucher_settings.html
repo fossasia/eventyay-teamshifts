@@ -1,6 +1,12 @@
 {% extends 'teamshifts/base.html' %}
 {% load i18n %}
 {% load bootstrap3 %}
+{% load static %}
+
+{% block custom_header %}
+  {{ block.super }}
+  <script type='module' src='{% static "teamshifts/voucher_settings.js" %}'></script>
+{% endblock %}
 
 {% block title %}{% trans 'Ticket Vouchers' %} :: {{ request.event.name }}{% endblock %}
 
@@ -9,17 +15,27 @@
 {% endblock %}
 
 {% block teamshifts_content %}
+  {% url 'plugins:teamshifts:members' organizer=request.organizer.slug event=request.event.slug as members_url %}
   <p>
     {% blocktrans trimmed %}
       Configure free or discounted tickets for team members.
       Select a voucher batch created in Tickets → Vouchers, then send
-      individual codes to members from the Members page.
+      individual codes to members from the <a href='{{ members_url }}'>Members page</a>.
     {% endblocktrans %}
   </p>
 
-  <form method='post' class='form-horizontal'>
+  <form method='post' class='form-horizontal' id='voucher-settings-form'
+        data-saved-enabled='{{ voucher_settings.enabled|yesno:"true,false" }}'
+        data-saved-voucher-tag='{{ voucher_settings.voucher_tag }}'>
     {% csrf_token %}
     {% bootstrap_form_errors form %}
+
+    <div id='send-vouchers-hint' class='alert alert-info'{% if not send_vouchers_blocker or form.is_bound %} hidden{% endif %}>
+      {{ send_vouchers_blocker|default:'' }}
+    </div>
+    <div id='send-vouchers-unsaved-hint' class='alert alert-info'{% if not form.is_bound %} hidden{% endif %}>
+      {% trans 'Save your changes first.' %}
+    </div>
 
     <fieldset>
       <legend>{% trans 'Voucher batch' %}</legend>
@@ -31,9 +47,11 @@
         <div class='form-group'>
           <label class='col-md-3 control-label'>{% trans 'Vouchers remaining' %}</label>
           <div class='col-md-9'>
-            <p class='form-control-static'>
-              {{ voucher_settings.batch_remaining_count }} / {{ voucher_settings.batch_total_count }}
-            </p>
+            {% with remaining=voucher_settings.batch_remaining_count %}
+              <p class='form-control-static{% if not remaining %} text-danger{% endif %}'>
+                {{ remaining }} / {{ voucher_settings.batch_total_count }}
+              </p>
+            {% endwith %}
           </div>
         </div>
       {% endif %}
@@ -44,6 +62,14 @@
         <button type='submit' class='btn btn-primary'>
           <i class='fa fa-save'></i> {% trans 'Save' %}
         </button>
+        <a id='send-vouchers-btn'
+           class='btn btn-default{% if send_vouchers_blocker or form.is_bound %} disabled{% endif %}'
+           data-href='{{ send_vouchers_url }}'
+           data-blocked='{{ send_vouchers_blocker|yesno:"true,false" }}'
+           {% if send_vouchers_blocker or form.is_bound %}aria-disabled='true' tabindex='-1'{% else %}href='{{ send_vouchers_url }}'{% endif %}
+           aria-describedby='send-vouchers-hint send-vouchers-unsaved-hint'>
+          <i class='fa fa-paper-plane'></i> {% trans 'Send vouchers' %}
+        </a>
         <a class='btn btn-default'
            href='{% url "control:event.vouchers.bulk" organizer=request.organizer.slug event=request.event.slug %}'>
           <i class='fa fa-plus'></i> {% trans 'Create a voucher batch in Tickets →' %}

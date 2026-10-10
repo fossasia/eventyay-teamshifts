@@ -13,7 +13,7 @@ from eventyay.base.services.tasks import ProfiledEventTask
 from eventyay.celery_app import app
 from i18nfield.strings import LazyI18nString
 
-from .models import TeamShiftsEmailQueue
+from .models import TeamMemberApplication, TeamShiftsEmailQueue
 
 logger = logging.getLogger(__name__)
 
@@ -118,6 +118,14 @@ def send_queued_email(self, event_id: int, queue_id: int):
                         ctx_kwargs["user"] = recipient.user
                     if queue.role_filter_id:
                         ctx_kwargs["role"] = queue.role_filter
+                    if queue.user:
+                        application = TeamMemberApplication.objects.filter(
+                            event=event,
+                            user=queue.user,
+                        ).first()
+                        if application:
+                            ctx_kwargs["application"] = application
+
                     if queue.shift_id:
                         ctx_kwargs["shift"] = queue.shift
                         ctx_kwargs["role"] = queue.shift_role

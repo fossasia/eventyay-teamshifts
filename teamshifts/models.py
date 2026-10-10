@@ -626,6 +626,7 @@ class EmailTemplateRoles(models.TextChoices):
     APPLICATION_RECEIVED = "teamshifts.application.received", _("Application received")
     APPLICATION_ACCEPTED = "teamshifts.application.accepted", _("Application accepted")
     APPLICATION_REJECTED = "teamshifts.application.rejected", _("Application rejected")
+    NEW_APPLICATION_ORGANIZER = "teamshifts.application.organizer", _("New application (organizer notification)")
     MEMBER_ADDED_BY_ORGANIZER = "teamshifts.member.added_by_organizer", _("Added as volunteer by organizer")
     SHIFT_ASSIGNED_BY_ORGANIZER = "teamshifts.shift.assigned_by_organizer", _("Shift assigned by organizer")
     SHIFT_CLAIMED_BY_VOLUNTEER = "teamshifts.shift.claimed_by_volunteer", _("Shift sign-up confirmation")

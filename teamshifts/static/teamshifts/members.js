@@ -122,20 +122,27 @@ function initializeMemberInteractions() {
     }
 }
 
+let membersRequestId = 0;
 async function loadMembers(url, updateHistory = true) {
+    const requestId = ++membersRequestId;
     try {
         const response = await fetch(url, {
             headers: {
                 "X-Requested-With": "XMLHttpRequest",
             },
         });
-
+        if (requestId !== membersRequestId) {
+            return;
+        }
         if (!response.ok) {
             window.location.assign(url);
             return;
         }
 
         const html = await response.text();
+        if (requestId !== membersRequestId) {
+            return;
+        }
         const parsedDocument = new DOMParser().parseFromString(
             html,
             "text/html",
@@ -158,6 +165,10 @@ async function loadMembers(url, updateHistory = true) {
 
         initializeMemberInteractions();
     } catch (error) {
+        if (requestId !== membersRequestId) {
+            return;
+        }
+
         console.error("Failed to load sorted members", error);
         window.location.assign(url);
     }

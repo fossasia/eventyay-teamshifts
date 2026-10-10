@@ -33,6 +33,16 @@
           {% endfor %}
         </select>
       </div>
+      {% if vouchers_enabled %}
+        <div class='form-group'>
+          <select name='voucher' class='form-control' aria-label='{% trans "Voucher" %}'>
+            <option value=''>{% trans 'All voucher statuses' %}</option>
+            {% for value, label in voucher_status_choices %}
+              <option value='{{ value }}' {% if request.GET.voucher == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      {% endif %}
       <button type='submit' class='btn btn-default'>{% trans 'Filter' %}</button>
     </form>
 

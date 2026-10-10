@@ -2,12 +2,14 @@ import logging
 from collections.abc import Iterable
 
 from django.db import transaction
+from django.utils.timezone import now
 from django_scopes import scope
 from eventyay.base.models import Event, User
 
 from ..models import (
     ApplicationStatus,
     CallForTeamMembers,
+    Shift,
     TeamMemberApplication,
     TeamRole,
     TeamShiftsEmailQueue,
@@ -42,6 +44,8 @@ def queue_email(
     bcc: str = "",
     locale: str = "",
     role_filter: TeamRole | None = None,
+    shift: Shift | None = None,
+    shift_role: TeamRole | None = None,
     status_filter: str = "",
     send_after=None,
     dispatch: bool = True,
@@ -56,6 +60,8 @@ def queue_email(
             bcc=bcc,
             locale=locale or event.settings.locale,
             role_filter=role_filter,
+            shift=shift,
+            shift_role=shift_role,
             status_filter=status_filter or "",
             send_after=send_after,
         )
@@ -78,7 +84,16 @@ def queue_email(
 def _dispatch(event_id: int, queue_id: int, eta=None) -> None:
     if eta is not None:
         return
-    transaction.on_commit(lambda: send_queued_email.delay(event_id, queue_id))
+
+    def _send():
+        try:
+            send_queued_email.delay(event_id, queue_id)
+        except Exception:
+            logger.exception("[TeamShifts] Failed to dispatch queue %s to Celery; falling back to scheduled retry", queue_id)
+            with scope(event=event_id):
+                TeamShiftsEmailQueue.objects.filter(pk=queue_id, sent_at__isnull=True, send_after__isnull=True).update(send_after=now())
+
+    transaction.on_commit(_send)
 
 
 def queue_lifecycle_email(application, role: str) -> TeamShiftsEmailQueue | None:
@@ -102,4 +117,41 @@ def queue_lifecycle_email(application, role: str) -> TeamShiftsEmailQueue | None
         message=template.body,
         recipients=[application.user],
         status_filter=application.status,
+    )
+
+
+def queue_shift_notification_email(
+    event: Event,
+    user: User,
+    shift: Shift,
+    role: TeamRole | None,
+    template_role: str,
+) -> TeamShiftsEmailQueue | None:
+    if not user.email:
+        logger.warning("[TeamShifts] Skipping %s email: user has no email", template_role)
+        return None
+
+    try:
+        cfm = event.call_for_team_members
+    except CallForTeamMembers.DoesNotExist:
+        logger.warning("[TeamShifts] No CFM found for event %s, skipping %s email", event.slug, template_role)
+        return None
+
+    if not cfm.shift_schedule_published:
+        logger.info(
+            "[TeamShifts] Skipping %s email: shift schedule not published for event %s",
+            template_role,
+            event.slug,
+        )
+        return None
+
+    template = cfm.get_mail_template(template_role)
+
+    return queue_email(
+        event=event,
+        subject=template.subject,
+        message=template.body,
+        recipients=[user],
+        shift=shift,
+        shift_role=role,
     )

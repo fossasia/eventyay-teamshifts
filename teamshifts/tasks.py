@@ -1,4 +1,5 @@
 import logging
+import re
 
 from celery.exceptions import MaxRetriesExceededError
 from django.core.cache import cache
@@ -12,9 +13,26 @@ from eventyay.base.services.tasks import ProfiledEventTask
 from eventyay.celery_app import app
 from i18nfield.strings import LazyI18nString
 
-from .models import TeamShiftsEmailQueue
+from .models import TeamMemberApplication, TeamShiftsEmailQueue
 
 logger = logging.getLogger(__name__)
+
+_TIPTAP_BLOCK_RE = re.compile(r"^\s*<(p|ul|ol|blockquote|h[1-6])(\s|>)", re.IGNORECASE)
+
+
+def _ensure_markdown_breaks(text: str) -> str:
+    if not text or "data-variable=" in text or _TIPTAP_BLOCK_RE.match(text):
+        return text
+    return re.sub(r"(?<!\n)(?<! {2})\n(?!\n)", "  \n", text)
+
+
+class MarkdownBreakString(LazyI18nString):
+    def __init__(self, inner: LazyI18nString):
+        super().__init__(inner.data)
+
+    def __str__(self) -> str:
+        return _ensure_markdown_breaks(super().__str__())
+
 
 SCHEDULED_EMAIL_BATCH_SIZE = 50
 
@@ -63,7 +81,7 @@ def send_queued_email(self, event_id: int, queue_id: int):
 
     try:
         with scope(event=event):
-            queue = TeamShiftsEmailQueue.objects.select_related("event", "role_filter").filter(pk=queue_id, event=event).first()
+            queue = TeamShiftsEmailQueue.objects.select_related("event", "role_filter", "shift", "shift_role").filter(pk=queue_id, event=event).first()
             if queue is None:
                 logger.debug("[TeamShifts] Queue %s not found or locked", queue_id)
                 return
@@ -81,7 +99,7 @@ def send_queued_email(self, event_id: int, queue_id: int):
                 return
 
             subject = LazyI18nString(queue.subject)
-            message = LazyI18nString(queue.message)
+            message = MarkdownBreakString(LazyI18nString(queue.message))
             locale = queue.locale or event.settings.locale
 
             partial_send = False
@@ -100,6 +118,17 @@ def send_queued_email(self, event_id: int, queue_id: int):
                         ctx_kwargs["user"] = recipient.user
                     if queue.role_filter_id:
                         ctx_kwargs["role"] = queue.role_filter
+                    if queue.user:
+                        application = TeamMemberApplication.objects.filter(
+                            event=event,
+                            user=queue.user,
+                        ).first()
+                        if application:
+                            ctx_kwargs["application"] = application
+
+                    if queue.shift_id:
+                        ctx_kwargs["shift"] = queue.shift
+                        ctx_kwargs["role"] = queue.shift_role
                     context = get_email_context(**ctx_kwargs)
                     mail(
                         email=recipient.email,
@@ -121,6 +150,12 @@ def send_queued_email(self, event_id: int, queue_id: int):
                     recipient.error = str(exc)
                     recipient.save(update_fields=["error", "sent_at"])
                     logger.exception("[TeamShifts] Send failed for %s", recipient.email)
+                    partial_send = True
+                except Exception as exc:
+                    recipient.sent_at = None
+                    recipient.error = str(exc)
+                    recipient.save(update_fields=["error", "sent_at"])
+                    logger.exception("[TeamShifts] Unexpected failure rendering/sending to %s", recipient.email)
                     partial_send = True
 
             has_unsent = queue.recipients.filter(sent_at__isnull=True).exists()

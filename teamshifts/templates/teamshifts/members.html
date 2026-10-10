@@ -83,6 +83,7 @@
     </div>
   </div>
 
+  <div id="members-list-content">
   {% if members %}
     <div class='table-responsive'>
       <table class='table table-hover table-quotas'>
@@ -95,42 +96,84 @@
             {% endif %}
             <th>
               {% trans 'Name' %}
-              <a href="{% querystring sort='user__fullname' %}"><i class='fa fa-caret-down' title="{% trans 'Sort (a-z)' %}"></i></a>
-              <a href="{% querystring sort='-user__fullname' %}"><i class='fa fa-caret-up' title="{% trans 'Sort (z-a)' %}"></i></a>
+              {% with current_sort=request.GET.sort|default:"display_name_sort" %}
+              <a class="member-sort-link" href="{% querystring sort='display_name_sort' page=None %}">
+                <i class="fa fa-caret-down{% if current_sort == 'display_name_sort' %} text-primary{% endif %}" title="{% trans 'Sort (a-z)' %}"></i>
+              </a>
+              <a class="member-sort-link" href="{% querystring sort='-display_name_sort' page=None %}">
+                <i class="fa fa-caret-up{% if current_sort == '-display_name_sort' %} text-primary{% endif %}" title="{% trans 'Sort (z-a)' %}"></i>
+              </a>
+              {% endwith %}
             </th>
             {% if can_view_email %}
               <th>
                 {% trans 'Email' %}
-                <a href="{% querystring sort='user__email' %}"><i class='fa fa-caret-down' title="{% trans 'Sort (a-z)' %}"></i></a>
-                <a href="{% querystring sort='-user__email' %}"><i class='fa fa-caret-up' title="{% trans 'Sort (z-a)' %}"></i></a>
+                {% with current_sort=request.GET.sort|default:"display_name_sort" %}
+                <a class="member-sort-link" href="{% querystring sort='user__email' page=None %}">
+                  <i class="fa fa-caret-down{% if current_sort == 'user__email' %} text-primary{% endif %}" title="{% trans 'Sort (a-z)' %}"></i>
+                </a>
+                <a class="member-sort-link" href="{% querystring sort='-user__email' page=None %}">
+                  <i class="fa fa-caret-up{% if current_sort == '-user__email' %} text-primary{% endif %}" title="{% trans 'Sort (z-a)' %}"></i>
+                </a>
+                {% endwith %}
               </th>
             {% endif %}
             <th>
               {% trans 'Role' %}
-              <a href="{% querystring sort='role_sort' %}"><i class='fa fa-caret-down' title="{% trans 'Sort (a-z)' %}"></i></a>
-              <a href="{% querystring sort='-role_sort' %}"><i class='fa fa-caret-up' title="{% trans 'Sort (z-a)' %}"></i></a>
+              {% with current_sort=request.GET.sort|default:"display_name_sort" %}
+              <a class="member-sort-link" href="{% querystring sort='role_sort' page=None %}">
+                <i class="fa fa-caret-down{% if current_sort == 'role_sort' %} text-primary{% endif %}" title="{% trans 'Sort (a-z)' %}"></i>
+              </a>
+              <a class="member-sort-link" href="{% querystring sort='-role_sort' page=None %}">
+                <i class="fa fa-caret-up{% if current_sort == '-role_sort' %} text-primary{% endif %}" title="{% trans 'Sort (z-a)' %}"></i>
+              </a>
+              {% endwith %}
             </th>
             <th>
               {% trans 'Shifts assigned' %}
-              <a href="{% querystring sort='shifts_assigned' %}"><i class='fa fa-caret-down' title="{% trans 'Sort (ascending)' %}"></i></a>
-              <a href="{% querystring sort='-shifts_assigned' %}"><i class='fa fa-caret-up' title="{% trans 'Sort (descending)' %}"></i></a>
+              {% with current_sort=request.GET.sort|default:"display_name_sort" %}
+              <a class="member-sort-link" href="{% querystring sort='shifts_assigned' page=None %}">
+                <i class="fa fa-caret-down{% if current_sort == 'shifts_assigned' %} text-primary{% endif %}" title="{% trans 'Sort (ascending)' %}"></i>
+              </a>
+              <a class="member-sort-link" href="{% querystring sort='-shifts_assigned' page=None %}">
+                <i class="fa fa-caret-up{% if current_sort == '-shifts_assigned' %} text-primary{% endif %}" title="{% trans 'Sort (descending)' %}"></i>
+              </a>
+              {% endwith %}
             </th>
             <th>
               {% trans 'Hours scheduled' %}
-                <a href="{% querystring sort='hours_scheduled' %}"><i class='fa fa-caret-up' title="{% trans 'Sort (ascending)' %}"></i></a>
-                <a href="{% querystring sort='-hours_scheduled' %}"><i class='fa fa-caret-down' title="{% trans 'Sort (descending)' %}"></i></a>
+                {% with current_sort=request.GET.sort|default:"display_name_sort" %}
+                <a class="member-sort-link" href="{% querystring sort='hours_scheduled' page=None %}">
+                  <i class="fa fa-caret-down{% if current_sort == 'hours_scheduled' %} text-primary{% endif %}" title="{% trans 'Sort (ascending)' %}"></i>
+                </a>
+                <a class="member-sort-link" href="{% querystring sort='-hours_scheduled' page=None %}">
+                  <i class="fa fa-caret-up{% if current_sort == '-hours_scheduled' %} text-primary{% endif %}" title="{% trans 'Sort (descending)' %}"></i>
+                </a>
+                {% endwith %}
             </th>
             {% if vouchers_enabled %}
               <th>
                 {% trans 'Voucher' %}
-                <a href="{% querystring sort='voucher_sort' %}"><i class='fa fa-caret-down' title="{% trans 'Sort (ascending)' %}"></i></a>
-                <a href="{% querystring sort='-voucher_sort' %}"><i class='fa fa-caret-up' title="{% trans 'Sort (descending)' %}"></i></a>
+                {% with current_sort=request.GET.sort|default:"display_name_sort" %}
+                <a class="member-sort-link" href="{% querystring sort='voucher_sort' page=None %}">
+                  <i class="fa fa-caret-down{% if current_sort == 'voucher_sort' %} text-primary{% endif %}" title="{% trans 'Sort (ascending)' %}"></i>
+                </a>
+                <a class="member-sort-link" href="{% querystring sort='-voucher_sort' page=None %}">
+                  <i class="fa fa-caret-up{% if current_sort == '-voucher_sort' %} text-primary{% endif %}" title="{% trans 'Sort (descending)' %}"></i>
+                </a>
+                {% endwith %}
               </th>
             {% endif %}
             <th>
               {% trans 'Arrived' %}
-              <a href="{% querystring sort='arrived' %}"><i class='fa fa-caret-down' title="{% trans 'Sort (ascending)' %}"></i></a>
-              <a href="{% querystring sort='-arrived' %}"><i class='fa fa-caret-up' title="{% trans 'Sort (descending)' %}"></i></a>
+              {% with current_sort=request.GET.sort|default:"display_name_sort" %}
+                <a class="member-sort-link" href="{% querystring sort='arrived' page=None %}">
+                  <i class="fa fa-caret-down{% if current_sort == 'arrived' %} text-primary{% endif %}" title="{% trans 'Sort (ascending)' %}"></i>
+                </a>
+                <a class="member-sort-link" href="{% querystring sort='-arrived' page=None %}">
+                  <i class="fa fa-caret-up{% if current_sort == '-arrived' %} text-primary{% endif %}" title="{% trans 'Sort (descending)' %}"></i>
+                </a>
+              {% endwith %}
             </th>
           </tr>
         </thead>
@@ -179,7 +222,7 @@
                 <td>
                   {% with va=member.voucher_assignment %}
                     {% if va %}
-                      {% if va.status == 'claimed' %}
+                      {% if va.status == 'claimed' or va.voucher.redeemed > 0 %}
                         <span class='label label-success'>{% trans 'Claimed' %}</span>
                       {% elif va.status == 'sent' %}
                         <span class='label label-info'>{% trans 'Sent — not claimed' %}</span>
@@ -222,4 +265,5 @@
       {% endif %}
     </div>
   {% endif %}
+  </div>
 {% endblock %}

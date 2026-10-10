@@ -12,7 +12,8 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
-from django.db.models import Case, Count, DurationField, ExpressionWrapper, F, IntegerField, Max, Min, Prefetch, Q, Sum, Value, When
+from django.db.models import Case, CharField, Count, DurationField, ExpressionWrapper, F, IntegerField, Max, Min, Prefetch, Q, Sum, Value, When
+from django.db.models.functions import Coalesce, NullIf
 from django.forms import inlineformset_factory
 from django.http import FileResponse, Http404, HttpResponse, HttpResponseBadRequest, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -1843,7 +1844,7 @@ class MembersListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Sort
     context_object_name = "members"
 
     sortable_fields = (
-        "user__fullname",
+        "display_name_sort",
         "user__email",
         "role_sort",
         "shifts_assigned",
@@ -1851,7 +1852,7 @@ class MembersListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Sort
         "voucher_sort",
         "arrived",
     )
-    default_sort_field = "user__fullname"
+    default_sort_field = "display_name_sort"
 
     def get_queryset(self):
         event = self.request.event
@@ -1873,8 +1874,19 @@ class MembersListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Sort
                         filter=Q(user__shift_assignments__shift__event=event),
                     ),
                     voucher_sort=Case(
-                        When(voucher_assignment__status=VoucherStatus.SENT, then=Value(1)),
-                        When(voucher_assignment__status=VoucherStatus.CLAIMED, then=Value(2)),
+                        When(
+                            voucher_assignment__voucher__redeemed__gt=0,
+                            then=Value(2),
+                        ),
+                        When(
+                            voucher_assignment__status=VoucherStatus.CLAIMED,
+                            then=Value(2),
+                        ),
+                        When(
+                            voucher_assignment__status=VoucherStatus.SENT,
+                            voucher_assignment__voucher__redeemed=0,
+                            then=Value(1),
+                        ),
                         default=Value(0),
                         output_field=IntegerField(),
                     ),
@@ -1885,6 +1897,11 @@ class MembersListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Sort
                             output_field=DurationField(),
                         ),
                         filter=Q(user__shift_assignments__shift__event=event),
+                    ),
+                    display_name_sort=Coalesce(
+                        NullIf("user__fullname", Value("")),
+                        "user__email",
+                        output_field=CharField(),
                     ),
                 )
                 .prefetch_related(
@@ -1909,8 +1926,13 @@ class MembersListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Sort
             voucher = self.request.GET.get("voucher", "").strip()
             if voucher == "not_sent":
                 qs = qs.filter(Q(voucher_assignment__isnull=True) | Q(voucher_assignment__status=VoucherStatus.NOT_SENT))
-            elif voucher in {VoucherStatus.SENT, VoucherStatus.CLAIMED}:
-                qs = qs.filter(voucher_assignment__status=voucher)
+            elif voucher == VoucherStatus.SENT:
+                qs = qs.filter(
+                    voucher_assignment__status=VoucherStatus.SENT,
+                    voucher_assignment__voucher__redeemed=0,
+                )
+            elif voucher == VoucherStatus.CLAIMED:
+                qs = qs.filter(Q(voucher_assignment__status=VoucherStatus.CLAIMED) | Q(voucher_assignment__voucher__redeemed__gt=0))
 
         return self.sort_queryset(qs)
 
@@ -3104,13 +3126,16 @@ class BulkSendVouchersView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin,
         event = request.event
         member_ids = request.POST.getlist("member_ids")
 
+        members_url = reverse(
+            "plugins:teamshifts:members",
+            kwargs={"organizer": request.organizer.slug, "event": event.slug},
+        )
+        if request.GET:
+            members_url = f"{members_url}?{request.GET.urlencode()}"
+
         if not member_ids:
             messages.warning(request, _("No members selected."))
-            return redirect(
-                "plugins:teamshifts:members",
-                organizer=request.organizer.slug,
-                event=event.slug,
-            )
+            return redirect(members_url)
 
         try:
             settings = event.volunteer_voucher_settings
@@ -3119,11 +3144,7 @@ class BulkSendVouchersView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin,
 
         if not settings or not settings.enabled or not settings.voucher_tag:
             messages.error(request, _("Configure a voucher batch in settings first."))
-            return redirect(
-                "plugins:teamshifts:members",
-                organizer=request.organizer.slug,
-                event=event.slug,
-            )
+            return redirect(members_url)
 
         with scope(event=event):
             applications = list(
@@ -3182,6 +3203,4 @@ class BulkSendVouchersView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin,
         else:
             messages.warning(request, summary)
 
-        return redirect(
-            f"{reverse('plugins:teamshifts:members', kwargs={'organizer': request.organizer.slug, 'event': event.slug})}?{request.GET.urlencode()}",
-        )
+        return redirect(members_url)

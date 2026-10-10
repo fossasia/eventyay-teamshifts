@@ -16,6 +16,7 @@ from teamshifts.models import (
     ShiftAssignment,
     TeamMemberApplication,
     TeamRole,
+    VolunteerVoucherSettings,
     VoucherStatus,
 )
 from teamshifts.services.members import AlreadyMemberError, add_member_from_organizer, resolve_or_create_user
@@ -362,6 +363,17 @@ def test_members_filters(client, event, orga_user, django_user_model, call_for_t
             )
             members.append(app)
 
+        stale_user = django_user_model.objects.create_user(
+            email="stale@example.com",
+            password="x",
+            fullname="Stale Member",
+        )
+        stale_application = TeamMemberApplication.objects.create(
+            event=event,
+            user=stale_user,
+            status=ApplicationStatus.ACCEPTED,
+        )
+
         sent_voucher = Voucher.objects.create(
             event=event,
             tag="test",
@@ -386,6 +398,18 @@ def test_members_filters(client, event, orga_user, django_user_model, call_for_t
             status=VoucherStatus.CLAIMED,
         )
 
+        stale_sent_voucher = Voucher.objects.create(
+            event=event,
+            tag="stale",
+            max_usages=1,
+            redeemed=1,
+        )
+        MemberVoucher.objects.create(
+            application=stale_application,
+            voucher=stale_sent_voucher,
+            status=VoucherStatus.SENT,
+        )
+
     client.force_login(orga_user)
 
     url = reverse(
@@ -404,25 +428,28 @@ def test_members_filters(client, event, orga_user, django_user_model, call_for_t
     assert list(response.context["members"].values_list("user__email", flat=True)) == ["sent@example.com"]
 
     response = client.get(url, {"voucher": "claimed"})
-    assert list(response.context["members"].values_list("user__email", flat=True)) == ["claimed@example.com"]
+    assert set(response.context["members"].values_list("user__email", flat=True)) == {
+        "claimed@example.com",
+        "stale@example.com",
+    }
 
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
     "sort, expected_first",
     [
-        ("user__fullname", "Alice"),
-        ("-user__fullname", "Bob"),
+        ("display_name_sort", "Alice"),
+        ("-display_name_sort", "Bob"),
         ("user__email", "alice@example.com"),
         ("-user__email", "bob@example.com"),
-        ("role_sort", "Alice"),
-        ("-role_sort", "Bob"),
-        ("hours_scheduled", "Alice"),
-        ("-hours_scheduled", "Bob"),
-        ("voucher_sort", "Bob"),
-        ("-voucher_sort", "Alice"),
-        ("arrived", "Alice"),
-        ("-arrived", "Bob"),
+        ("role_sort", "Bob"),
+        ("-role_sort", "Alice"),
+        ("hours_scheduled", "Bob"),
+        ("-hours_scheduled", "Alice"),
+        ("voucher_sort", "Alice"),
+        ("-voucher_sort", "Bob"),
+        ("arrived", "Bob"),
+        ("-arrived", "Alice"),
     ],
 )
 def test_members_sorting(client, event, orga_user, django_user_model, sort, expected_first, settings):
@@ -431,12 +458,12 @@ def test_members_sorting(client, event, orga_user, django_user_model, sort, expe
         alice = django_user_model.objects.create_user(
             email="alice@example.com",
             password="x",
-            fullname="Alice",
+            fullname="Bob",
         )
         bob = django_user_model.objects.create_user(
             email="bob@example.com",
             password="x",
-            fullname="Bob",
+            fullname="Alice",
         )
 
         alice_application = TeamMemberApplication.objects.create(
@@ -522,6 +549,11 @@ def test_bulk_vouchers_preserves_filters_and_sort(client, event, orga_user, djan
             user=user,
             status=ApplicationStatus.ACCEPTED,
         )
+        VolunteerVoucherSettings.objects.create(
+            event=event,
+            enabled=True,
+            voucher_tag="test-vouchers",
+        )
 
     client.force_login(orga_user)
 
@@ -534,7 +566,7 @@ def test_bulk_vouchers_preserves_filters_and_sort(client, event, orga_user, djan
     )
 
     response = client.post(
-        url + "?q=Voucher&hours=has&voucher=not_sent&sort=-user__fullname",
+        url + "?q=Voucher&hours=has&voucher=not_sent&sort=-display_name_sort",
         {"member_ids": [application.pk]},
     )
 
@@ -542,4 +574,59 @@ def test_bulk_vouchers_preserves_filters_and_sort(client, event, orga_user, djan
     assert "q=Voucher" in response.url
     assert "hours=has" in response.url
     assert "voucher=not_sent" in response.url
-    assert "sort=-user__fullname" in response.url
+    assert "sort=-display_name_sort" in response.url
+
+
+@pytest.mark.django_db
+def test_member_arrived_toggle_with_members_filters_and_sort(client, event, orga_user, django_user_model, settings):
+    settings.SITE_URL = "https://testserver"
+    with scope(event=event):
+        member = django_user_model.objects.create_user(
+            email="arrived@example.com",
+            password="x",
+            fullname="Arrived Member",
+        )
+        application = TeamMemberApplication.objects.create(
+            event=event,
+            user=member,
+            status=ApplicationStatus.ACCEPTED,
+            arrived=False,
+        )
+        Team.objects.create(
+            organizer=event.organizer,
+            name="Lead Team",
+            teamshifts_role="lead",
+            all_events=True,
+        ).members.add(orga_user)
+
+    client.force_login(orga_user)
+
+    members_url = reverse(
+        "plugins:teamshifts:members",
+        kwargs={"organizer": event.organizer.slug, "event": event.slug},
+    )
+    toggle_url = reverse(
+        "plugins:teamshifts:member_toggle_arrived",
+        kwargs={
+            "organizer": event.organizer.slug,
+            "event": event.slug,
+            "pk": application.pk,
+        },
+    )
+    query = "?q=Arrived&voucher=not_sent&sort=-display_name_sort"
+
+    response = client.post(
+        toggle_url,
+        HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"success": True, "arrived": True}
+
+    application.refresh_from_db()
+    assert application.arrived is True
+
+    list_response = client.get(members_url + query)
+
+    assert list_response.status_code == 200
+    assert list(list_response.context["members"].values_list("user__fullname", flat=True)) == ["Arrived Member"]

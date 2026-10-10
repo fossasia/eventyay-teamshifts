@@ -2678,10 +2678,17 @@ def _request_send_email(request):
     return str(value).strip().lower() not in ("", "0", "false", "off", "no")
 
 
+def _saved_shift_action_emails(application):
+    """The saved choice, or the default (on) for a TeamShifts manager who is not a member yet."""
+    return application.shift_action_emails if application is not None else True
+
+
 def _resolve_shift_action_emails(application, requested):
     """Save the volunteer's choice when the request carries one, and return whether to email them."""
     if requested is None:
-        return application.shift_action_emails
+        return _saved_shift_action_emails(application)
+    if application is None:
+        return requested
     if requested != application.shift_action_emails:
         TeamMemberApplication.objects.filter(pk=application.pk).update(shift_action_emails=requested)
         application.shift_action_emails = requested
@@ -2759,7 +2766,7 @@ class PublicShiftScheduleAPIView(PublicShiftScheduleMixin, View):
                 "mode": "shifts",
                 "current_user_id": request.user.pk,
                 "current_user_name": request.user.get_full_name() or request.user.email,
-                "shift_action_emails": self.member_application.shift_action_emails,
+                "shift_action_emails": _saved_shift_action_emails(self.member_application),
                 "event_start": event.date_from.isoformat() if event.date_from else "",
                 "event_end": event.date_to.isoformat() if event.date_to else "",
                 "timezone": str(event.timezone),
@@ -2809,7 +2816,7 @@ class PublicShiftScheduleView(PublicShiftScheduleMixin, TemplateView):
             "mode": "shifts",
             "current_user_id": self.request.user.pk,
             "current_user_name": self.request.user.get_full_name() or self.request.user.email,
-            "shift_action_emails": self.member_application.shift_action_emails,
+            "shift_action_emails": _saved_shift_action_emails(self.member_application),
             "talks": [_shift_talk_payload(shift) for shift in shifts],
             "rooms": rooms,
             "tracks": [],
@@ -2892,6 +2899,7 @@ class ShiftClaimView(PublicShiftScheduleMixin, View):
                 previous_role_id = existing.role_id if existing else None
                 if self.member_application is None:
                     application, promoted = accept_manager_as_member(event=event, user=request.user)
+                    self.member_application = application
                     if promoted:
                         transaction.on_commit(lambda app=application: _queue_lifecycle_email_safely(app, EmailTemplateRoles.APPLICATION_ACCEPTED))
                 _assignment, created = ShiftAssignment.objects.update_or_create(

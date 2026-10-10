@@ -216,6 +216,25 @@ def test_failed_claim_does_not_change_saved_choice(mock_queue, client, event, ap
 
 
 @pytest.mark.django_db
+@patch("teamshifts.views._queue_lifecycle_email_safely")
+@patch("teamshifts.views.queue_shift_notification_email")
+def test_manager_without_application_can_opt_out(mock_queue, _mock_lifecycle, client, event, cfm, organizer_user, shift, team_role):
+    client.force_login(organizer_user)
+    kwargs = {"organizer": event.organizer.slug, "event": event.slug}
+
+    response = client.get(reverse("plugins:teamshifts:public_shift_schedule_api", kwargs=kwargs))
+    assert response.json()["shift_action_emails"] is True
+
+    response = _claim(client, event, shift, team_role, send_email=False)
+
+    assert response.status_code == 200
+    assert mock_queue.call_count == 0
+    with scope(event=event):
+        # Claiming enrols the manager as a member, and the choice is saved on that application.
+        assert TeamMemberApplication.objects.get(event=event, user=organizer_user).shift_action_emails is False
+
+
+@pytest.mark.django_db
 def test_schedule_prefills_saved_choice(client, event, application, volunteer):
     with scope(event=event):
         TeamMemberApplication.objects.filter(pk=application.pk).update(shift_action_emails=False)

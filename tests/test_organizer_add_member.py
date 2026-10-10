@@ -348,6 +348,11 @@ def test_saved_legacy_phone_still_renders_in_organizer_views(client, event, call
 def test_members_filters(client, event, orga_user, django_user_model, call_for_team_members, settings):
     settings.SITE_URL = "https://testserver"
     with scope(event=event):
+        VolunteerVoucherSettings.objects.create(
+            event=event,
+            enabled=True,
+            voucher_tag="test",
+        )
         members = []
 
         for i, email in enumerate(["none@example.com", "sent@example.com", "claimed@example.com"]):

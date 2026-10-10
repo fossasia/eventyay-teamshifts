@@ -1877,6 +1877,20 @@ class MembersListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Sort
     )
     default_sort_field = "display_name_sort"
 
+    def sort_queryset(self, qs):
+        sortable_fields = self.sortable_fields
+        if not can_view_email_addresses(
+            self.request.user,
+            self.request.organizer,
+            self.request.event,
+            request=self.request,
+        ):
+            self.sortable_fields = tuple(field for field in sortable_fields if field != "user__email")
+        try:
+            return super().sort_queryset(qs)
+        finally:
+            self.sortable_fields = sortable_fields
+
     def get_queryset(self):
         event = self.request.event
         with scope(event=event):
@@ -1959,16 +1973,18 @@ class MembersListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Sort
             elif hours == "has":
                 qs = qs.filter(hours_scheduled__isnull=False)
 
-            voucher = self.request.GET.get("voucher", "").strip()
-            if voucher == "not_sent":
-                qs = qs.filter(Q(voucher_assignment__isnull=True) | Q(voucher_assignment__status=VoucherStatus.NOT_SENT))
-            elif voucher == VoucherStatus.SENT:
-                qs = qs.filter(
-                    voucher_assignment__status=VoucherStatus.SENT,
-                    voucher_assignment__voucher__redeemed=0,
-                )
-            elif voucher == VoucherStatus.CLAIMED:
-                qs = qs.filter(Q(voucher_assignment__status=VoucherStatus.CLAIMED) | Q(voucher_assignment__voucher__redeemed__gt=0))
+            voucher_settings = self._get_voucher_settings()
+            if voucher_settings and voucher_settings.enabled and voucher_settings.voucher_tag:
+                voucher = self.request.GET.get("voucher", "").strip()
+                if voucher == "not_sent":
+                    qs = qs.filter(Q(voucher_assignment__isnull=True) | Q(voucher_assignment__status=VoucherStatus.NOT_SENT))
+                elif voucher == VoucherStatus.SENT:
+                    qs = qs.filter(
+                        voucher_assignment__status=VoucherStatus.SENT,
+                        voucher_assignment__voucher__redeemed=0,
+                    )
+                elif voucher == VoucherStatus.CLAIMED:
+                    qs = qs.filter(Q(voucher_assignment__status=VoucherStatus.CLAIMED) | Q(voucher_assignment__voucher__redeemed__gt=0))
 
         return self.sort_queryset(qs)
 

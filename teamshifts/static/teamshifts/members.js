@@ -84,6 +84,10 @@ function initializeMemberInteractions() {
 
                 if (data.success) {
                     setButtonState(button, data.arrived);
+                    const params = new URLSearchParams(window.location.search);
+                    if (["arrived", "-arrived"].includes(params.get("sort"))) {
+                        window.location.reload();
+                    }
                 } else {
                     restoreButtonChildren(button, originalChildren);
                     alert(gettext("An error occurred."));

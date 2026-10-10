@@ -1,4 +1,5 @@
 import re
+from datetime import timedelta
 from zoneinfo import ZoneInfo
 
 from django import forms
@@ -614,6 +615,51 @@ class ShiftLocationForm(forms.ModelForm):
         return cleaned_data
 
 
+MAX_SHIFTS_PER_ACTION = 50
+MIN_FINAL_SHIFT_MINUTES = 15
+
+
+def merges_into_previous_shift(remainder):
+    """Return True if the time left over after the last full shift should extend that shift.
+
+    ``remainder`` is a timedelta shorter than one shift. A leftover under
+    ``MIN_FINAL_SHIFT_MINUTES`` is too short to staff on its own, so it is
+    added to the previous shift instead.
+    """
+    return remainder < timedelta(minutes=MIN_FINAL_SHIFT_MINUTES)
+
+
+def split_shift_range(start_time, end_time, shift_length_minutes):
+    """Split a time range into consecutive shifts of the given length.
+
+    If time is left over after the last full-length shift, it becomes one final
+    shorter shift that ends exactly at ``end_time``, unless
+    ``merges_into_previous_shift()`` says it should extend the previous shift.
+    """
+    length = timedelta(minutes=shift_length_minutes)
+    slots = []
+    curr_start = start_time
+    while curr_start < end_time:
+        curr_end = min(curr_start + length, end_time)
+        slots.append((curr_start, curr_end))
+        curr_start = curr_end
+    if len(slots) > 1:
+        remainder = slots[-1][1] - slots[-1][0]
+        if remainder < length and merges_into_previous_shift(remainder):
+            slots.pop()
+            slots[-1] = (slots[-1][0], end_time)
+    return slots
+
+
+def count_shifts(start_time, end_time, shift_length_minutes):
+    """Return how many shifts ``split_shift_range()`` creates, without building them."""
+    length = timedelta(minutes=shift_length_minutes)
+    full_shifts, remainder = divmod(end_time - start_time, length)
+    if remainder and (full_shifts == 0 or not merges_into_previous_shift(remainder)):
+        full_shifts += 1
+    return full_shifts
+
+
 class ShiftForm(forms.ModelForm):
     mode = forms.ChoiceField(
         choices=[("single", _("Single shift")), ("repeating", _("Repeating shifts"))],
@@ -687,15 +733,14 @@ class ShiftForm(forms.ModelForm):
                 self.add_error("shift_length_minutes", _("Please provide a shift length."))
             elif start_time and end_time and end_time > start_time:
                 duration_seconds = int((end_time - start_time).total_seconds())
-                if duration_seconds % (shift_length * 60) != 0:
-                    self.add_error("shift_length_minutes", _("The shift length must divide evenly into the total duration between start and end time."))
-                else:
-                    count = duration_seconds // (shift_length * 60)
-                    if count > 50:
-                        self.add_error(
-                            "shift_length_minutes",
-                            _("The maximum allowed is 50 per action. Please adjust the interval or date range."),
-                        )
+                length_seconds = shift_length * 60
+                if length_seconds > duration_seconds:
+                    self.add_error("shift_length_minutes", _("The shift length is longer than the time between start and end."))
+                elif count_shifts(start_time, end_time, shift_length) > MAX_SHIFTS_PER_ACTION:
+                    self.add_error(
+                        "shift_length_minutes",
+                        _("The maximum allowed is %(max)s per action. Please adjust the interval or date range.") % {"max": MAX_SHIFTS_PER_ACTION},
+                    )
         return cleaned_data
 
 

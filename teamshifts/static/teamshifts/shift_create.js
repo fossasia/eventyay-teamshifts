@@ -4,6 +4,13 @@ function gettext(msgid) {
     return typeof window.gettext === "function" ? window.gettext(msgid) : msgid;
 }
 
+function interpolate(fmt, params) {
+    if (typeof window.interpolate === "function") {
+        return window.interpolate(fmt, params, true);
+    }
+    return fmt.replace(/%\((\w+)\)s/g, (match, name) => String(params[name]));
+}
+
 function setupModeToggle() {
     const modeRadios = document.querySelectorAll('input[name="mode"]');
     const repeatOptionsDiv = document.getElementById("repeat-options");
@@ -77,44 +84,54 @@ function setupPreviewOccurrences() {
             return;
         }
 
+        if (startDate.getTime() + lengthMins * 60000 > endDate.getTime()) {
+            showPreviewMessage(previewDiv, "text-danger", gettext("The shift length is longer than the time between start and end."));
+            return;
+        }
+
         const fragment = document.createDocumentFragment();
+        const maxShifts = parseInt(previewBtn.dataset.maxShifts, 10);
+        const minFinalShiftMins = parseInt(previewBtn.dataset.minFinalShift, 10);
 
-        const durationMins = (endDate - startDate) / (1000 * 60);
-        if (durationMins % lengthMins !== 0) {
-            const warn = document.createElement("p");
-            warn.className = "text-warning";
-            warn.textContent = gettext("Warning: The shift length does not divide evenly into the total duration.");
-            fragment.appendChild(warn);
+        // Mirrors count_shifts() and split_shift_range() in forms.py.
+        const durationMins = Math.round((endDate - startDate) / 60000);
+        const remainderMins = durationMins % lengthMins;
+        let shiftCount = Math.floor(durationMins / lengthMins);
+        if (remainderMins > 0 && remainderMins >= minFinalShiftMins) {
+            shiftCount += 1;
         }
 
-        let curr = new Date(startDate);
+        if (shiftCount > maxShifts) {
+            showPreviewMessage(
+                previewDiv,
+                "text-danger",
+                interpolate(gettext("The maximum allowed is %(max)s per action. Please adjust the interval or date range."), { max: maxShifts }),
+            );
+            return;
+        }
+
         const occurrences = [];
-        let safetyCounter = 0;
-
-        while (curr < endDate && safetyCounter < 100) {
-            const next = new Date(curr.getTime() + lengthMins * 60000);
-            if (next > endDate) {
-                break;
+        let curr = new Date(startDate);
+        for (let i = 0; i < shiftCount; i++) {
+            const next = i === shiftCount - 1 ? endDate : new Date(curr.getTime() + lengthMins * 60000);
+            const mins = Math.round((next - curr) / 60000);
+            let text = `${formatDt(curr)} \u2013 ${formatDt(next)}`;
+            if (mins < lengthMins) {
+                text += ` (${interpolate(gettext("%(minutes)s min, shorter than the others"), { minutes: mins })})`;
+            } else if (mins > lengthMins) {
+                text += ` (${interpolate(gettext("%(minutes)s min, longer than the others"), { minutes: mins })})`;
             }
-            occurrences.push(`${formatDt(curr)} \u2013 ${formatDt(next)}`);
+            occurrences.push(text);
             curr = next;
-            safetyCounter++;
         }
 
-        if (safetyCounter >= 100) {
-            const warn = document.createElement("p");
-            warn.className = "text-warning";
-            warn.textContent = gettext("Too many occurrences (limited to 100 for preview).");
-            fragment.appendChild(warn);
-        } else {
-            const summary = document.createElement("strong");
-            summary.textContent = `${gettext("Will create")} ${occurrences.length} ${gettext("shifts:")}`;
-            fragment.appendChild(summary);
-            occurrences.forEach((text, i) => {
-                fragment.appendChild(document.createElement("br"));
-                fragment.appendChild(document.createTextNode(text));
-            });
-        }
+        const summary = document.createElement("strong");
+        summary.textContent = `${gettext("Will create")} ${occurrences.length} ${gettext("shifts:")}`;
+        fragment.appendChild(summary);
+        occurrences.forEach((text, i) => {
+            fragment.appendChild(document.createElement("br"));
+            fragment.appendChild(document.createTextNode(text));
+        });
 
         previewDiv.replaceChildren(fragment);
         previewDiv.style.display = "block";

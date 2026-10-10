@@ -34,6 +34,8 @@ from eventyay.control.views import PaginationMixin
 from eventyay.multidomain.urlreverse import build_absolute_uri
 
 from .forms import (
+    MAX_SHIFTS_PER_ACTION,
+    MIN_FINAL_SHIFT_MINUTES,
     BaseShiftRoleFormSet,
     CallForTeamMembersApplicationSettingsForm,
     CallForTeamMembersSettingsForm,
@@ -49,6 +51,7 @@ from .forms import (
     TeamRoleForm,
     VoucherSettingsForm,
     render_answer_for_review,
+    split_shift_range,
 )
 from .models import (
     CFM_BUILTIN_FIELD_KEYS,
@@ -1714,6 +1717,8 @@ class ShiftCreateView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Temp
             if self.request.method == "POST"
             else ShiftRoleFormSet(prefix="roles", form_kwargs={"event": self.request.event})
         )
+        ctx["max_shifts_per_action"] = MAX_SHIFTS_PER_ACTION
+        ctx["min_final_shift_minutes"] = MIN_FINAL_SHIFT_MINUTES
         return ctx
 
     def post(self, request, *args, **kwargs):
@@ -1733,15 +1738,12 @@ class ShiftCreateView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Temp
                 shifts_to_create = []
 
                 if mode == "repeating":
-                    shift_length = form.cleaned_data["shift_length_minutes"]
-                    curr_start = form.cleaned_data["start_time"]
-                    end_time = form.cleaned_data["end_time"]
-
-                    while curr_start < end_time:
-                        curr_end = curr_start + timedelta(minutes=shift_length)
-                        if curr_end > end_time:
-                            break
-
+                    slots = split_shift_range(
+                        form.cleaned_data["start_time"],
+                        form.cleaned_data["end_time"],
+                        form.cleaned_data["shift_length_minutes"],
+                    )
+                    for curr_start, curr_end in slots:
                         shift = Shift(
                             event=self.request.event,
                             name=form.cleaned_data.get("name", ""),
@@ -1752,7 +1754,6 @@ class ShiftCreateView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Temp
                         )
                         shift.save()
                         shifts_to_create.append(shift)
-                        curr_start = curr_end
 
                 else:
                     shift = form.save(commit=False)

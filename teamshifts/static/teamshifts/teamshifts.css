@@ -183,6 +183,37 @@ label .optional {
 }
 
 
+.my-shifts-page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.my-shifts-calendar-panel {
+  margin-top: 12px;
+}
+
+.my-shifts-calendar-link {
+  margin-top: 4px;
+}
+
+.my-shifts-calendar-options {
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.my-shifts-calendar-reset {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .my-shifts-event-panel {
   margin-bottom: 24px;
 }

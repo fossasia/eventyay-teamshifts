@@ -9,7 +9,7 @@
 {% endblock %}
 
 {% block teamshifts_header %}
-  <h1>{% trans "Create Shift(s)" %}</h1>
+  <h1>{% if is_clone %}{% trans "Clone Shift" %}{% else %}{% trans "Create Shift(s)" %}{% endif %}</h1>
 {% endblock %}
 
 {% block teamshifts_content %}
@@ -134,7 +134,7 @@
       <button type='submit' class='btn btn-primary btn-save' {% if not has_locations %}disabled{% endif %}>
         {% trans "Save" %}
       </button>
-      <a href='{% url "plugins:teamshifts:dashboard" request.organizer.slug request.event.slug %}' class='btn btn-default'>
+      <a href='{% if is_clone %}{% url "plugins:teamshifts:shifts" request.organizer.slug request.event.slug %}{% else %}{% url "plugins:teamshifts:dashboard" request.organizer.slug request.event.slug %}{% endif %}' class='btn btn-default'>
         {% trans "Cancel" %}
       </a>
     </div>

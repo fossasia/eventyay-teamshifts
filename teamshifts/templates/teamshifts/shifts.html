@@ -82,6 +82,11 @@
                         <a href="{% url 'plugins:teamshifts:shift_edit' organizer=request.event.organizer.slug event=request.event.slug pk=shift.pk %}" class="btn btn-default btn-sm" data-toggle="tooltip" title="{% trans 'Edit' %}">
                             <i class="fa fa-edit"></i>
                         </a>
+                        {% if can_manage_shifts %}
+                        <a href="{% url 'plugins:teamshifts:shift_clone' organizer=request.event.organizer.slug event=request.event.slug pk=shift.pk %}" class="btn btn-default btn-sm" data-toggle="tooltip" title="{% trans 'Clone' %}">
+                            <i class="fa fa-copy"></i>
+                        </a>
+                        {% endif %}
                         <a href="{% url 'plugins:teamshifts:shift_delete' organizer=request.event.organizer.slug event=request.event.slug pk=shift.pk %}" class="btn btn-danger btn-sm" data-toggle="tooltip" title="{% trans 'Delete' %}">
                             <i class="fa fa-trash"></i>
                         </a>

@@ -28,6 +28,7 @@ from ..models import (
     TeamMemberApplication,
 )
 from ..pdf import default_layout, format_event_date_from, format_event_date_to, format_event_dates, layout_is_initial_overlay, render_certificate_pdf
+from ..tasks import MarkdownBreakString
 
 logger = logging.getLogger(__name__)
 
@@ -175,7 +176,7 @@ def _send_certificate_email(application: TeamMemberApplication, pdf_bytes: bytes
 
     context = get_email_context(event=event, user=user)
     subject = LazyI18nString(template.subject)
-    body = LazyI18nString(template.body)
+    body = MarkdownBreakString(LazyI18nString(template.body))
 
     try:
         cf = CachedFile.objects.create(

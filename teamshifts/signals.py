@@ -2,7 +2,7 @@ import logging
 
 from django.core.cache import cache
 from django.db import transaction
-from django.db.models.signals import post_delete
+from django.db.models.signals import post_delete, pre_delete
 from django.dispatch import receiver
 from django.urls import reverse
 from django.utils.html import format_html
@@ -10,15 +10,17 @@ from django.utils.timezone import now
 from django.utils.translation import gettext_lazy as _
 from django_scopes import scope, scopes_disabled
 from eventyay.base.email import SimpleFunctionalMailTextPlaceholder
+from eventyay.base.models.checkin import Checkin
 from eventyay.base.models.organizer import Team
-from eventyay.base.signals import register_mail_placeholders
+from eventyay.base.signals import checkin_created, register_mail_placeholders
 from eventyay.common.signals import periodic_task, user_menu_items
 from eventyay.control.signals import event_dashboard_components, nav_event_common, nav_global
 from eventyay.multidomain.urlreverse import build_absolute_uri
 from eventyay.presale.signals import header_nav_tabs
 
-from .models import ApplicationStatus, CallForTeamMembers, ShiftAssignment, TeamMemberApplication, TeamRole, TeamShiftsEmailQueue
+from .models import ApplicationStatus, CallForTeamMembers, Shift, ShiftAssignment, TeamMemberApplication, TeamRole, TeamShiftsEmailQueue
 from .permissions import has_any_teamshifts_permission
+from .services.checkin import handle_volunteer_checkin, handle_volunteer_checkout
 from .tasks import send_queued_email
 
 logger = logging.getLogger(__name__)
@@ -95,7 +97,7 @@ def teamshifts_public_schedule_nav_tab(sender, request=None, **kwargs):
             user=request.user,
             status=ApplicationStatus.ACCEPTED,
         ).exists()
-    if not is_accepted:
+    if not is_accepted and not has_any_teamshifts_permission(request.user, sender.organizer, sender, request=request):
         return ""
     schedule_url = reverse(
         "plugins:teamshifts:public_shift_schedule",
@@ -110,6 +112,14 @@ def teamshifts_public_schedule_nav_tab(sender, request=None, **kwargs):
     )
 
 
+def _format_shift_time(shift):
+    start = shift.start_time.astimezone(shift.event.tz)
+    end = shift.end_time.astimezone(shift.event.tz)
+    if start.date() == end.date():
+        return f"{start:%Y-%m-%d %H:%M} – {end:%H:%M}"
+    return f"{start:%Y-%m-%d %H:%M} – {end:%Y-%m-%d %H:%M}"
+
+
 @receiver(register_mail_placeholders, dispatch_uid="teamshifts_mail_placeholders")
 def teamshifts_mail_placeholders(sender, **kwargs):
     return [
@@ -122,7 +132,7 @@ def teamshifts_mail_placeholders(sender, **kwargs):
         SimpleFunctionalMailTextPlaceholder(
             "role_name",
             ["role"],
-            lambda role: role.name,
+            lambda role: role.name if role else _("no specific role"),
             lambda event: _("Volunteer role"),
         ),
         SimpleFunctionalMailTextPlaceholder(
@@ -150,6 +160,18 @@ def teamshifts_mail_placeholders(sender, **kwargs):
             lambda event: "https://example.com/fossasia/my-event/teamshifts/shifts/",
         ),
         SimpleFunctionalMailTextPlaceholder(
+            "shift_name",
+            ["shift"],
+            lambda shift: str(shift),
+            lambda event: _("Morning Shift (2026-01-15 09:00 – 12:00)"),
+        ),
+        SimpleFunctionalMailTextPlaceholder(
+            "shift_time",
+            ["shift"],
+            _format_shift_time,
+            lambda event: "2026-01-15 09:00 – 12:00",
+        ),
+        SimpleFunctionalMailTextPlaceholder(
             "voucher_code",
             ["voucher_code"],
             lambda voucher_code: voucher_code,
@@ -160,6 +182,41 @@ def teamshifts_mail_placeholders(sender, **kwargs):
             ["ticket_claim_url"],
             lambda ticket_claim_url: ticket_claim_url,
             "https://example.com/my-event/?voucher=ABCD-1234-EFGH",
+        ),
+        SimpleFunctionalMailTextPlaceholder(
+            "applicant_name",
+            ["application"],
+            lambda application: application.user.fullname,
+            lambda event: _("Applicant"),
+        ),
+        SimpleFunctionalMailTextPlaceholder(
+            "submitted_at",
+            ["application"],
+            lambda application: application.created_at.astimezone(application.event.tz).strftime("%Y-%m-%d %H:%M %Z"),
+            lambda event: "",
+        ),
+        SimpleFunctionalMailTextPlaceholder(
+            "pending_count",
+            ["application"],
+            lambda application: TeamMemberApplication.objects.filter(
+                event=application.event,
+                status=ApplicationStatus.PENDING,
+            ).count(),
+            lambda event: "0",
+        ),
+        SimpleFunctionalMailTextPlaceholder(
+            "application_url",
+            ["application"],
+            lambda application: build_absolute_uri(
+                application.event,
+                "plugins:teamshifts:application_detail",
+                kwargs={
+                    "organizer": application.event.organizer.slug,
+                    "event": application.event.slug,
+                    "pk": application.pk,
+                },
+            ),
+            lambda event: "",
         ),
     ]
 
@@ -252,6 +309,20 @@ def dispatch_scheduled_emails(sender, **kwargs):
             logger.info("[TeamShifts] Dispatched scheduled email queue %s", queue_pk)
 
 
+@receiver(checkin_created, dispatch_uid="teamshifts_volunteer_checkin")
+def handle_checkin_created(sender, checkin, **kwargs):
+    try:
+        if checkin.type == Checkin.TYPE_ENTRY:
+            handle_volunteer_checkin(checkin)
+        elif checkin.type == Checkin.TYPE_EXIT:
+            handle_volunteer_checkout(checkin)
+    except Exception:
+        # Broad on purpose: this receiver hooks into eventyay's live ticket-scan
+        # request. An unhandled error here must never break check-in for a real
+        # attendee at the door, so we log and swallow rather than propagate.
+        logger.exception("[TeamShifts] Error handling check-in %s", checkin.pk)
+
+
 @receiver(post_delete, sender=TeamRole)
 @scopes_disabled()
 def team_role_post_delete(sender, instance, **kwargs):
@@ -262,6 +333,13 @@ def team_role_post_delete(sender, instance, **kwargs):
     for team in teams:
         team.limit_teamshifts_roles.remove(instance.pk)
         team.save(update_fields=["limit_teamshifts_roles"])
+
+
+@receiver(pre_delete, sender=Shift)
+@scopes_disabled()
+def shift_pre_delete(sender, instance, **kwargs):
+    # FK is SET_NULL; drop unsent notifications instead of sending them with the shift details missing.
+    TeamShiftsEmailQueue.objects.filter(shift=instance, sent_at__isnull=True).delete()
 
 
 # ---------------------------------------------------------------------------

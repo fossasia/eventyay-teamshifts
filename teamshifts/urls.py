@@ -58,6 +58,11 @@ event_patterns = [
         views.MyShiftsView.as_view(),
         name="my_shifts",
     ),
+    path(
+        "teamshifts/my-shifts/<int:pk>/checkout/",
+        views.ShiftCheckOutView.as_view(),
+        name="shift_checkout",
+    ),
 ]
 
 urlpatterns = [

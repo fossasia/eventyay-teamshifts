@@ -45,20 +45,14 @@
         </select>
       </div>
       {% if vouchers_enabled %}
-      <div class='form-group'>
-        <select name='voucher' class='form-control'>
-          <option value=''>{% trans 'All statuses' %}</option>
-          <option value='not_sent' {% if request.GET.voucher == 'not_sent' %}selected{% endif %}>
-            {% trans 'Not sent' %}
-          </option>
-          <option value='sent' {% if request.GET.voucher == 'sent' %}selected{% endif %}>
-            {% trans 'Sent — not claimed' %}
-          </option>
-          <option value='claimed' {% if request.GET.voucher == 'claimed' %}selected{% endif %}>
-            {% trans 'Claimed' %}
-          </option>
-        </select>
-      </div>
+        <div class='form-group'>
+          <select name='voucher' class='form-control' aria-label='{% trans "Voucher" %}'>
+            <option value=''>{% trans 'All voucher statuses' %}</option>
+            {% for value, label in voucher_status_choices %}
+              <option value='{{ value }}' {% if request.GET.voucher == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
       {% endif %}
       <button type='submit' class='btn btn-default'>{% trans 'Filter' %}</button>
     </form>
@@ -140,6 +134,7 @@
               </a>
               {% endwith %}
             </th>
+             <th>{% trans 'Check-in' %}</th>
             <th>
               {% trans 'Hours scheduled' %}
                 {% with current_sort=request.GET.sort|default:"display_name_sort" %}
@@ -211,6 +206,15 @@
                 {% endif %}
               </td>
               <td>{{ member.shifts_assigned }}</td>
+              <td>
+                {% if member.shifts_assigned %}
+                  <span class="label {% if member.shifts_checked_in == member.shifts_assigned %}label-success{% elif member.shifts_checked_in %}label-primary{% else %}label-default{% endif %}">
+                    {{ member.shifts_checked_in }}/{{ member.shifts_assigned }}
+                  </span>
+                {% else %}
+                  -
+                {% endif %}
+              </td>
               <td>
                 {% if member.hours_scheduled %}
                   {{ member.hours_scheduled }}

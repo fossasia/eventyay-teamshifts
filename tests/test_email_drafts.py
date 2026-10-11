@@ -20,7 +20,8 @@ from teamshifts.tasks import send_queued_email
 
 
 @pytest.fixture
-def orga_client(client, event, user):
+def orga_client(client, event, user, settings):
+    settings.SITE_URL = "https://testserver"
     with scope(event=event):
         team = Team.objects.create(
             organizer=event.organizer,

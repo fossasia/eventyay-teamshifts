@@ -64,3 +64,18 @@ def add_member_from_organizer(*, event, form) -> TeamMemberApplication:
                 )
 
     return application
+
+
+def accept_manager_as_member(*, event, user) -> tuple[TeamMemberApplication, bool]:
+    with scope(event=event):
+        application, created = TeamMemberApplication.objects.get_or_create(
+            event=event,
+            user=user,
+            defaults={"status": ApplicationStatus.ACCEPTED, "added_by_organizer": True},
+        )
+        promoted = not created and application.status != ApplicationStatus.ACCEPTED
+        if promoted:
+            application.status = ApplicationStatus.ACCEPTED
+            application.added_by_organizer = True
+            application.save(update_fields=["status", "added_by_organizer", "updated_at"])
+    return application, promoted

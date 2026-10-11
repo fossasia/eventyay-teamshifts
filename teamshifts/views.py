@@ -71,10 +71,18 @@ from .models import (
     VoucherStatus,
     normalize_field_order,
 )
-from .permissions import TeamShiftsPermissionRequiredMixin, can_act_on_role, can_view_email_addresses, get_allowed_role_ids, has_teamshifts_permission
+from .permissions import (
+    TeamShiftsPermissionRequiredMixin,
+    can_act_on_role,
+    can_view_email_addresses,
+    get_allowed_role_ids,
+    has_any_teamshifts_permission,
+    has_teamshifts_permission,
+)
 from .services.certificates import maybe_auto_issue_certificate
+from .services.checkin import evaluate_shift_certificate, stamp_shift_end
 from .services.email import get_recipients, queue_email, queue_lifecycle_email, queue_shift_notification_email
-from .services.members import AlreadyMemberError, add_member_from_organizer
+from .services.members import AlreadyMemberError, accept_manager_as_member, add_member_from_organizer
 from .tasks import send_queued_email
 
 logger = logging.getLogger(__name__)
@@ -929,7 +937,9 @@ class ApplicationDetailView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin
                     "answers__question",
                     Prefetch(
                         "user__shift_assignments",
-                        queryset=ShiftAssignment.objects.filter(shift__event=event).select_related("role"),
+                        queryset=ShiftAssignment.objects.filter(shift__event=event)
+                        .select_related("role", "shift", "shift__location")
+                        .order_by("shift__start_time"),
                         to_attr="event_assignments",
                     ),
                 ),
@@ -969,6 +979,15 @@ class PublicApplyView(FormView):
                     raise Http404
         return super().dispatch(request, *args, **kwargs)
 
+    @property
+    def cfm_accepting_applications(self):
+        if self.cfm is None:
+            return False
+        # A valid secret link bypasses the deadline, so organizers can share it to accept late applications.
+        if getattr(self.request, "_cfm_secret_verified", False):
+            return self.cfm.active
+        return self.cfm.is_open
+
     def get_form(self, form_class=None):
         kwargs = self.get_form_kwargs()
         kwargs["event"] = self.event
@@ -980,8 +999,8 @@ class PublicApplyView(FormView):
         ctx = super().get_context_data(**kwargs)
         ctx["event"] = self.event
         ctx["cfm"] = self.cfm
-        ctx["cfm_open"] = self.cfm is not None and self.cfm.is_open
-        ctx["cfm_deadline_passed"] = self.cfm is not None and self.cfm.active and self.cfm.deadline is not None and not self.cfm.is_open
+        ctx["cfm_open"] = self.cfm_accepting_applications
+        ctx["cfm_deadline_passed"] = self.cfm is not None and self.cfm.active and self.cfm.deadline is not None and not self.cfm_accepting_applications
         if self.request.user.is_authenticated:
             with scope(event=self.event):
                 ctx["existing_application"] = TeamMemberApplication.objects.filter(event=self.event, user=self.request.user).first()
@@ -997,7 +1016,7 @@ class PublicApplyView(FormView):
             )
             return redirect(f"{login_url}?{urlencode({'next': self.request.get_full_path()})}")
         event = self.event
-        if self.cfm is None or not self.cfm.is_open:
+        if not self.cfm_accepting_applications:
             messages.error(self.request, _("Applications are not currently open for this event."))
             return self.form_invalid(form)
         full_name = form.cleaned_data.get("full_name", "").strip()
@@ -1875,6 +1894,14 @@ class MembersListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Pagi
             qs = (
                 qs.annotate(
                     shifts_assigned=Count("user__shift_assignments", filter=Q(user__shift_assignments__shift__event=event)),
+                    shifts_checked_in=Count(
+                        "user__shift_assignments",
+                        filter=Q(user__shift_assignments__shift__event=event, user__shift_assignments__started_at__isnull=False),
+                    ),
+                    shifts_completed=Count(
+                        "user__shift_assignments",
+                        filter=Q(user__shift_assignments__shift__event=event, user__shift_assignments__ended_at__isnull=False),
+                    ),
                     hours_scheduled=Sum(
                         ExpressionWrapper(
                             F("user__shift_assignments__shift__end_time") - F("user__shift_assignments__shift__start_time"),
@@ -2091,7 +2118,14 @@ class ShiftScheduleTalksAPIView(PluginActiveMixin, TeamShiftsPermissionRequiredM
                     for assignment in shift.assignments.all():
                         if assignment.team_member_id and assignment.role_id == role_assignment.role_id:
                             name = assignment.team_member.get_full_name() or assignment.team_member.email
-                            assignments.append({"id": assignment.team_member.id, "name": name})
+                            assignments.append(
+                                {
+                                    "id": assignment.team_member.id,
+                                    "name": name,
+                                    "started_at": assignment.started_at.isoformat() if assignment.started_at else None,
+                                    "ended_at": assignment.ended_at.isoformat() if assignment.ended_at else None,
+                                }
+                            )
                     roles_data.append(
                         {
                             "id": role_assignment.role.id,
@@ -2274,6 +2308,17 @@ class ShiftScheduleMembersAPIView(PluginActiveMixin, TeamShiftsPermissionRequire
                         member["email"] = app.user.email
                     members.append(member)
             return JsonResponse({"members": members})
+
+
+def _queue_lifecycle_email_safely(application, template_role):
+    try:
+        queue_lifecycle_email(application, template_role)
+    except Exception:
+        logger.exception(
+            "[TeamShifts] Failed to queue %s email for application %s",
+            template_role,
+            application.pk,
+        )
 
 
 def _notify_shift_change_safely(event, user, shift, role, template_role):
@@ -2635,6 +2680,12 @@ def _wants_json(request):
 
 class PublicShiftScheduleMixin:
     redirect_unpublished_to_schedule = True
+    allow_teamshifts_managers = False
+
+    def _can_access_schedule(self, request):
+        if self.member_application is not None:
+            return True
+        return self.allow_teamshifts_managers and has_any_teamshifts_permission(request.user, self.organizer, self.event, request=request)
 
     def dispatch(self, request, *args, **kwargs):
         if "teamshifts" not in request.event.get_plugins():
@@ -2648,7 +2699,12 @@ class PublicShiftScheduleMixin:
         self.event = request.event
         self.organizer = request.organizer
         self.member_application = _get_accepted_application(request, self.event)
-        if self.member_application is None:
+        if not self._can_access_schedule(request):
+            if _wants_json(request):
+                return JsonResponse(
+                    {"status": "error", "error": str(_("You need to be an accepted team member to view the shift schedule."))},
+                    status=403,
+                )
             messages.error(
                 request,
                 _("You need to be an accepted team member to view the shift schedule."),
@@ -2677,6 +2733,8 @@ class PublicShiftScheduleMixin:
 
 
 class PublicShiftScheduleAPIView(PublicShiftScheduleMixin, View):
+    allow_teamshifts_managers = True
+
     def get(self, request, *args, **kwargs):
         event = self.event
 
@@ -2715,6 +2773,7 @@ class PublicShiftScheduleAPIView(PublicShiftScheduleMixin, View):
 class PublicShiftScheduleView(PublicShiftScheduleMixin, TemplateView):
     template_name = "teamshifts/shift_schedule.html"
     redirect_unpublished_to_schedule = False
+    allow_teamshifts_managers = True
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -2761,6 +2820,8 @@ class PublicShiftScheduleView(PublicShiftScheduleMixin, TemplateView):
 
 
 class ShiftClaimView(PublicShiftScheduleMixin, View):
+    allow_teamshifts_managers = True
+
     def post(self, request, *args, **kwargs):
         event = self.event
         shift_pk = kwargs["pk"]
@@ -2811,6 +2872,10 @@ class ShiftClaimView(PublicShiftScheduleMixin, View):
                     if conflicting:
                         return fail(_("You are already assigned to another shift during this time."))
                 previous_role_id = existing.role_id if existing else None
+                if self.member_application is None:
+                    application, promoted = accept_manager_as_member(event=event, user=request.user)
+                    if promoted:
+                        transaction.on_commit(lambda app=application: _queue_lifecycle_email_safely(app, EmailTemplateRoles.APPLICATION_ACCEPTED))
                 _assignment, created = ShiftAssignment.objects.update_or_create(
                     shift=shift,
                     team_member=request.user,
@@ -2839,6 +2904,7 @@ class ShiftClaimView(PublicShiftScheduleMixin, View):
 
 class ShiftDetailView(PublicShiftScheduleMixin, TemplateView):
     template_name = "teamshifts/shift_detail.html"
+    allow_teamshifts_managers = True
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -2875,6 +2941,8 @@ class ShiftDetailView(PublicShiftScheduleMixin, TemplateView):
 
 
 class ShiftWithdrawView(PublicShiftScheduleMixin, View):
+    allow_teamshifts_managers = True
+
     def post(self, request, *args, **kwargs):
         event = self.event
         shift_pk = kwargs["pk"]
@@ -3004,6 +3072,7 @@ def _notify_organizers_new_application(event, application):
 class MyShiftsView(PublicShiftScheduleMixin, TemplateView):
     template_name = "teamshifts/my_shifts.html"
     redirect_unpublished_to_schedule = False
+    allow_teamshifts_managers = True
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -3032,7 +3101,48 @@ class MyShiftsView(PublicShiftScheduleMixin, TemplateView):
             shifts_by_day[day].append(assignment)
         ctx["shifts_by_day"] = dict(shifts_by_day)
         ctx["event"] = event
+        ctx["now"] = now()
         return ctx
+
+
+class ShiftCheckOutView(PublicShiftScheduleMixin, View):
+    redirect_unpublished_to_schedule = False
+
+    def post(self, request, *args, **kwargs):
+        event = self.event
+        assignment_pk = kwargs["pk"]
+
+        with scope(event=event), transaction.atomic():
+            assignment = (
+                ShiftAssignment.objects.select_for_update()
+                .filter(
+                    pk=assignment_pk,
+                    team_member=request.user,
+                    shift__event=event,
+                )
+                .select_related("shift")
+                .first()
+            )
+
+            if assignment is None:
+                return JsonResponse({"status": "error", "error": str(_("Shift assignment not found."))}, status=404)
+
+            current_time = now()
+
+            if not assignment.started_at:
+                return JsonResponse({"status": "error", "error": str(_("You have not checked in for this shift yet."))}, status=400)
+
+            if assignment.shift.start_time > current_time:
+                return JsonResponse({"status": "error", "error": str(_("This shift has not started yet."))}, status=400)
+
+            if assignment.ended_at:
+                return JsonResponse({"status": "error", "error": str(_("You have already checked out of this shift."))}, status=400)
+
+            stamp_shift_end(assignment, current_time)
+
+        evaluate_shift_certificate(assignment)
+
+        return JsonResponse({"status": "ok", "ended_at": assignment.ended_at.isoformat()})
 
 
 class MyShiftsGlobalView(LoginRequiredMixin, TemplateView):

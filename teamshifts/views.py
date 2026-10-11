@@ -2709,6 +2709,13 @@ class PublicShiftScheduleMixin:
             return True
         return self.allow_teamshifts_managers and has_any_teamshifts_permission(request.user, self.organizer, self.event, request=request)
 
+    def _email_choice_application(self):
+        """The user's application for this event, whatever its status. It holds their claim/drop email choice."""
+        if self.member_application is not None:
+            return self.member_application
+        with scope(event=self.event):
+            return TeamMemberApplication.objects.filter(event=self.event, user=self.request.user).first()
+
     def dispatch(self, request, *args, **kwargs):
         if "teamshifts" not in request.event.get_plugins():
             raise Http404
@@ -2766,7 +2773,7 @@ class PublicShiftScheduleAPIView(PublicShiftScheduleMixin, View):
                 "mode": "shifts",
                 "current_user_id": request.user.pk,
                 "current_user_name": request.user.get_full_name() or request.user.email,
-                "shift_action_emails": _saved_shift_action_emails(self.member_application),
+                "shift_action_emails": _saved_shift_action_emails(self._email_choice_application()),
                 "event_start": event.date_from.isoformat() if event.date_from else "",
                 "event_end": event.date_to.isoformat() if event.date_to else "",
                 "timezone": str(event.timezone),
@@ -2816,7 +2823,7 @@ class PublicShiftScheduleView(PublicShiftScheduleMixin, TemplateView):
             "mode": "shifts",
             "current_user_id": self.request.user.pk,
             "current_user_name": self.request.user.get_full_name() or self.request.user.email,
-            "shift_action_emails": _saved_shift_action_emails(self.member_application),
+            "shift_action_emails": _saved_shift_action_emails(self._email_choice_application()),
             "talks": [_shift_talk_payload(shift) for shift in shifts],
             "rooms": rooms,
             "tracks": [],
@@ -3002,7 +3009,7 @@ class ShiftWithdrawView(PublicShiftScheduleMixin, View):
             deleted, _details = ShiftAssignment.objects.filter(pk=assignment.pk).delete()
             if not deleted:
                 return fail(_("You are not signed up for this shift."))
-            send_email = _resolve_shift_action_emails(self.member_application, requested_send_email)
+            send_email = _resolve_shift_action_emails(self._email_choice_application(), requested_send_email)
             if send_email:
                 transaction.on_commit(
                     lambda event=event, user=request.user, shift=shift, role=role: _notify_shift_change_safely(

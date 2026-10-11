@@ -235,6 +235,28 @@ def test_manager_without_application_can_opt_out(mock_queue, _mock_lifecycle, cl
 
 
 @pytest.mark.django_db
+@patch("teamshifts.views._notify_organizers_shift_dropped")
+@patch("teamshifts.views.queue_shift_notification_email")
+def test_manager_with_pending_application_drop_saves_choice(mock_queue, _mock_orga, client, event, cfm, organizer_user, shift, team_role):
+    # The organizer set the manager's application back to pending but kept their assignment.
+    with scope(event=event):
+        app = TeamMemberApplication.objects.create(event=event, user=organizer_user, status=ApplicationStatus.PENDING)
+        ShiftAssignment.objects.create(shift=shift, team_member=organizer_user, role=team_role)
+    client.force_login(organizer_user)
+
+    response = _drop(client, event, shift, team_role, send_email=False)
+
+    assert response.status_code == 200
+    assert mock_queue.call_count == 0
+    with scope(event=event):
+        app.refresh_from_db()
+    assert app.shift_action_emails is False
+    assert app.status == ApplicationStatus.PENDING
+    kwargs = {"organizer": event.organizer.slug, "event": event.slug}
+    assert client.get(reverse("plugins:teamshifts:public_shift_schedule_api", kwargs=kwargs)).json()["shift_action_emails"] is False
+
+
+@pytest.mark.django_db
 def test_schedule_prefills_saved_choice(client, event, application, volunteer):
     with scope(event=event):
         TeamMemberApplication.objects.filter(pk=application.pk).update(shift_action_emails=False)

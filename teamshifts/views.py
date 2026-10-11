@@ -1973,19 +1973,6 @@ class MembersListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Sort
             elif hours == "has":
                 qs = qs.filter(hours_scheduled__isnull=False)
 
-            voucher_settings = self._get_voucher_settings()
-            if voucher_settings and voucher_settings.enabled and voucher_settings.voucher_tag:
-                voucher = self.request.GET.get("voucher", "").strip()
-                if voucher == "not_sent":
-                    qs = qs.filter(Q(voucher_assignment__isnull=True) | Q(voucher_assignment__status=VoucherStatus.NOT_SENT))
-                elif voucher == VoucherStatus.SENT:
-                    qs = qs.filter(
-                        voucher_assignment__status=VoucherStatus.SENT,
-                        voucher_assignment__voucher__redeemed=0,
-                    )
-                elif voucher == VoucherStatus.CLAIMED:
-                    qs = qs.filter(Q(voucher_assignment__status=VoucherStatus.CLAIMED) | Q(voucher_assignment__voucher__redeemed__gt=0))
-
         return self.sort_queryset(qs)
 
     @staticmethod

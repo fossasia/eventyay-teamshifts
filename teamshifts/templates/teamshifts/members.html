@@ -54,6 +54,7 @@
           </select>
         </div>
       {% endif %}
+      <input type='hidden' name='sort' value='{{ request.GET.sort|default:"display_name_sort" }}'>
       <button type='submit' class='btn btn-default'>{% trans 'Filter' %}</button>
     </form>
 

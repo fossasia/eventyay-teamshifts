@@ -14,7 +14,7 @@ from teamshifts.models import (
     TeamShiftsEmailQueue,
     TeamShiftsEmailQueueRecipient,
 )
-from teamshifts.services.email import queue_email
+from teamshifts.services.email import DraftNoLongerEditable, queue_email, update_queued_email
 from teamshifts.signals import dispatch_scheduled_emails
 from teamshifts.tasks import send_queued_email
 
@@ -219,3 +219,58 @@ def test_send_to_outbox_still_parks_mail_without_dispatching(orga_client, event,
         queue = TeamShiftsEmailQueue.objects.get(event=event)
     assert queue.is_draft is False
     assert queue.sent_at is None
+
+
+@pytest.mark.django_db
+def test_stale_draft_submission_does_not_create_a_new_email(orga_client, event, user, volunteer):
+    with scope(event=event):
+        draft = queue_email(event, "s", "m", [volunteer], user=user, is_draft=True)
+        draft_pk = draft.pk
+        draft.delete()
+
+    with patch("teamshifts.services.email._dispatch") as mock_dispatch:
+        response = orga_client.post(_url(event, "email_compose"), _compose_data("send", draft_id=draft_pk))
+
+    assert response.url == _url(event, "email_drafts")
+    mock_dispatch.assert_not_called()
+    with scope(event=event):
+        assert not TeamShiftsEmailQueue.objects.filter(event=event).exists()
+
+
+@pytest.mark.django_db
+def test_update_refuses_a_draft_already_moved_out(event, user, volunteer):
+    """A save-as-draft racing a send must not flip the sent email back to a draft."""
+    with scope(event=event):
+        draft = queue_email(event, "s", "m", [volunteer], user=user, is_draft=True)
+        stale = TeamShiftsEmailQueue.objects.get(pk=draft.pk)
+    with patch("teamshifts.services.email._dispatch"):
+        update_queued_email(draft, subject="s", message="m", recipients=[volunteer], is_draft=False)
+
+    with pytest.raises(DraftNoLongerEditable):
+        update_queued_email(stale, subject="s", message="m", recipients=[volunteer], is_draft=True)
+
+    with scope(event=event):
+        draft.refresh_from_db()
+    assert draft.is_draft is False
+
+
+@pytest.mark.django_db
+def test_failed_recipient_rebuild_leaves_the_draft_untouched(event, user, volunteer, django_user_model):
+    other = django_user_model.objects.create_user(email="other@example.com", password="x")
+    with scope(event=event):
+        draft = queue_email(event, "s", "m", [volunteer], user=user, is_draft=True)
+
+    with (
+        patch("teamshifts.services.email._dispatch") as mock_dispatch,
+        patch.object(TeamShiftsEmailQueueRecipient.objects, "bulk_create", side_effect=RuntimeError("db down")),
+        pytest.raises(RuntimeError),
+    ):
+        update_queued_email(draft, subject="new", message="m", recipients=[other], is_draft=False)
+
+    mock_dispatch.assert_not_called()
+    with scope(event=event):
+        draft.refresh_from_db()
+        emails = list(draft.recipients.values_list("email", flat=True))
+    assert draft.is_draft is True
+    assert str(draft.subject) == "s"
+    assert emails == [volunteer.email]

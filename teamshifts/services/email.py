@@ -20,6 +20,10 @@ from ..tasks import send_queued_email
 logger = logging.getLogger(__name__)
 
 
+class DraftNoLongerEditable(Exception):
+    """The draft was sent, deleted or moved to the outbox by another request."""
+
+
 def get_recipients(
     event: Event,
     *,
@@ -89,20 +93,28 @@ def update_queued_email(
 
     The recipient rows are rebuilt from ``recipients`` so a draft that sat for
     a while goes out to whoever matches its filters now, not when it was saved.
+
+    The row is locked and the update runs in one transaction, so a scheduled
+    sweep never sees the email as sendable before its recipients are in place.
+    Raises ``DraftNoLongerEditable`` if the email was sent, deleted or moved out
+    of the drafts in the meantime, so a stale submission cannot change it.
     """
-    with scope(event=queue.event):
-        queue.subject = subject
-        queue.message = message
-        queue.status_filter = status_filter or ""
-        queue.send_after = send_after
-        queue.is_draft = is_draft
-        queue.save(update_fields=["subject", "message", "status_filter", "send_after", "is_draft", "updated"])
-        queue.recipients.all().delete()
-        _set_recipients(queue, recipients)
+    with scope(event=queue.event), transaction.atomic():
+        locked = TeamShiftsEmailQueue.objects.select_for_update().filter(pk=queue.pk, is_draft=True, sent_at__isnull=True).first()
+        if locked is None:
+            raise DraftNoLongerEditable(queue.pk)
+        locked.subject = subject
+        locked.message = message
+        locked.status_filter = status_filter or ""
+        locked.send_after = send_after
+        locked.is_draft = is_draft
+        locked.save(update_fields=["subject", "message", "status_filter", "send_after", "is_draft", "updated"])
+        locked.recipients.all().delete()
+        _set_recipients(locked, recipients)
 
     if dispatch and not is_draft:
-        _dispatch(queue.event_id, queue.pk, eta=send_after)
-    return queue
+        _dispatch(locked.event_id, locked.pk, eta=send_after)
+    return locked
 
 
 def _set_recipients(queue: TeamShiftsEmailQueue, recipients: Iterable[User]) -> None:

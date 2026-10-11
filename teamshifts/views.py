@@ -81,7 +81,14 @@ from .permissions import (
 )
 from .services.certificates import maybe_auto_issue_certificate
 from .services.checkin import evaluate_shift_certificate, stamp_shift_end
-from .services.email import get_recipients, queue_email, queue_lifecycle_email, queue_shift_notification_email, update_queued_email
+from .services.email import (
+    DraftNoLongerEditable,
+    get_recipients,
+    queue_email,
+    queue_lifecycle_email,
+    queue_shift_notification_email,
+    update_queued_email,
+)
 from .services.members import AlreadyMemberError, accept_manager_as_member, add_member_from_organizer
 from .tasks import send_queued_email
 
@@ -1112,10 +1119,13 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
                     ).first()
         return self._draft
 
+    def _stale_draft_response(self):
+        messages.error(self.request, _("This draft no longer exists or has already been sent."))
+        return redirect("plugins:teamshifts:email_drafts", organizer=self.request.organizer.slug, event=self.request.event.slug)
+
     def get(self, request, *args, **kwargs):
         if request.GET.get("draft") and self.get_draft() is None:
-            messages.error(request, _("This draft no longer exists or has already been sent."))
-            return redirect("plugins:teamshifts:email_drafts", organizer=request.organizer.slug, event=request.event.slug)
+            return self._stale_draft_response()
         return super().get(request, *args, **kwargs)
 
     def get_initial(self):
@@ -1183,6 +1193,13 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
             self._preview_recipients = recipients
             return self.render_to_response(self.get_context_data(form=form))
 
+        # A posted draft_id that no longer matches an unsent draft means the
+        # draft was sent or deleted while this form was open. Creating a new
+        # email from it would send a duplicate, so reject the submission.
+        draft = self.get_draft()
+        if self.request.POST.get("draft_id") and draft is None:
+            return self._stale_draft_response()
+
         is_draft = action == "draft"
         if not recipients and not is_draft:
             messages.error(self.request, _("No recipients match the selected filters."))
@@ -1197,9 +1214,11 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
             "is_draft": is_draft,
             "dispatch": action not in ("draft", "outbox"),
         }
-        draft = self.get_draft()
         if draft is not None:
-            update_queued_email(draft, **fields)
+            try:
+                update_queued_email(draft, **fields)
+            except DraftNoLongerEditable:
+                return self._stale_draft_response()
         else:
             queue_email(event=event, user=self.request.user, **fields)
 

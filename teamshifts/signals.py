@@ -297,6 +297,7 @@ def dispatch_scheduled_emails(sender, **kwargs):
                 send_after__isnull=False,
                 send_after__lte=now(),
                 sent_at__isnull=True,
+                is_draft=False,
             )
             .select_for_update(skip_locked=True)
             .order_by("pk")

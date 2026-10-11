@@ -49,6 +49,7 @@ def queue_email(
     status_filter: str = "",
     send_after=None,
     dispatch: bool = True,
+    is_draft: bool = False,
 ) -> TeamShiftsEmailQueue:
     with scope(event=event):
         queue = TeamShiftsEmailQueue.objects.create(
@@ -64,21 +65,57 @@ def queue_email(
             shift_role=shift_role,
             status_filter=status_filter or "",
             send_after=send_after,
+            is_draft=is_draft,
         )
-        seen: set[str] = set()
-        rows: list[TeamShiftsEmailQueueRecipient] = []
-        for u in recipients:
-            email = (u.email or "").strip().lower()
-            if not email or email in seen:
-                continue
-            seen.add(email)
-            rows.append(TeamShiftsEmailQueueRecipient(queue=queue, user=u, email=email))
-        if rows:
-            TeamShiftsEmailQueueRecipient.objects.bulk_create(rows)
+        _set_recipients(queue, recipients)
 
-    if dispatch:
+    if dispatch and not is_draft:
         _dispatch(event.pk, queue.pk, eta=send_after)
     return queue
+
+
+def update_queued_email(
+    queue: TeamShiftsEmailQueue,
+    *,
+    subject,
+    message,
+    recipients: Iterable[User],
+    status_filter: str = "",
+    send_after=None,
+    is_draft: bool = False,
+    dispatch: bool = True,
+) -> TeamShiftsEmailQueue:
+    """Save a reopened draft again, either as a draft or moved to the outbox.
+
+    The recipient rows are rebuilt from ``recipients`` so a draft that sat for
+    a while goes out to whoever matches its filters now, not when it was saved.
+    """
+    with scope(event=queue.event):
+        queue.subject = subject
+        queue.message = message
+        queue.status_filter = status_filter or ""
+        queue.send_after = send_after
+        queue.is_draft = is_draft
+        queue.save(update_fields=["subject", "message", "status_filter", "send_after", "is_draft", "updated"])
+        queue.recipients.all().delete()
+        _set_recipients(queue, recipients)
+
+    if dispatch and not is_draft:
+        _dispatch(queue.event_id, queue.pk, eta=send_after)
+    return queue
+
+
+def _set_recipients(queue: TeamShiftsEmailQueue, recipients: Iterable[User]) -> None:
+    seen: set[str] = set()
+    rows: list[TeamShiftsEmailQueueRecipient] = []
+    for u in recipients:
+        email = (u.email or "").strip().lower()
+        if not email or email in seen:
+            continue
+        seen.add(email)
+        rows.append(TeamShiftsEmailQueueRecipient(queue=queue, user=u, email=email))
+    if rows:
+        TeamShiftsEmailQueueRecipient.objects.bulk_create(rows)
 
 
 def _dispatch(event_id: int, queue_id: int, eta=None) -> None:

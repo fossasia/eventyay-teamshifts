@@ -257,6 +257,24 @@ def test_manager_with_pending_application_drop_saves_choice(mock_queue, _mock_or
 
 
 @pytest.mark.django_db
+@patch("teamshifts.views.queue_email", side_effect=RuntimeError("mail queue down"))
+@patch("teamshifts.views.queue_shift_notification_email")
+def test_drop_succeeds_when_organizer_notification_fails(
+    _mock_queue, _mock_orga_queue, client, event, application, volunteer, organizer_user, shift, team_role
+):
+    with scope(event=event):
+        ShiftAssignment.objects.create(shift=shift, team_member=volunteer, role=team_role)
+    client.force_login(volunteer)
+
+    response = _drop(client, event, shift, team_role)
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
+    with scope(event=event):
+        assert not ShiftAssignment.objects.filter(shift=shift, team_member=volunteer).exists()
+
+
+@pytest.mark.django_db
 def test_schedule_prefills_saved_choice(client, event, application, volunteer):
     with scope(event=event):
         TeamMemberApplication.objects.filter(pk=application.pk).update(shift_action_emails=False)

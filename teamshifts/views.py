@@ -3022,11 +3022,23 @@ class ShiftWithdrawView(PublicShiftScheduleMixin, View):
                 "assignments__role",
             ).get(pk=shift.pk)
 
-        transaction.on_commit(lambda: _notify_organizers_shift_dropped(event, request.user, shift, role))
+        transaction.on_commit(lambda: _notify_organizers_shift_dropped_safely(event, request.user, shift, role))
         if _wants_json(request):
             return JsonResponse({"status": "ok", "roles": _shift_roles_payload(shift), "shift_action_emails": send_email})
         messages.success(request, _("You have been withdrawn from the shift."))
         return redirect(schedule_url)
+
+
+def _notify_organizers_shift_dropped_safely(event, volunteer, shift, role=None):
+    # The drop is already saved when this runs, so a failure here must not turn it into an error response.
+    try:
+        _notify_organizers_shift_dropped(event, volunteer, shift, role)
+    except Exception:
+        logger.exception(
+            "[TeamShifts] Failed to notify organizers that user %s dropped shift %s",
+            volunteer.pk,
+            shift.pk,
+        )
 
 
 def _notify_organizers_shift_dropped(event, volunteer, shift, role=None):

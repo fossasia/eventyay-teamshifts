@@ -65,7 +65,29 @@ function setupPreviewOccurrences() {
         const endStr = endTimeInput.value;
         const lengthStr = lengthInput.value;
 
-        if (!startStr || !endStr || !lengthStr) {
+        const missing = [];
+        if (!startStr) {
+            missing.push(gettext("Start Time"));
+        }
+        if (!endStr) {
+            missing.push(gettext("End Time"));
+        }
+        if (!lengthStr) {
+            missing.push(gettext("Shift Length"));
+        }
+        if (missing.length === 1) {
+            showPreviewMessage(previewDiv, "text-danger", interpolate(gettext("Please fill in %(field)s."), { field: missing[0] }));
+            return;
+        }
+        if (missing.length === 2) {
+            showPreviewMessage(
+                previewDiv,
+                "text-danger",
+                interpolate(gettext("Please fill in %(first)s and %(second)s."), { first: missing[0], second: missing[1] }),
+            );
+            return;
+        }
+        if (missing.length === 3) {
             showPreviewMessage(previewDiv, "text-danger", gettext("Please fill in Start Time, End Time, and Shift Length."));
             return;
         }

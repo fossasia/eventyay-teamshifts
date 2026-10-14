@@ -162,6 +162,11 @@ urlpatterns = [
         name="shift_edit",
     ),
     path(
+        "teamshifts/event/<orgslug:organizer>/<slug:event>/shifts/<int:pk>/duplicate/",
+        views.ShiftDuplicateView.as_view(),
+        name="shift_duplicate",
+    ),
+    path(
         "teamshifts/event/<orgslug:organizer>/<slug:event>/shifts/bulk-delete/",
         views.BulkShiftDeleteView.as_view(),
         name="shift_bulk_delete",

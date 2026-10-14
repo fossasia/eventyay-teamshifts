@@ -14,6 +14,7 @@ from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.db.models import Count, DurationField, ExpressionWrapper, F, Max, Prefetch, Q, Sum
 from django.forms import inlineformset_factory
+from django.forms.models import model_to_dict
 from django.http import FileResponse, Http404, HttpResponse, HttpResponseBadRequest, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -34,6 +35,8 @@ from eventyay.control.views import PaginationMixin
 from eventyay.multidomain.urlreverse import build_absolute_uri
 
 from .forms import (
+    MAX_SHIFTS_PER_ACTION,
+    MIN_FINAL_SHIFT_MINUTES,
     BaseShiftRoleFormSet,
     CallForTeamMembersApplicationSettingsForm,
     CallForTeamMembersSettingsForm,
@@ -49,6 +52,7 @@ from .forms import (
     TeamRoleForm,
     VoucherSettingsForm,
     render_answer_for_review,
+    split_shift_range,
 )
 from .models import (
     CFM_BUILTIN_FIELD_KEYS,
@@ -108,7 +112,11 @@ _TEMPLATE_PLACEHOLDERS = [
 ]
 
 
-ShiftRoleFormSet = inlineformset_factory(Shift, ShiftRoleAssignment, form=ShiftRoleAssignmentForm, formset=BaseShiftRoleFormSet, extra=1, can_delete=True)
+def build_shift_role_formset(extra=1):
+    return inlineformset_factory(Shift, ShiftRoleAssignment, form=ShiftRoleAssignmentForm, formset=BaseShiftRoleFormSet, extra=extra, can_delete=True)
+
+
+ShiftRoleFormSet = build_shift_role_formset()
 
 
 class PluginActiveMixin:
@@ -1826,6 +1834,8 @@ class ShiftCreateView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Temp
             if self.request.method == "POST"
             else ShiftRoleFormSet(prefix="roles", form_kwargs={"event": self.request.event})
         )
+        ctx["max_shifts_per_action"] = MAX_SHIFTS_PER_ACTION
+        ctx["min_final_shift_minutes"] = MIN_FINAL_SHIFT_MINUTES
         return ctx
 
     def post(self, request, *args, **kwargs):
@@ -1845,15 +1855,12 @@ class ShiftCreateView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Temp
                 shifts_to_create = []
 
                 if mode == "repeating":
-                    shift_length = form.cleaned_data["shift_length_minutes"]
-                    curr_start = form.cleaned_data["start_time"]
-                    end_time = form.cleaned_data["end_time"]
-
-                    while curr_start < end_time:
-                        curr_end = curr_start + timedelta(minutes=shift_length)
-                        if curr_end > end_time:
-                            break
-
+                    slots = split_shift_range(
+                        form.cleaned_data["start_time"],
+                        form.cleaned_data["end_time"],
+                        form.cleaned_data["shift_length_minutes"],
+                    )
+                    for curr_start, curr_end in slots:
                         shift = Shift(
                             event=self.request.event,
                             name=form.cleaned_data.get("name", ""),
@@ -1864,7 +1871,6 @@ class ShiftCreateView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Temp
                         )
                         shift.save()
                         shifts_to_create.append(shift)
-                        curr_start = curr_end
 
                 else:
                     shift = form.save(commit=False)
@@ -1895,6 +1901,27 @@ class ShiftCreateView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Temp
         ctx = self.get_context_data(form=form, formset=formset, has_locations=has_locations)
         messages.error(request, _("We could not save your changes. See below for details."))
         return self.render_to_response(ctx)
+
+
+class ShiftDuplicateView(ShiftCreateView):
+    def get_source_shift(self):
+        return get_object_or_404(Shift.objects.prefetch_related("role_assignments"), pk=self.kwargs.get("pk"), event=self.request.event)
+
+    def post(self, request, *args, **kwargs):
+        if not Shift.objects.filter(pk=self.kwargs.get("pk"), event=request.event).exists():
+            raise Http404
+        return super().post(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        if self.request.method == "GET":
+            source = self.get_source_shift()
+            role_initial = [{"role": assignment.role_id, "capacity": assignment.capacity} for assignment in source.role_assignments.all()]
+            formset_class = build_shift_role_formset(extra=max(len(role_initial), 1))
+            kwargs["form"] = ShiftForm(event=self.request.event, initial=model_to_dict(source, fields=ShiftForm._meta.fields))
+            kwargs["formset"] = formset_class(prefix="roles", initial=role_initial, form_kwargs={"event": self.request.event})
+        ctx = super().get_context_data(**kwargs)
+        ctx["is_duplicate"] = True
+        return ctx
 
 
 class ShiftUpdateView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, TemplateView):
@@ -2776,6 +2803,37 @@ def _request_role_id(request):
         return None
 
 
+def _request_send_email(request):
+    """Return the "Email me" choice from the claim/drop dialog, or None if the request has none."""
+    value = request.POST.get("send_email")
+    if value is None and request.content_type == "application/json" and request.body:
+        try:
+            body = json.loads(request.body.decode())
+            value = body.get("send_email")
+        except (UnicodeDecodeError, json.JSONDecodeError, AttributeError):
+            value = None
+    if value is None or isinstance(value, bool):
+        return value
+    return str(value).strip().lower() not in ("", "0", "false", "off", "no")
+
+
+def _saved_shift_action_emails(application):
+    """The saved choice, or the default (on) for a TeamShifts manager who is not a member yet."""
+    return application.shift_action_emails if application is not None else True
+
+
+def _resolve_shift_action_emails(application, requested):
+    """Save the volunteer's choice when the request carries one, and return whether to email them."""
+    if requested is None:
+        return _saved_shift_action_emails(application)
+    if application is None:
+        return requested
+    if requested != application.shift_action_emails:
+        TeamMemberApplication.objects.filter(pk=application.pk).update(shift_action_emails=requested)
+        application.shift_action_emails = requested
+    return requested
+
+
 def _wants_json(request):
     accept = request.headers.get("Accept", "")
     return request.headers.get("X-Requested-With") == "XMLHttpRequest" or "application/json" in accept
@@ -2789,6 +2847,13 @@ class PublicShiftScheduleMixin:
         if self.member_application is not None:
             return True
         return self.allow_teamshifts_managers and has_any_teamshifts_permission(request.user, self.organizer, self.event, request=request)
+
+    def _email_choice_application(self):
+        """The user's application for this event, whatever its status. It holds their claim/drop email choice."""
+        if self.member_application is not None:
+            return self.member_application
+        with scope(event=self.event):
+            return TeamMemberApplication.objects.filter(event=self.event, user=self.request.user).first()
 
     def dispatch(self, request, *args, **kwargs):
         if "teamshifts" not in request.event.get_plugins():
@@ -2847,6 +2912,7 @@ class PublicShiftScheduleAPIView(PublicShiftScheduleMixin, View):
                 "mode": "shifts",
                 "current_user_id": request.user.pk,
                 "current_user_name": request.user.get_full_name() or request.user.email,
+                "shift_action_emails": _saved_shift_action_emails(self._email_choice_application()),
                 "event_start": event.date_from.isoformat() if event.date_from else "",
                 "event_end": event.date_to.isoformat() if event.date_to else "",
                 "timezone": str(event.timezone),
@@ -2896,6 +2962,7 @@ class PublicShiftScheduleView(PublicShiftScheduleMixin, TemplateView):
             "mode": "shifts",
             "current_user_id": self.request.user.pk,
             "current_user_name": self.request.user.get_full_name() or self.request.user.email,
+            "shift_action_emails": _saved_shift_action_emails(self._email_choice_application()),
             "talks": [_shift_talk_payload(shift) for shift in shifts],
             "rooms": rooms,
             "tracks": [],
@@ -2929,6 +2996,7 @@ class ShiftClaimView(PublicShiftScheduleMixin, View):
         event = self.event
         shift_pk = kwargs["pk"]
         role_id = _request_role_id(request)
+        requested_send_email = _request_send_email(request)
         schedule_url = reverse(
             "plugins:teamshifts:public_shift_schedule",
             kwargs={"organizer": self.organizer.slug, "event": event.slug},
@@ -2977,6 +3045,7 @@ class ShiftClaimView(PublicShiftScheduleMixin, View):
                 previous_role_id = existing.role_id if existing else None
                 if self.member_application is None:
                     application, promoted = accept_manager_as_member(event=event, user=request.user)
+                    self.member_application = application
                     if promoted:
                         transaction.on_commit(lambda app=application: _queue_lifecycle_email_safely(app, EmailTemplateRoles.APPLICATION_ACCEPTED))
                 _assignment, created = ShiftAssignment.objects.update_or_create(
@@ -2984,7 +3053,8 @@ class ShiftClaimView(PublicShiftScheduleMixin, View):
                     team_member=request.user,
                     defaults={"role_id": sra.role_id, "assigned_by": None},
                 )
-            if created or previous_role_id != sra.role_id:
+            send_email = _resolve_shift_action_emails(self.member_application, requested_send_email)
+            if send_email and (created or previous_role_id != sra.role_id):
                 transaction.on_commit(
                     lambda event=event, user=request.user, shift=shift, role=sra.role: _notify_shift_change_safely(
                         event, user, shift, role, EmailTemplateRoles.SHIFT_CLAIMED_BY_VOLUNTEER
@@ -2997,7 +3067,7 @@ class ShiftClaimView(PublicShiftScheduleMixin, View):
             ).get(pk=shift.pk)
 
         if _wants_json(request):
-            return JsonResponse({"status": "ok", "roles": _shift_roles_payload(shift)})
+            return JsonResponse({"status": "ok", "roles": _shift_roles_payload(shift), "shift_action_emails": send_email})
         if created:
             messages.success(request, _("You have been signed up for the shift."))
         else:
@@ -3050,6 +3120,7 @@ class ShiftWithdrawView(PublicShiftScheduleMixin, View):
         event = self.event
         shift_pk = kwargs["pk"]
         role_id = _request_role_id(request)
+        requested_send_email = _request_send_email(request)
         schedule_url = reverse(
             "plugins:teamshifts:public_shift_schedule",
             kwargs={"organizer": self.organizer.slug, "event": event.slug},
@@ -3071,21 +3142,45 @@ class ShiftWithdrawView(PublicShiftScheduleMixin, View):
             if assignment is None:
                 return fail(_("You are not signed up for this shift."))
 
-            assignment.delete()
+            role = assignment.role
+            # A concurrent withdrawal may have deleted the row since the lookup. Only the
+            # request that actually deletes it sends the drop emails.
+            deleted, _details = ShiftAssignment.objects.filter(pk=assignment.pk).delete()
+            if not deleted:
+                return fail(_("You are not signed up for this shift."))
+            send_email = _resolve_shift_action_emails(self._email_choice_application(), requested_send_email)
+            if send_email:
+                transaction.on_commit(
+                    lambda event=event, user=request.user, shift=shift, role=role: _notify_shift_change_safely(
+                        event, user, shift, role, EmailTemplateRoles.SHIFT_DROPPED_BY_VOLUNTEER
+                    )
+                )
             shift = Shift.objects.prefetch_related(
                 "role_assignments__role",
                 "assignments__team_member",
                 "assignments__role",
             ).get(pk=shift.pk)
 
-        transaction.on_commit(lambda: _notify_organizers_shift_dropped(event, request.user, shift))
+        transaction.on_commit(lambda: _notify_organizers_shift_dropped_safely(event, request.user, shift, role))
         if _wants_json(request):
-            return JsonResponse({"status": "ok", "roles": _shift_roles_payload(shift)})
+            return JsonResponse({"status": "ok", "roles": _shift_roles_payload(shift), "shift_action_emails": send_email})
         messages.success(request, _("You have been withdrawn from the shift."))
         return redirect(schedule_url)
 
 
-def _notify_organizers_shift_dropped(event, volunteer, shift):
+def _notify_organizers_shift_dropped_safely(event, volunteer, shift, role=None):
+    # The drop is already saved when this runs, so a failure here must not turn it into an error response.
+    try:
+        _notify_organizers_shift_dropped(event, volunteer, shift, role)
+    except Exception:
+        logger.exception(
+            "[TeamShifts] Failed to notify organizers that user %s dropped shift %s",
+            volunteer.pk,
+            shift.pk,
+        )
+
+
+def _notify_organizers_shift_dropped(event, volunteer, shift, role=None):
 
     try:
         cfm = event.call_for_team_members
@@ -3093,7 +3188,7 @@ def _notify_organizers_shift_dropped(event, volunteer, shift):
         return
 
     try:
-        template = cfm.get_mail_template(EmailTemplateRoles.SHIFT_DROPPED)
+        template = cfm.get_mail_template(EmailTemplateRoles.SHIFT_DROPPED_ORGANIZER)
     except Exception:
         logger.exception("Failed to load shift-dropped email template for event %s", event.pk)
         return
@@ -3115,6 +3210,9 @@ def _notify_organizers_shift_dropped(event, volunteer, shift):
         subject=template.subject,
         message=template.body,
         recipients=organizer_users,
+        user=volunteer,
+        shift=shift,
+        shift_role=role,
         status_filter="",
     )
 

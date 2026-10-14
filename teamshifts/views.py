@@ -1896,6 +1896,13 @@ class MembersListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Sort
         with scope(event=event):
             qs = TeamMemberApplication.objects.filter(event=event, status=ApplicationStatus.ACCEPTED).select_related("user")
 
+            role = self.request.GET.get("role", "").strip()
+            if role:
+                qs = qs.filter(
+                    user__shift_assignments__role_id=role,
+                    user__shift_assignments__shift__event=event,
+                ).distinct()
+
             search = self.request.GET.get("q", "").strip()
             if search:
                 can_view_email = can_view_email_addresses(self.request.user, self.request.organizer, event, request=self.request)

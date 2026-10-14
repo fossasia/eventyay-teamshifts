@@ -59,7 +59,7 @@
       </div>
     </div>
   {% endif %}
-
+<div data-teamshifts-list>
   {% if not locations %}
     <div class='empty-collection'>
       <p>{% blocktrans trimmed %}No locations have been defined for this event yet.{% endblocktrans %}</p>
@@ -69,8 +69,10 @@
       <table class='table table-hover table-quotas'>
         <thead>
           <tr>
-            <th>{% trans "Name" %}</th>
-            <th>{% trans "Source" %}</th>
+            {% trans "Name" as location_name_label %}
+            <th>{% include "teamshifts/_sort_header.html" with label=location_name_label field="name" current_ordering=current_ordering %}</th>
+            {% trans "Source" as source_label %}
+            <th>{% include "teamshifts/_sort_header.html" with label=source_label field="linked_room" current_ordering=current_ordering %}</th>
             <th>{% trans "Description" %}</th>
             <th class='text-right'>{% trans "Actions" %}</th>
           </tr>

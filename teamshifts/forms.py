@@ -496,8 +496,6 @@ class EmailComposeForm(forms.Form):
         self._event = event
         locales = list(event.settings.get("locales") or [event.settings.locale])
 
-        # A draft may be saved half-written, so subject and message are only
-        # required once the email is actually going to the outbox.
         self.fields["subject"] = I18nFormField(
             label=_("Subject"),
             widget=I18nTextInput,

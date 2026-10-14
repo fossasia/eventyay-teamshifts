@@ -1113,7 +1113,6 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
         return kwargs
 
     def get_draft(self):
-        """The draft being edited, from ``?draft=<pk>`` or the posted ``draft_id``."""
         if not hasattr(self, "_draft"):
             self._draft = None
             draft_pk = self.request.POST.get("draft_id") or self.request.GET.get("draft") or ""
@@ -1201,9 +1200,6 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
             self._preview_recipients = recipients
             return self.render_to_response(self.get_context_data(form=form))
 
-        # A posted draft_id that no longer matches an unsent draft means the
-        # draft was sent or deleted while this form was open. Creating a new
-        # email from it would send a duplicate, so reject the submission.
         draft = self.get_draft()
         if self.request.POST.get("draft_id") and draft is None:
             return self._stale_draft_response()

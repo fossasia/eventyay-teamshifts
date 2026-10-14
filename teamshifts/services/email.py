@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 class DraftNoLongerEditable(Exception):
-    """The draft was sent, deleted or moved to the outbox by another request."""
+    pass
 
 
 def get_recipients(
@@ -89,16 +89,6 @@ def update_queued_email(
     is_draft: bool = False,
     dispatch: bool = True,
 ) -> TeamShiftsEmailQueue:
-    """Save a reopened draft again, either as a draft or moved to the outbox.
-
-    The recipient rows are rebuilt from ``recipients`` so a draft that sat for
-    a while goes out to whoever matches its filters now, not when it was saved.
-
-    The row is locked and the update runs in one transaction, so a scheduled
-    sweep never sees the email as sendable before its recipients are in place.
-    Raises ``DraftNoLongerEditable`` if the email was sent, deleted or moved out
-    of the drafts in the meantime, so a stale submission cannot change it.
-    """
     with scope(event=queue.event), transaction.atomic():
         locked = TeamShiftsEmailQueue.objects.select_for_update().filter(pk=queue.pk, is_draft=True, sent_at__isnull=True).first()
         if locked is None:

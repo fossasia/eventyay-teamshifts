@@ -239,7 +239,6 @@ def test_stale_draft_submission_does_not_create_a_new_email(orga_client, event, 
 
 @pytest.mark.django_db
 def test_update_refuses_a_draft_already_moved_out(event, user, volunteer):
-    """A save-as-draft racing a send must not flip the sent email back to a draft."""
     with scope(event=event):
         draft = queue_email(event, "s", "m", [volunteer], user=user, is_draft=True)
         stale = TeamShiftsEmailQueue.objects.get(pk=draft.pk)

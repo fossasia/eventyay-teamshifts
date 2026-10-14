@@ -51,7 +51,13 @@
               <span class='text-muted'>{% trans "All statuses" %}</span>
             {% endif %}
           </td>
-          <td>{{ mail.recipient_count }}</td>
+          <td>
+            {% blocktrans count count=mail.recipient_count trimmed %}
+              {{ count }} recipient
+            {% plural %}
+              {{ count }} recipients
+            {% endblocktrans %}
+          </td>
           <td>{{ mail.updated|date:"SHORT_DATETIME_FORMAT" }}</td>
           <td>
             <div class='btn-toolbar' role='toolbar'>

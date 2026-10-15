@@ -14,7 +14,7 @@
 {% endblock %}
 
 {% block teamshifts_content %}
-  <div class="teamshifts-filter-bar clearfix">
+  <div class="teamshifts-list-toolbar clearfix">
     <div class="pull-right">
       {% if shifts and can_manage_shifts %}
         <button type="submit" form="bulk-action-form" class="btn btn-danger teamshifts-bulk-delete-btn">
@@ -27,9 +27,13 @@
     </div>
   </div>
 
+  {% include "teamshifts/_filter_form.html" %}
+
+  <div data-ajax-results-region data-filter-count="{{ advanced_filter_count }}">
   {% if shifts %}
     <form method="post" action="{% url 'plugins:teamshifts:shift_bulk_delete' organizer=request.organizer.slug event=request.event.slug %}" id="bulk-action-form">
       {% csrf_token %}
+      <input type="hidden" name="next" value="{{ request.get_full_path }}">
     </form>
     {% if can_manage_shifts %}
       <p class="teamshifts-selected-count text-muted" data-shift-selected-count hidden></p>
@@ -99,9 +103,16 @@
     {% include "pretixcontrol/pagination.html" %}
   {% else %}
     <div class="empty-collection">
-        <p>{% trans "No shifts created yet." %}</p>
+        <p>
+            {% if filter_form.filtered %}
+                {% trans "No shifts match your filters." %}
+            {% else %}
+                {% trans "No shifts created yet." %}
+            {% endif %}
+        </p>
     </div>
   {% endif %}
+  </div>
 
   <div data-teamshifts-shifts-i18n
        data-confirm-title="{% trans 'Please confirm' %}"

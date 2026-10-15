@@ -15,38 +15,7 @@
 {% endblock %}
 
 {% block teamshifts_content %}
-  {% if vouchers_enabled %}
-    <form method='post' action='{% url "plugins:teamshifts:bulk_send_vouchers" organizer=request.organizer.slug event=request.event.slug %}' id='bulk-voucher-form' class='ts-hidden'>
-      {% csrf_token %}
-    </form>
-  {% endif %}
-
-  <div class='teamshifts-filter-bar clearfix'>
-    <form method='get' class='form-inline pull-left'>
-      <div class='form-group'>
-        <input type='text' name='q' value='{{ request.GET.q|default:"" }}' class='form-control' placeholder='{% trans "Search by name or email" %}'>
-      </div>
-      <div class='form-group'>
-        <select name='role' class='form-control'>
-          <option value=''>{% trans 'All roles' %}</option>
-          {% for r in roles %}
-            <option value='{{ r.pk }}' {% if request.GET.role == r.pk|stringformat:'s' %}selected{% endif %}>{{ r.name }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      {% if vouchers_enabled %}
-        <div class='form-group'>
-          <select name='voucher' class='form-control' aria-label='{% trans "Voucher" %}'>
-            <option value=''>{% trans 'All voucher statuses' %}</option>
-            {% for value, label in voucher_status_choices %}
-              <option value='{{ value }}' {% if request.GET.voucher == value %}selected{% endif %}>{{ label }}</option>
-            {% endfor %}
-          </select>
-        </div>
-      {% endif %}
-      <button type='submit' class='btn btn-default'>{% trans 'Filter' %}</button>
-    </form>
-
+  <div class='teamshifts-list-toolbar clearfix'>
     <div class='pull-right'>
       {% if can_download_members %}
         <details class='dropdown teamshifts-download-dropdown'>
@@ -81,6 +50,16 @@
       {% endif %}
     </div>
   </div>
+
+  {% include "teamshifts/_filter_form.html" %}
+
+  <div data-ajax-results-region data-filter-count="{{ advanced_filter_count }}">
+  {% if vouchers_enabled %}
+    <form method='post' action='{% url "plugins:teamshifts:bulk_send_vouchers" organizer=request.organizer.slug event=request.event.slug %}' id='bulk-voucher-form' class='ts-hidden'>
+      {% csrf_token %}
+      <input type='hidden' name='next' value='{{ request.get_full_path }}'>
+    </form>
+  {% endif %}
 
   {% if members %}
     <div class='table-responsive'>
@@ -206,7 +185,11 @@
   {% else %}
     <div class='empty-collection'>
       <p>
-        {% trans 'No team members found.' %}
+        {% if filter_form.filtered %}
+          {% trans 'No team members match your filters.' %}
+        {% else %}
+          {% trans 'No team members found.' %}
+        {% endif %}
       </p>
       {% if can_add_member %}
         <a href='{% url "plugins:teamshifts:member_add" organizer=request.organizer.slug event=request.event.slug %}' class='btn btn-primary btn-lg'>
@@ -215,4 +198,5 @@
       {% endif %}
     </div>
   {% endif %}
+  </div>
 {% endblock %}

@@ -138,7 +138,7 @@ class FilteredListMixin(PaginationMixin):
     def apply_filters(self, queryset):
         if self.filter_form.is_valid():
             return self.filter_form.filter_qs(queryset)
-        return queryset
+        return self.filter_form.apply_ordering(queryset)
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)

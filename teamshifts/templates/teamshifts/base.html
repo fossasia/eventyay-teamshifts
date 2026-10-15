@@ -156,15 +156,15 @@
                 </a>
             </li>
             <li>
-                <a href="{% url 'plugins:teamshifts:email_drafts' organizer=request.organizer.slug event=request.event.slug %}"
-                   {% if url_name == 'email_drafts' %}class="active"{% endif %}>
-                    <span class="sidebar-text">{% trans "Drafts" %}</span>
-                </a>
-            </li>
-            <li>
                 <a href="{% url 'plugins:teamshifts:email_compose' organizer=request.organizer.slug event=request.event.slug %}"
                    {% if url_name == 'email_compose' %}class="active"{% endif %}>
                     <span class="sidebar-text">{% trans "Compose" %}</span>
+                </a>
+            </li>
+            <li>
+                <a href="{% url 'plugins:teamshifts:email_drafts' organizer=request.organizer.slug event=request.event.slug %}"
+                   {% if url_name == 'email_drafts' %}class="active"{% endif %}>
+                    <span class="sidebar-text">{% trans "Drafts" %}</span>
                 </a>
             </li>
             <li>

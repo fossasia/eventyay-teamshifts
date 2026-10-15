@@ -62,8 +62,10 @@ function submitBulkVouchers() {
     form.submit();
 }
 
-document.addEventListener("DOMContentLoaded", () => {
+function initMembers() {
     document.querySelectorAll(".toggle-arrived-form").forEach((form) => {
+        if (form.dataset.bound === "1") return;
+        form.dataset.bound = "1";
         form.addEventListener("submit", async (event) => {
             event.preventDefault();
             const button = form.querySelector("button");
@@ -108,7 +110,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Bulk send button
     const sendBtn = document.getElementById("bulk-send-btn");
-    if (sendBtn) {
+    if (sendBtn && sendBtn.dataset.bound !== "1") {
+        sendBtn.dataset.bound = "1";
         sendBtn.addEventListener("click", submitBulkVouchers);
     }
-});
+}
+
+document.addEventListener("DOMContentLoaded", initMembers);
+document.addEventListener("eventyay:ajax-results-replaced", initMembers);

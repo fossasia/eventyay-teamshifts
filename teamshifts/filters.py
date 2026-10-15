@@ -1,0 +1,338 @@
+from datetime import datetime, time
+
+from django import forms
+from django.db.models import Q
+from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
+from eventyay.base.forms.widgets import DatePickerWidget
+from eventyay.control.forms.filter import FilterForm
+
+from .models import (
+    ApplicationStatus,
+    ShiftLocation,
+    TeamRole,
+    VoucherStatus,
+)
+
+
+def search_widget(placeholder, aria_label):
+    return forms.TextInput(
+        attrs={
+            "class": "form-control",
+            "placeholder": placeholder,
+            "aria-label": aria_label,
+        }
+    )
+
+
+class TeamShiftsFilterForm(FilterForm):
+    default_order = None
+
+    @property
+    def advanced_fields(self):
+        return [self[name] for name in self.fields if name not in ("query", "ordering")]
+
+    @property
+    def current_ordering(self):
+        return self["ordering"].value() or ""
+
+    def get_order_by(self):
+        o = self.cleaned_data.get("ordering") if hasattr(self, "cleaned_data") else None
+        if not o:
+            return None
+        is_desc = o.startswith("-") and o not in self.orders
+        key = o[1:] if is_desc else o
+        field = self.orders.get(key)
+        if not field:
+            return None
+        if isinstance(field, (list, tuple)):
+            if is_desc:
+                return tuple(f[1:] if f.startswith("-") else f"-{f}" for f in field)
+            return tuple(field)
+        if is_desc:
+            return field[1:] if field.startswith("-") else f"-{field}"
+        return field
+
+    def apply_ordering(self, queryset):
+        if order_by := self.get_order_by():
+            if isinstance(order_by, (list, tuple)):
+                return queryset.order_by(*order_by, "pk")
+            return queryset.order_by(order_by, "pk")
+        if self.default_order:
+            if isinstance(self.default_order, (list, tuple)):
+                return queryset.order_by(*self.default_order)
+            return queryset.order_by(self.default_order)
+        return queryset
+
+
+class ApplicationFilterForm(TeamShiftsFilterForm):
+    default_order = "-created_at"
+    orders = {
+        "name": "user__fullname",
+        "email": "user__email",
+        "status": "status",
+        "applied": "created_at",
+    }
+
+    query = forms.CharField(
+        label=_("Search applications…"),
+        widget=search_widget(_("Search by name or email…"), _("Search applications")),
+        required=False,
+    )
+    status = forms.ChoiceField(
+        label=_("Status"),
+        choices=(("", _("All statuses")),) + tuple(ApplicationStatus.choices),
+        required=False,
+    )
+    role = forms.ModelChoiceField(
+        label=_("Role"),
+        queryset=TeamRole.objects.none(),
+        required=False,
+        empty_label=_("All roles"),
+    )
+
+    def __init__(self, *args, event=None, hide_emails=False, **kwargs):
+        self.event = event
+        self.hide_emails = hide_emails
+        super().__init__(*args, **kwargs)
+        if event:
+            self.fields["role"].queryset = TeamRole.objects.filter(event=event)
+        if hide_emails:
+            self.fields["query"].widget.attrs.update(
+                {
+                    "placeholder": _("Search by name…"),
+                    "aria-label": _("Search applications by name"),
+                }
+            )
+
+    def filter_qs(self, queryset):
+        fdata = self.cleaned_data
+
+        if query := (fdata.get("query") or "").strip():
+            lookup = Q(user__fullname__icontains=query)
+            if not self.hide_emails:
+                lookup |= Q(user__email__icontains=query)
+            queryset = queryset.filter(lookup)
+
+        if fdata.get("status"):
+            queryset = queryset.filter(status=fdata["status"])
+
+        if fdata.get("role"):
+            role = fdata["role"]
+            queryset = queryset.filter(
+                user__shift_assignments__role=role,
+                user__shift_assignments__shift__event=self.event,
+            ).distinct()
+
+        return self.apply_ordering(queryset)
+
+
+class MemberFilterForm(TeamShiftsFilterForm):
+    default_order = ("user__fullname", "user__email")
+    orders = {
+        "name": "user__fullname",
+        "email": "user__email",
+    }
+
+    query = forms.CharField(
+        label=_("Search members…"),
+        widget=search_widget(_("Search by name or email…"), _("Search members")),
+        required=False,
+    )
+    role = forms.ModelChoiceField(
+        label=_("Role"),
+        queryset=TeamRole.objects.none(),
+        required=False,
+        empty_label=_("All roles"),
+    )
+    voucher = forms.ChoiceField(
+        label=_("Voucher"),
+        choices=(("", _("All voucher statuses")),) + tuple(VoucherStatus.choices),
+        required=False,
+    )
+    arrived = forms.ChoiceField(
+        label=_("Arrived"),
+        choices=(
+            ("", _("All")),
+            ("yes", _("Arrived")),
+            ("no", _("Not arrived")),
+        ),
+        required=False,
+    )
+
+    def __init__(self, *args, event=None, hide_emails=False, vouchers_enabled=False, **kwargs):
+        self.event = event
+        self.hide_emails = hide_emails
+        self.vouchers_enabled = vouchers_enabled
+        super().__init__(*args, **kwargs)
+        if event:
+            self.fields["role"].queryset = TeamRole.objects.filter(event=event)
+        if not vouchers_enabled and "voucher" in self.fields:
+            del self.fields["voucher"]
+        if hide_emails:
+            self.fields["query"].widget.attrs.update(
+                {
+                    "placeholder": _("Search by name…"),
+                    "aria-label": _("Search members by name"),
+                }
+            )
+
+    @staticmethod
+    def voucher_status_filter(voucher_status):
+        claimed = Q(voucher_assignment__status=VoucherStatus.CLAIMED) | Q(voucher_assignment__voucher__redeemed__gt=0)
+        if voucher_status == VoucherStatus.CLAIMED:
+            return claimed
+        if voucher_status == VoucherStatus.SENT:
+            return Q(voucher_assignment__status=VoucherStatus.SENT) & ~claimed
+        return (Q(voucher_assignment__isnull=True) | Q(voucher_assignment__status=VoucherStatus.NOT_SENT)) & ~claimed
+
+    def filter_qs(self, queryset):
+        fdata = self.cleaned_data
+
+        if query := (fdata.get("query") or "").strip():
+            lookup = Q(user__fullname__icontains=query)
+            if not self.hide_emails:
+                lookup |= Q(user__email__icontains=query)
+            queryset = queryset.filter(lookup)
+
+        if fdata.get("role"):
+            role = fdata["role"]
+            queryset = queryset.filter(
+                user__shift_assignments__role=role,
+                user__shift_assignments__shift__event=self.event,
+            ).distinct()
+
+        voucher_status = fdata.get("voucher")
+        if self.vouchers_enabled and voucher_status in VoucherStatus.values:
+            queryset = queryset.filter(self.voucher_status_filter(voucher_status))
+
+        arrived = fdata.get("arrived")
+        if arrived in ("yes", "1", "true"):
+            queryset = queryset.filter(arrived=True)
+        elif arrived in ("no", "0", "false"):
+            queryset = queryset.filter(arrived=False)
+
+        return self.apply_ordering(queryset)
+
+
+class ShiftFilterForm(TeamShiftsFilterForm):
+    default_order = ("start_time", "pk")
+    orders = {
+        "start": "start_time",
+        "end": "end_time",
+        "name": "name",
+    }
+
+    query = forms.CharField(
+        label=_("Search shifts…"),
+        widget=search_widget(_("Search shifts by name…"), _("Search shifts")),
+        required=False,
+    )
+    location = forms.ModelChoiceField(
+        label=_("Location"),
+        queryset=ShiftLocation.objects.none(),
+        required=False,
+        empty_label=_("All locations"),
+    )
+    role = forms.ModelChoiceField(
+        label=_("Role"),
+        queryset=TeamRole.objects.none(),
+        required=False,
+        empty_label=_("All roles"),
+    )
+    date_from = forms.DateField(
+        label=_("Start date"),
+        required=False,
+        widget=DatePickerWidget(attrs={"placeholder": _("Start date")}),
+    )
+    date_to = forms.DateField(
+        label=_("End date"),
+        required=False,
+        widget=DatePickerWidget(attrs={"placeholder": _("End date")}),
+    )
+
+    def __init__(self, *args, event=None, **kwargs):
+        self.event = event
+        super().__init__(*args, **kwargs)
+        if event:
+            self.fields["location"].queryset = ShiftLocation.objects.filter(event=event)
+            self.fields["role"].queryset = TeamRole.objects.filter(event=event)
+
+    def filter_qs(self, queryset):
+        fdata = self.cleaned_data
+
+        if query := (fdata.get("query") or "").strip():
+            queryset = queryset.filter(name__icontains=query)
+
+        if fdata.get("location"):
+            queryset = queryset.filter(location=fdata["location"])
+
+        if fdata.get("role"):
+            queryset = queryset.filter(role_assignments__role=fdata["role"]).distinct()
+
+        tz = getattr(self.event, "tz", None) or timezone.get_current_timezone()
+        if fdata.get("date_from"):
+            dt_from = timezone.make_aware(datetime.combine(fdata["date_from"], time.min), tz)
+            queryset = queryset.filter(start_time__gte=dt_from)
+
+        if fdata.get("date_to"):
+            dt_to = timezone.make_aware(datetime.combine(fdata["date_to"], time.max), tz)
+            queryset = queryset.filter(start_time__lte=dt_to)
+
+        return self.apply_ordering(queryset)
+
+
+class TeamShiftsEmailFilterForm(TeamShiftsFilterForm):
+    query = forms.CharField(
+        label=_("Search emails…"),
+        widget=search_widget(_("Search by subject or recipient…"), _("Search emails")),
+        required=False,
+    )
+    role = forms.ModelChoiceField(
+        label=_("Role"),
+        queryset=TeamRole.objects.none(),
+        required=False,
+        empty_label=_("All roles"),
+    )
+    date_from = forms.DateField(
+        label=_("Start date"),
+        required=False,
+        widget=DatePickerWidget(attrs={"placeholder": _("Start date")}),
+    )
+    date_to = forms.DateField(
+        label=_("End date"),
+        required=False,
+        widget=DatePickerWidget(attrs={"placeholder": _("End date")}),
+    )
+
+    def __init__(self, *args, event=None, date_field="created", **kwargs):
+        self.event = event
+        self.date_field = date_field
+        self.default_order = f"-{date_field}"
+        self.orders = {
+            "subject": "subject",
+            "date": date_field,
+        }
+        super().__init__(*args, **kwargs)
+        if event:
+            self.fields["role"].queryset = TeamRole.objects.filter(event=event)
+
+    def filter_qs(self, queryset):
+        fdata = self.cleaned_data
+
+        if query := (fdata.get("query") or "").strip():
+            queryset = queryset.filter(Q(subject__icontains=query) | Q(recipients__email__icontains=query)).distinct()
+
+        if fdata.get("role"):
+            queryset = queryset.filter(role_filter=fdata["role"])
+
+        tz = getattr(self.event, "tz", None) or timezone.get_current_timezone()
+        if fdata.get("date_from"):
+            dt_from = timezone.make_aware(datetime.combine(fdata["date_from"], time.min), tz)
+            queryset = queryset.filter(**{f"{self.date_field}__gte": dt_from})
+
+        if fdata.get("date_to"):
+            dt_to = timezone.make_aware(datetime.combine(fdata["date_to"], time.max), tz)
+            queryset = queryset.filter(**{f"{self.date_field}__lte": dt_to})
+
+        return self.apply_ordering(queryset)

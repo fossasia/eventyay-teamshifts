@@ -76,8 +76,11 @@ function setupBulkActions() {
     });
 }
 
-document.addEventListener("DOMContentLoaded", () => {
+function initApplications() {
     setupStatusDropdowns();
     setupSelectAll();
     setupBulkActions();
-});
+}
+
+document.addEventListener("DOMContentLoaded", initApplications);
+document.addEventListener("eventyay:ajax-results-replaced", initApplications);

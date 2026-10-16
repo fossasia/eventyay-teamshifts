@@ -76,6 +76,8 @@ function setupBulkDelete() {
     const i18n = getI18n();
 
     document.querySelectorAll(".teamshifts-bulk-delete-btn").forEach((button) => {
+        if (button.dataset.bound === "1") return;
+        button.dataset.bound = "1";
         button.addEventListener("click", (event) => {
             event.preventDefault();
 
@@ -107,9 +109,12 @@ function setupBulkDelete() {
     });
 }
 
-document.addEventListener("DOMContentLoaded", () => {
+function initShifts() {
     setupSelectAll();
     setupCheckboxes();
     setupBulkDelete();
     refreshSelectedCount();
-});
+}
+
+document.addEventListener("DOMContentLoaded", initShifts);
+document.addEventListener("eventyay:ajax-results-replaced", initShifts);

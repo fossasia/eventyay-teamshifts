@@ -20,6 +20,10 @@ from ..tasks import send_queued_email
 logger = logging.getLogger(__name__)
 
 
+class DraftNoLongerEditable(Exception):
+    pass
+
+
 def get_recipients(
     event: Event,
     *,
@@ -49,6 +53,7 @@ def queue_email(
     status_filter: str = "",
     send_after=None,
     dispatch: bool = True,
+    is_draft: bool = False,
 ) -> TeamShiftsEmailQueue:
     with scope(event=event):
         queue = TeamShiftsEmailQueue.objects.create(
@@ -64,21 +69,55 @@ def queue_email(
             shift_role=shift_role,
             status_filter=status_filter or "",
             send_after=send_after,
+            is_draft=is_draft,
         )
-        seen: set[str] = set()
-        rows: list[TeamShiftsEmailQueueRecipient] = []
-        for u in recipients:
-            email = (u.email or "").strip().lower()
-            if not email or email in seen:
-                continue
-            seen.add(email)
-            rows.append(TeamShiftsEmailQueueRecipient(queue=queue, user=u, email=email))
-        if rows:
-            TeamShiftsEmailQueueRecipient.objects.bulk_create(rows)
+        _set_recipients(queue, recipients)
 
-    if dispatch:
+    if dispatch and not is_draft:
         _dispatch(event.pk, queue.pk, eta=send_after)
     return queue
+
+
+def update_queued_email(
+    queue: TeamShiftsEmailQueue,
+    *,
+    subject,
+    message,
+    recipients: Iterable[User],
+    status_filter: str = "",
+    send_after=None,
+    is_draft: bool = False,
+    dispatch: bool = True,
+) -> TeamShiftsEmailQueue:
+    with scope(event=queue.event), transaction.atomic():
+        locked = TeamShiftsEmailQueue.objects.select_for_update().filter(pk=queue.pk, is_draft=True, sent_at__isnull=True).first()
+        if locked is None:
+            raise DraftNoLongerEditable(queue.pk)
+        locked.subject = subject
+        locked.message = message
+        locked.status_filter = status_filter or ""
+        locked.send_after = send_after
+        locked.is_draft = is_draft
+        locked.save(update_fields=["subject", "message", "status_filter", "send_after", "is_draft", "updated"])
+        locked.recipients.all().delete()
+        _set_recipients(locked, recipients)
+
+    if dispatch and not is_draft:
+        _dispatch(locked.event_id, locked.pk, eta=send_after)
+    return locked
+
+
+def _set_recipients(queue: TeamShiftsEmailQueue, recipients: Iterable[User]) -> None:
+    seen: set[str] = set()
+    rows: list[TeamShiftsEmailQueueRecipient] = []
+    for u in recipients:
+        email = (u.email or "").strip().lower()
+        if not email or email in seen:
+            continue
+        seen.add(email)
+        rows.append(TeamShiftsEmailQueueRecipient(queue=queue, user=u, email=email))
+    if rows:
+        TeamShiftsEmailQueueRecipient.objects.bulk_create(rows)
 
 
 def _dispatch(event_id: int, queue_id: int, eta=None) -> None:

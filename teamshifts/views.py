@@ -85,7 +85,14 @@ from .permissions import (
 )
 from .services.certificates import maybe_auto_issue_certificate
 from .services.checkin import evaluate_shift_certificate, stamp_shift_end
-from .services.email import get_recipients, queue_email, queue_lifecycle_email, queue_shift_notification_email
+from .services.email import (
+    DraftNoLongerEditable,
+    get_recipients,
+    queue_email,
+    queue_lifecycle_email,
+    queue_shift_notification_email,
+    update_queued_email,
+)
 from .services.members import AlreadyMemberError, accept_manager_as_member, add_member_from_organizer
 from .tasks import send_queued_email
 
@@ -1102,10 +1109,41 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
         kwargs["event"] = self.request.event
+        kwargs["draft_save"] = self.request.POST.get("action") == "draft"
         return kwargs
+
+    def get_draft(self):
+        if not hasattr(self, "_draft"):
+            self._draft = None
+            draft_pk = self.request.POST.get("draft_id") or self.request.GET.get("draft") or ""
+            if draft_pk.isdigit():
+                with scope(event=self.request.event):
+                    self._draft = TeamShiftsEmailQueue.objects.filter(
+                        pk=int(draft_pk),
+                        event=self.request.event,
+                        is_draft=True,
+                        sent_at__isnull=True,
+                    ).first()
+        return self._draft
+
+    def _stale_draft_response(self):
+        messages.error(self.request, _("This draft no longer exists or has already been sent."))
+        return redirect("plugins:teamshifts:email_drafts", organizer=self.request.organizer.slug, event=self.request.event.slug)
+
+    def get(self, request, *args, **kwargs):
+        if request.GET.get("draft") and self.get_draft() is None:
+            return self._stale_draft_response()
+        return super().get(request, *args, **kwargs)
 
     def get_initial(self):
         initial = super().get_initial()
+        draft = self.get_draft()
+        if draft is not None:
+            initial["subject"] = draft.subject
+            initial["message"] = draft.message
+            initial["status"] = draft.status_filter or ""
+            initial["send_after"] = draft.send_after
+            return initial
         copy_pk = self.request.GET.get("copy")
         if copy_pk and copy_pk.isdigit():
             with scope(event=self.request.event):
@@ -1122,6 +1160,7 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
         ctx = super().get_context_data(**kwargs)
         ctx["preview_recipients"] = getattr(self, "_preview_recipients", None)
         ctx["can_view_email"] = can_view_email_addresses(self.request.user, self.request.organizer, self.request.event, request=self.request)
+        ctx["draft"] = self.get_draft()
         return ctx
 
     def form_invalid(self, form):
@@ -1161,20 +1200,39 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
             self._preview_recipients = recipients
             return self.render_to_response(self.get_context_data(form=form))
 
-        if not recipients:
+        draft = self.get_draft()
+        if self.request.POST.get("draft_id") and draft is None:
+            return self._stale_draft_response()
+
+        is_draft = action == "draft"
+        if not recipients and not is_draft:
             messages.error(self.request, _("No recipients match the selected filters."))
             return self.render_to_response(self.get_context_data(form=form))
 
-        queue_email(
-            event=event,
-            subject=form.cleaned_data["subject"],
-            message=form.cleaned_data["message"],
-            recipients=recipients,
-            user=self.request.user,
-            status_filter=status,
-            send_after=send_after,
-            dispatch=(action != "draft"),
-        )
+        fields = {
+            "subject": form.cleaned_data.get("subject") or LazyI18nString(""),
+            "message": form.cleaned_data.get("message") or LazyI18nString(""),
+            "recipients": recipients,
+            "status_filter": status,
+            "send_after": send_after,
+            "is_draft": is_draft,
+            "dispatch": action not in ("draft", "outbox"),
+        }
+        if draft is not None:
+            try:
+                update_queued_email(draft, **fields)
+            except DraftNoLongerEditable:
+                return self._stale_draft_response()
+        else:
+            queue_email(event=event, user=self.request.user, **fields)
+
+        if is_draft:
+            messages.success(self.request, _("Draft saved. It will not be sent until you move it to the outbox."))
+            return redirect(
+                "plugins:teamshifts:email_drafts",
+                organizer=self.request.organizer.slug,
+                event=event.slug,
+            )
         if send_after:
             messages.success(
                 self.request,
@@ -1188,7 +1246,7 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
                     "when": date_format(send_after, "SHORT_DATETIME_FORMAT"),
                 },
             )
-        elif action == "draft":
+        elif action == "outbox":
             messages.success(
                 self.request,
                 ngettext(
@@ -1230,13 +1288,30 @@ class EmailOutboxView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Temp
         event = self.request.event
         with scope(event=event):
             queues = list(
-                TeamShiftsEmailQueue.objects.filter(event=event, sent_at__isnull=True, user__isnull=False)
+                TeamShiftsEmailQueue.objects.filter(event=event, sent_at__isnull=True, is_draft=False, user__isnull=False)
                 .select_related("role_filter", "user")
                 .annotate(recipient_count=Count("recipients"))
                 .order_by("-created")
             )
         ctx["mails"] = queues
         ctx["can_view_email"] = can_view_email_addresses(self.request.user, self.request.organizer, event, request=self.request)
+        return ctx
+
+
+class EmailDraftsView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, TemplateView):
+    permission = "can_teamshifts_send_emails"
+    template_name = "teamshifts/emails/drafts_list.html"
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        event = self.request.event
+        with scope(event=event):
+            ctx["mails"] = list(
+                TeamShiftsEmailQueue.objects.filter(event=event, sent_at__isnull=True, is_draft=True, user__isnull=False)
+                .select_related("user")
+                .annotate(recipient_count=Count("recipients"))
+                .order_by("-updated")
+            )
         return ctx
 
 
@@ -1272,8 +1347,17 @@ class EmailQueueEditView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, V
             )
         return queue
 
+    def _compose_draft_url(self, queue):
+        url = reverse(
+            "plugins:teamshifts:email_compose",
+            kwargs={"organizer": self.request.organizer.slug, "event": self.request.event.slug},
+        )
+        return f"{url}?{urlencode({'draft': queue.pk})}"
+
     def get(self, request, *args, **kwargs):
         queue = self._get_queue()
+        if queue.is_draft:
+            return redirect(self._compose_draft_url(queue))
         form = EmailQueueEditForm(instance=queue, event=request.event)
         return render(
             request,
@@ -1283,6 +1367,8 @@ class EmailQueueEditView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, V
 
     def post(self, request, *args, **kwargs):
         queue = self._get_queue()
+        if queue.is_draft:
+            return redirect(self._compose_draft_url(queue))
         if queue.sent_at:
             messages.error(request, _("This email has already been sent and cannot be edited."))
             return redirect(
@@ -1339,8 +1425,14 @@ class EmailQueueDeleteView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin,
             with scope(event=request.event):
                 queue.delete()
             messages.success(request, _("Email deleted."))
+        if queue.sent_at:
+            target = "plugins:teamshifts:email_sent"
+        elif queue.is_draft:
+            target = "plugins:teamshifts:email_drafts"
+        else:
+            target = "plugins:teamshifts:email_outbox"
         return redirect(
-            "plugins:teamshifts:email_sent" if queue.sent_at else "plugins:teamshifts:email_outbox",
+            target,
             organizer=request.organizer.slug,
             event=request.event.slug,
         )
@@ -1355,6 +1447,13 @@ class EmailQueueSendNowView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin
             queue = get_object_or_404(TeamShiftsEmailQueue, pk=kwargs["pk"], event=event)
             if queue.sent_at:
                 messages.warning(request, _("This email has already been sent."))
+            elif queue.is_draft:
+                messages.warning(request, _("This email is a draft. Open it and send it from the compose page."))
+                return redirect(
+                    "plugins:teamshifts:email_drafts",
+                    organizer=request.organizer.slug,
+                    event=event.slug,
+                )
             else:
                 queue.send_after = None
                 queue.save(update_fields=["send_after", "updated"])

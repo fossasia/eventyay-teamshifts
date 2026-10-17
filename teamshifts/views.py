@@ -73,6 +73,7 @@ from .models import (
     TeamRole,
     TeamShiftsCustomEmailTemplate,
     TeamShiftsEmailQueue,
+    TeamShiftsEmailQueueRecipient,
     VolunteerVoucherSettings,
     VoucherStatus,
     normalize_field_order,
@@ -1242,22 +1243,33 @@ class EmailOutboxView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Temp
         return ctx
 
 
-class EmailSentView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, TemplateView):
+class EmailSentView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, PaginationMixin, ListView):
     permission = "can_teamshifts_send_emails"
     template_name = "teamshifts/emails/sent_list.html"
+    context_object_name = "mails"
+
+    def get_queryset(self):
+        event = self.request.event
+        with scope(event=event):
+            qs = (
+                TeamShiftsEmailQueueRecipient.objects.filter(queue__event=event, sent_at__isnull=False)
+                .filter(Q(queue__user__isnull=False) | ~Q(queue__mail_type=""))
+                .select_related("queue", "user")
+                .order_by("-sent_at", "-pk")
+            )
+
+            search = self.request.GET.get("q", "").strip()
+            if search:
+                condition = Q(subject__icontains=search) | Q(subject="", queue__subject__icontains=search) | Q(user__fullname__icontains=search)
+                if can_view_email_addresses(self.request.user, self.request.organizer, event, request=self.request):
+                    condition |= Q(email__icontains=search)
+                qs = qs.filter(condition)
+        return qs
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
-        event = self.request.event
-        with scope(event=event):
-            queues = list(
-                TeamShiftsEmailQueue.objects.filter(event=event, sent_at__isnull=False, user__isnull=False)
-                .select_related("role_filter", "user")
-                .annotate(recipient_count=Count("recipients"))
-                .order_by("-sent_at")
-            )
-        ctx["mails"] = queues
-        ctx["can_view_email"] = can_view_email_addresses(self.request.user, self.request.organizer, event, request=self.request)
+        ctx["search"] = self.request.GET.get("q", "").strip()
+        ctx["can_view_email"] = can_view_email_addresses(self.request.user, self.request.organizer, self.request.event, request=self.request)
         return ctx
 
 
@@ -3185,6 +3197,7 @@ def _notify_organizers_shift_dropped(event, volunteer, shift, role=None):
         shift=shift,
         shift_role=role,
         status_filter="",
+        mail_type=EmailTemplateRoles.SHIFT_DROPPED_ORGANIZER,
     )
 
 
@@ -3238,6 +3251,7 @@ def _notify_organizers_new_application(event, application):
         recipients=organizer_users,
         user=application.user,
         status_filter="",
+        mail_type=EmailTemplateRoles.NEW_APPLICATION_ORGANIZER,
     )
 
 

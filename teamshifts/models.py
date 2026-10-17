@@ -537,6 +537,35 @@ class TeamApplicationAnswer(models.Model):
         return f"{self.application} → {self.question}: {self.answer[:30]}"
 
 
+class EmailTemplateRoles(models.TextChoices):
+    APPLICATION_RECEIVED = "teamshifts.application.received", _("Application received")
+    APPLICATION_ACCEPTED = "teamshifts.application.accepted", _("Application accepted")
+    APPLICATION_REJECTED = "teamshifts.application.rejected", _("Application rejected")
+    NEW_APPLICATION_ORGANIZER = "teamshifts.application.organizer", _("New application (organizer notification)")
+    MEMBER_ADDED_BY_ORGANIZER = "teamshifts.member.added_by_organizer", _("Added as volunteer by organizer")
+    SHIFT_ASSIGNED_BY_ORGANIZER = "teamshifts.shift.assigned_by_organizer", _("Shift assigned by organizer")
+    SHIFT_CLAIMED_BY_VOLUNTEER = "teamshifts.shift.claimed_by_volunteer", _("Shift sign-up confirmation")
+    SHIFT_DROPPED_BY_VOLUNTEER = "teamshifts.shift.dropped_by_volunteer", _("Shift drop confirmation")
+    SHIFT_DROPPED_ORGANIZER = "teamshifts.shift.dropped_organizer", _("Shift dropped (organizer notification)")
+    VOUCHER_SENT = "teamshifts.voucher.sent", _("Voucher sent to volunteer")
+    CERTIFICATE_GENERATED = "teamshifts.certificate.generated", _("Certificate of participation generated")
+
+
+EMAIL_TYPE_LABELS = {
+    EmailTemplateRoles.APPLICATION_RECEIVED: _("Application received"),
+    EmailTemplateRoles.APPLICATION_ACCEPTED: _("Application accepted"),
+    EmailTemplateRoles.APPLICATION_REJECTED: _("Application rejected"),
+    EmailTemplateRoles.NEW_APPLICATION_ORGANIZER: _("Organizer notification"),
+    EmailTemplateRoles.MEMBER_ADDED_BY_ORGANIZER: _("Added by organizer"),
+    EmailTemplateRoles.SHIFT_ASSIGNED_BY_ORGANIZER: _("Shift assigned"),
+    EmailTemplateRoles.SHIFT_CLAIMED_BY_VOLUNTEER: _("Shift sign-up"),
+    EmailTemplateRoles.SHIFT_DROPPED_BY_VOLUNTEER: _("Shift dropped"),
+    EmailTemplateRoles.SHIFT_DROPPED_ORGANIZER: _("Organizer notification"),
+    EmailTemplateRoles.VOUCHER_SENT: _("Voucher"),
+    EmailTemplateRoles.CERTIFICATE_GENERATED: _("Certificate"),
+}
+
+
 class TeamShiftsEmailQueue(models.Model):
     event = models.ForeignKey(
         "base.Event",
@@ -582,6 +611,7 @@ class TeamShiftsEmailQueue(models.Model):
         blank=True,
         default="",
     )
+    mail_type = models.CharField(max_length=40, blank=True, default="")
     send_after = models.DateTimeField(null=True, blank=True)
     sent_at = models.DateTimeField(null=True, blank=True)
     created = models.DateTimeField(auto_now_add=True)
@@ -598,6 +628,10 @@ class TeamShiftsEmailQueue(models.Model):
         state = "sent" if self.sent_at else ("scheduled" if self.send_after else "pending")
         return f"{self.event.slug} · {state} · {self.subject}"
 
+    @property
+    def mail_type_label(self):
+        return EMAIL_TYPE_LABELS.get(self.mail_type, _("Custom"))
+
 
 class TeamShiftsEmailQueueRecipient(models.Model):
     queue = models.ForeignKey(
@@ -613,6 +647,7 @@ class TeamShiftsEmailQueueRecipient(models.Model):
         related_name="+",
     )
     email = models.EmailField()
+    subject = models.TextField(blank=True, default="")
     sent_at = models.DateTimeField(null=True, blank=True)
     error = models.TextField(blank=True, default="")
 
@@ -626,19 +661,9 @@ class TeamShiftsEmailQueueRecipient(models.Model):
     def __str__(self):
         return f"{self.email} ({'sent' if self.sent_at else 'pending'})"
 
-
-class EmailTemplateRoles(models.TextChoices):
-    APPLICATION_RECEIVED = "teamshifts.application.received", _("Application received")
-    APPLICATION_ACCEPTED = "teamshifts.application.accepted", _("Application accepted")
-    APPLICATION_REJECTED = "teamshifts.application.rejected", _("Application rejected")
-    NEW_APPLICATION_ORGANIZER = "teamshifts.application.organizer", _("New application (organizer notification)")
-    MEMBER_ADDED_BY_ORGANIZER = "teamshifts.member.added_by_organizer", _("Added as volunteer by organizer")
-    SHIFT_ASSIGNED_BY_ORGANIZER = "teamshifts.shift.assigned_by_organizer", _("Shift assigned by organizer")
-    SHIFT_CLAIMED_BY_VOLUNTEER = "teamshifts.shift.claimed_by_volunteer", _("Shift sign-up confirmation")
-    SHIFT_DROPPED_BY_VOLUNTEER = "teamshifts.shift.dropped_by_volunteer", _("Shift drop confirmation")
-    SHIFT_DROPPED_ORGANIZER = "teamshifts.shift.dropped_organizer", _("Shift dropped (organizer notification)")
-    VOUCHER_SENT = "teamshifts.voucher.sent", _("Voucher sent to volunteer")
-    CERTIFICATE_GENERATED = "teamshifts.certificate.generated", _("Certificate of participation generated")
+    @property
+    def display_subject(self):
+        return self.subject or str(self.queue.subject)
 
 
 class TeamShiftsEmailTemplate(models.Model):

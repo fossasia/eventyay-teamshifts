@@ -29,6 +29,7 @@ from ..models import (
 )
 from ..pdf import default_layout, format_event_date_from, format_event_date_to, format_event_dates, layout_is_initial_overlay, render_certificate_pdf
 from ..tasks import MarkdownBreakString
+from .email import record_sent_email
 
 logger = logging.getLogger(__name__)
 
@@ -196,6 +197,7 @@ def _send_certificate_email(application: TeamMemberApplication, pdf_bytes: bytes
             attach_cached_files=[cf.pk],
             auto_email=False,
         )
+        record_sent_email(event, user, template.subject, template.body, context, locale, EmailTemplateRoles.CERTIFICATE_GENERATED)
         logger.info("[TeamShifts] Certificate email queued for application %s", application.pk)
     except (OSError, SendMailException):
         with scope(event=event):

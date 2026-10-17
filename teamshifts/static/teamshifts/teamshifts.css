@@ -105,6 +105,11 @@ label .optional {
     vertical-align: top;
 }
 
+.teamshifts-filter-bar .form-control.teamshifts-search-input {
+    width: 22em;
+    max-width: 100%;
+}
+
 .teamshifts-select-all-col {
     width: 40px;
     padding-right: 0;

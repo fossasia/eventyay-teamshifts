@@ -44,7 +44,18 @@ export function setupAjaxSorting(onUpdate) {
                 return;
             }
 
+            const restoreFocus = link === document.activeElement;
+            const linkLabel = link.getAttribute("aria-label");
+
             currentList.replaceWith(updatedList);
+
+            if (restoreFocus && linkLabel) {
+                const replacementLink = Array.from(
+                    updatedList.querySelectorAll("a[data-ajax]"),
+                ).find((candidate) => candidate.getAttribute("aria-label") === linkLabel);
+
+                replacementLink?.focus();
+            }
             window.history.pushState({}, "", link.href);
             onUpdate();
         } catch {

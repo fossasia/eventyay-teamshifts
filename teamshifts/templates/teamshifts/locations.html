@@ -66,18 +66,23 @@
     </div>
   {% else %}
     <div class='table-responsive'>
+      {% if current_ordering != "position" or request.GET.q or request.GET.search or request.GET.status or request.GET.filter %}
+        <div class="alert alert-info">
+          {% trans "Drag-and-drop reordering is unavailable while custom sorting or filtering is active. Clear sorting and filters to reorder locations." %}
+        </div>
+      {% endif %}
       <table class='table table-hover table-quotas'>
         <thead>
           <tr>
             {% trans "Name" as location_name_label %}
-            <th>{% include "teamshifts/_sort_header.html" with label=location_name_label field="name" current_ordering=current_ordering %}</th>
+            <th aria-sort="{% if current_ordering == 'name' %}ascending{% elif current_ordering == '-name' %}descending{% else %}none{% endif %}">{% include "teamshifts/_sort_header.html" with label=location_name_label field="name" current_ordering=current_ordering %}</th>
             {% trans "Source" as source_label %}
-            <th>{% include "teamshifts/_sort_header.html" with label=source_label field="linked_room" current_ordering=current_ordering %}</th>
+            <th aria-sort="{% if current_ordering == 'linked_room' %}ascending{% elif current_ordering == '-linked_room' %}descending{% else %}none{% endif %}">{% include "teamshifts/_sort_header.html" with label=source_label field="linked_room" current_ordering=current_ordering %}</th>
             <th>{% trans "Description" %}</th>
             <th class='text-right'>{% trans "Actions" %}</th>
           </tr>
         </thead>
-        <tbody data-dnd-url='{% url "plugins:teamshifts:location_reorder" organizer=request.organizer.slug event=request.event.slug %}'>
+        <tbody{% if current_ordering == "position" and not request.GET.q and not request.GET.search and not request.GET.status and not request.GET.filter %} data-dnd-url='{% url "plugins:teamshifts:location_reorder" organizer=request.organizer.slug event=request.event.slug %}'{% endif %}>
           {% for location in locations %}
             <tr data-dnd-id='{{ location.pk }}'>
               <td>
@@ -128,4 +133,5 @@
       </table>
     </div>
   {% endif %}
+</div>
 {% endblock %}

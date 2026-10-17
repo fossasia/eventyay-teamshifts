@@ -13,6 +13,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.db.models import Count, DurationField, ExpressionWrapper, F, Max, Prefetch, Q, Sum
+from django.db.models.functions import Coalesce
 from django.forms import inlineformset_factory
 from django.forms.models import model_to_dict
 from django.http import FileResponse, Http404, HttpResponse, HttpResponseBadRequest, JsonResponse
@@ -357,7 +358,7 @@ class TeamRoleListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Vie
         ordering = self.request.GET.get("ordering", "name")
         allowed_fields = {"name", "is_restricted"}
 
-        if ordering.lstrip("-") in allowed_fields:
+        if ordering in allowed_fields or (ordering.startswith("-") and ordering[1:] in allowed_fields):
             return ordering
 
         return "name"
@@ -1426,7 +1427,16 @@ class ShiftLocationListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin
         ordering = self.get_current_ordering()
         with scope(event=request.event):
             locations = list(
-                ShiftLocation.objects.filter(event=request.event).select_related("linked_room").order_by(ordering, "-pk" if ordering.startswith("-") else "pk")
+                ShiftLocation.objects.filter(event=request.event)
+                .select_related("linked_room")
+                .order_by(
+                    Coalesce("linked_room__name", "name").desc()
+                    if ordering == "-name"
+                    else Coalesce("linked_room__name", "name").asc()
+                    if ordering == "name"
+                    else ordering,
+                    "-pk" if ordering.startswith("-") else "pk",
+                )
             )
             already_linked_room_ids = {loc.linked_room_id for loc in locations if loc.linked_room_id is not None}
             importable_rooms = list(
@@ -1443,13 +1453,13 @@ class ShiftLocationListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin
         )
 
     def get_current_ordering(self):
-        ordering = self.request.GET.get("ordering", "name")
+        ordering = self.request.GET.get("ordering", "position")
         allowed_fields = {"name", "linked_room"}
 
-        if ordering.lstrip("-") in allowed_fields:
+        if ordering in allowed_fields or (ordering.startswith("-") and ordering[1:] in allowed_fields):
             return ordering
 
-        return "name"
+        return "position"
 
 
 class ShiftLocationReorderView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):

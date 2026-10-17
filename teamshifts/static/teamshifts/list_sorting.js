@@ -1,5 +1,7 @@
 
 export function setupAjaxSorting(onUpdate) {
+    let latestRequest = 0;
+
     document.addEventListener("click", async (event) => {
         if (!(event.target instanceof Element)) {
             return;
@@ -15,6 +17,7 @@ export function setupAjaxSorting(onUpdate) {
         }
 
         event.preventDefault();
+        const requestId = ++latestRequest;
 
         try {
             const response = await fetch(link.href, {
@@ -24,11 +27,14 @@ export function setupAjaxSorting(onUpdate) {
                 credentials: "same-origin",
             });
 
+            if (requestId !== latestRequest) return;
+
             if (!response.ok) {
                 throw new Error("Unable to update the list");
             }
 
             const html = await response.text();
+            if (requestId !== latestRequest) return;
             const parsed = new DOMParser().parseFromString(html, "text/html");
             const updatedList = parsed.querySelector("[data-teamshifts-list]");
             const currentList = document.querySelector("[data-teamshifts-list]");
@@ -38,10 +44,11 @@ export function setupAjaxSorting(onUpdate) {
                 return;
             }
 
-            currentList.innerHTML = updatedList.innerHTML;
+            currentList.replaceWith(updatedList);
             window.history.pushState({}, "", link.href);
             onUpdate();
         } catch {
+            if (requestId !== latestRequest) return;
             window.location.assign(link.href);
         }
     });

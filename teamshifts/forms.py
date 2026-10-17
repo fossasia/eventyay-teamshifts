@@ -754,7 +754,8 @@ class BaseShiftRoleFormSet(forms.BaseInlineFormSet):
             return
 
         roles = set()
-        has_role = False
+        allowed = self.form_kwargs.get("allowed_role_ids")
+        has_role = bool(self.instance.pk and allowed is not None and self.instance.role_assignments.exclude(role_id__in=allowed).exists())
         for form in self.forms:
             if self.can_delete and self._should_delete_form(form):
                 continue
@@ -788,7 +789,7 @@ class ShiftRoleAssignmentForm(forms.ModelForm):
             "role": forms.Select(attrs={"class": "form-control"}),
         }
 
-    def __init__(self, *args, event=None, **kwargs):
+    def __init__(self, *args, event=None, allowed_role_ids=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["capacity"].min_value = 1
         if event is not None:
@@ -798,6 +799,9 @@ class ShiftRoleAssignmentForm(forms.ModelForm):
 
             with scopes_disabled():
                 self.fields["role"].queryset = TeamRole.objects.filter(event=event)
+                if allowed_role_ids is not None:
+                    self.fields["role"].queryset = self.fields["role"].queryset.filter(pk__in=allowed_role_ids)
+                    self.fields["role"].error_messages["invalid_choice"] = _("You do not have permission to manage this role.")
 
 
 class CertificateSettingsForm(forms.ModelForm):

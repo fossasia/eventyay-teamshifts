@@ -1,8 +1,9 @@
 import json
 import logging
 import zipfile
-from datetime import timedelta
+from datetime import datetime, time, timedelta
 from io import BytesIO
+from zoneinfo import ZoneInfo
 
 from django.core.exceptions import ObjectDoesNotExist
 from django.core.files.base import ContentFile
@@ -11,10 +12,12 @@ from django.utils.formats import date_format
 from django.utils.text import slugify
 from django.utils.timezone import now
 from django.utils.translation import gettext
-from django_scopes import scope
+from django_scopes import scope, scopes_disabled
 from eventyay.base.email import get_email_context
-from eventyay.base.models import CachedFile
+from eventyay.base.models import CachedFile, Event
 from eventyay.base.services.mail import SendMailException, mail
+from eventyay.base.services.tasks import ProfiledEventTask
+from eventyay.celery_app import app
 from i18nfield.strings import LazyI18nString
 
 from ..models import (
@@ -105,6 +108,16 @@ def application_context(application: TeamMemberApplication) -> dict:
     }
 
 
+def event_end(event) -> datetime:
+    event_timezone = ZoneInfo(event.settings.timezone)
+    last_day = (event.date_to or event.date_from).astimezone(event_timezone).date()
+    return datetime.combine(last_day + timedelta(days=1), time.min, tzinfo=event_timezone)
+
+
+def event_has_ended(event) -> bool:
+    return now() >= event_end(event)
+
+
 def member_qualifies(
     application: TeamMemberApplication,
     settings: CertificateSettings | None = None,
@@ -113,6 +126,8 @@ def member_qualifies(
     if application.status != ApplicationStatus.ACCEPTED:
         return False
     settings = settings or get_certificate_settings(application.event)
+    if settings.require_after_event_end and not event_has_ended(application.event):
+        return False
     checks = []
     if settings.require_arrived:
         checks.append(bool(application.arrived))
@@ -138,7 +153,11 @@ def certificate_filename(application: TeamMemberApplication) -> str:
     return f"{application.event.slug}-{name}.pdf"
 
 
-def generate_certificate(application: TeamMemberApplication, settings: CertificateSettings | None = None) -> MemberCertificate:
+def generate_certificate(
+    application: TeamMemberApplication,
+    settings: CertificateSettings | None = None,
+    resend: bool = False,
+) -> MemberCertificate:
     settings = settings or get_certificate_settings(application.event)
     pdf_bytes = render_certificate_pdf(settings, application_context(application))
     with scope(event=application.event):
@@ -149,7 +168,10 @@ def generate_certificate(application: TeamMemberApplication, settings: Certifica
         certificate.generated_at = now()
         certificate.downloaded_at = None
         certificate.save()
-        claimed = MemberCertificate.objects.filter(pk=certificate.pk, notified_at__isnull=True).update(notified_at=now())
+        unsent = MemberCertificate.objects.filter(pk=certificate.pk)
+        if not resend:
+            unsent = unsent.filter(notified_at__isnull=True)
+        claimed = unsent.update(notified_at=now())
 
     if claimed:
         transaction.on_commit(lambda: _send_certificate_email(application, pdf_bytes))
@@ -236,6 +258,58 @@ def generate_all_certificates(event) -> int:
         generate_certificate(application, settings)
         count += 1
     return count
+
+
+def send_certificates(event, applications) -> dict:
+    settings = get_certificate_settings(event)
+    result = {"sent": 0, "not_qualified": 0, "no_email": 0}
+    for application in applications:
+        if not member_qualifies(application, settings):
+            result["not_qualified"] += 1
+        elif not application.user.email:
+            result["no_email"] += 1
+        else:
+            generate_certificate(application, settings, resend=True)
+            result["sent"] += 1
+    return result
+
+
+def generate_pending_certificates(event) -> int:
+    settings = get_certificate_settings(event)
+    if settings.trigger != CertificateTrigger.AUTO or not settings.require_after_event_end or not event_has_ended(event):
+        return 0
+    with scope(event=event):
+        pending = list(
+            TeamMemberApplication.objects.filter(
+                event=event,
+                status=ApplicationStatus.ACCEPTED,
+                certificate__isnull=True,
+            ).select_related("user")
+        )
+    count = 0
+    for application in pending:
+        if member_qualifies(application, settings):
+            generate_certificate(application, settings)
+            count += 1
+    return count
+
+
+def events_awaiting_certificates() -> list[int]:
+    with scopes_disabled():
+        return list(
+            CertificateSettings.objects.filter(
+                trigger=CertificateTrigger.AUTO,
+                require_after_event_end=True,
+                event__date_to__lte=now(),
+            ).values_list("event_id", flat=True)
+        )
+
+
+@app.task(base=ProfiledEventTask, name="teamshifts.issue_event_end_certificates")
+def issue_event_end_certificates_task(event: Event):
+    count = generate_pending_certificates(event)
+    if count:
+        logger.info("[TeamShifts] Issued %s certificates after the end of event %s", count, event.slug)
 
 
 def zip_generated_certificates(event) -> BytesIO | None:

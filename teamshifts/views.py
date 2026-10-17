@@ -85,7 +85,7 @@ from .permissions import (
     has_any_teamshifts_permission,
     has_teamshifts_permission,
 )
-from .services.certificates import maybe_auto_issue_certificate
+from .services.certificates import maybe_auto_issue_certificate, send_certificates
 from .services.checkin import evaluate_shift_certificate, stamp_shift_end
 from .services.email import get_recipients, queue_email, queue_lifecycle_email, queue_shift_notification_email
 from .services.members import AlreadyMemberError, accept_manager_as_member, add_member_from_organizer
@@ -3404,6 +3404,69 @@ class MyShiftsCertificateDownloadView(LoginRequiredMixin, View):
         certificate.downloaded_at = now()
         certificate.save(update_fields=["downloaded_at"])
         return response
+
+
+class BulkSendCertificatesView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):
+    permission = "can_teamshifts_manage_applicants"
+
+    def post(self, request, *args, **kwargs):
+        event = request.event
+        member_ids = request.POST.getlist("member_ids")
+        members_url = reverse(
+            "plugins:teamshifts:members",
+            kwargs={"organizer": request.organizer.slug, "event": event.slug},
+        )
+
+        if not member_ids:
+            messages.warning(request, _("No members selected."))
+            return redirect(members_url)
+
+        with scope(event=event):
+            applications = list(
+                TeamMemberApplication.objects.filter(
+                    event=event,
+                    pk__in=member_ids,
+                    status=ApplicationStatus.ACCEPTED,
+                ).select_related("user")
+            )
+
+        result = send_certificates(event, applications)
+
+        parts = []
+        if result["sent"]:
+            parts.append(
+                ngettext(
+                    "Certificate sent to %(count)d member.",
+                    "Certificates sent to %(count)d members.",
+                    result["sent"],
+                )
+                % {"count": result["sent"]}
+            )
+        if result["not_qualified"]:
+            parts.append(
+                ngettext(
+                    "%(count)d skipped (does not meet the certificate conditions).",
+                    "%(count)d skipped (do not meet the certificate conditions).",
+                    result["not_qualified"],
+                )
+                % {"count": result["not_qualified"]}
+            )
+        if result["no_email"]:
+            parts.append(
+                ngettext(
+                    "%(count)d skipped (no email address on file).",
+                    "%(count)d skipped (no email address on file).",
+                    result["no_email"],
+                )
+                % {"count": result["no_email"]}
+            )
+
+        summary = " ".join(str(part) for part in parts)
+        if result["sent"]:
+            messages.success(request, summary)
+        else:
+            messages.warning(request, summary)
+        return redirect(members_url)
 
 
 class VoucherSettingsView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):

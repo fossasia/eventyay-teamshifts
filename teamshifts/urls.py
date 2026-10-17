@@ -250,6 +250,11 @@ urlpatterns = [
         name="bulk_send_vouchers",
     ),
     path(
+        "teamshifts/event/<orgslug:organizer>/<slug:event>/members/send-certificates/",
+        views.BulkSendCertificatesView.as_view(),
+        name="bulk_send_certificates",
+    ),
+    path(
         "teamshifts/event/<orgslug:organizer>/<slug:event>/voucher-settings/",
         views.VoucherSettingsView.as_view(),
         name="voucher_settings",

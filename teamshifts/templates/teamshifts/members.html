@@ -21,6 +21,12 @@
     </form>
   {% endif %}
 
+  {% if can_add_member %}
+    <form method='post' action='{% url "plugins:teamshifts:bulk_send_certificates" organizer=request.organizer.slug event=request.event.slug %}' id='bulk-certificate-form' class='ts-hidden'>
+      {% csrf_token %}
+    </form>
+  {% endif %}
+
   <div class='teamshifts-filter-bar clearfix'>
     <form method='get' class='form-inline pull-left'>
       <div class='form-group'>
@@ -75,6 +81,9 @@
         </button>
       {% endif %}
       {% if can_add_member %}
+        <button type='button' class='btn btn-primary' id='bulk-send-certificates-btn'>
+          <i class='fa fa-certificate'></i> {% trans 'Send certificates' %}
+        </button>
         <a href='{% url "plugins:teamshifts:member_add" organizer=request.organizer.slug event=request.event.slug %}' class='btn btn-primary'>
           <i class='fa fa-plus'></i> {% trans 'Add member' %}
         </a>
@@ -87,11 +96,9 @@
       <table class='table table-hover table-quotas'>
         <thead>
           <tr>
-            {% if vouchers_enabled or vouchers_not_configured %}
-              <th class='checkbox-column'>
-                <input type='checkbox' id='select-all' title='{% trans "Select all" %}'>
-              </th>
-            {% endif %}
+            <th class='checkbox-column'>
+              <input type='checkbox' id='select-all' title='{% trans "Select all" %}'>
+            </th>
             <th>{% trans 'Name' %}</th>
             {% if can_view_email %}
               <th>{% trans 'Email' %}</th>
@@ -109,11 +116,9 @@
         <tbody>
           {% for member in members %}
             <tr>
-              {% if vouchers_enabled or vouchers_not_configured %}
-                <td class='checkbox-column'>
-                  <input type='checkbox' data-member-id='{{ member.pk }}' class='member-checkbox'>
-                </td>
-              {% endif %}
+              <td class='checkbox-column'>
+                <input type='checkbox' data-member-id='{{ member.pk }}' class='member-checkbox'>
+              </td>
               <td>
                 <strong>
                   <a href='{% url "plugins:teamshifts:application_detail" organizer=request.organizer.slug event=request.event.slug pk=member.pk %}'>

@@ -734,8 +734,12 @@ class CertificateSettings(models.Model):
     trigger = models.CharField(
         max_length=8,
         choices=CertificateTrigger.choices,
-        default=CertificateTrigger.AUTO,
+        default=CertificateTrigger.MANUAL,
         verbose_name=_("Certificate generation trigger"),
+    )
+    require_after_event_end = models.BooleanField(
+        default=False,
+        verbose_name=_("Only after the event has ended"),
     )
     layout = models.TextField(blank=True)
     background = models.FileField(null=True, blank=True, upload_to=certificate_background_name, max_length=255)

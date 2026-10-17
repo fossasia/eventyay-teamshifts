@@ -20,6 +20,7 @@ from eventyay.presale.signals import header_nav_tabs
 
 from .models import ApplicationStatus, CallForTeamMembers, Shift, ShiftAssignment, TeamMemberApplication, TeamRole, TeamShiftsEmailQueue
 from .permissions import has_any_teamshifts_permission
+from .services.certificates import events_awaiting_certificates, issue_event_end_certificates_task
 from .services.checkin import handle_volunteer_checkin, handle_volunteer_checkout
 from .tasks import send_queued_email
 
@@ -307,6 +308,12 @@ def dispatch_scheduled_emails(sender, **kwargs):
         if cache.add(cache_key, True, timeout=300):
             send_queued_email.delay(event_id, queue_pk)
             logger.info("[TeamShifts] Dispatched scheduled email queue %s", queue_pk)
+
+
+@receiver(periodic_task, dispatch_uid="teamshifts_issue_event_end_certificates")
+def dispatch_event_end_certificates(sender, **kwargs):
+    for event_id in events_awaiting_certificates():
+        issue_event_end_certificates_task.apply_async(args=(event_id,))
 
 
 @receiver(checkin_created, dispatch_uid="teamshifts_volunteer_checkin")

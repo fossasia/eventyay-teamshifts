@@ -38,8 +38,8 @@ function restoreButtonChildren(button, originalChildren) {
     button.replaceChildren(...originalChildren);
 }
 
-function submitBulkVouchers() {
-    const form = document.getElementById("bulk-voucher-form");
+function submitBulkForm(formId) {
+    const form = document.getElementById(formId);
     if (!form) return;
 
     // Clear any previously injected hidden inputs
@@ -109,6 +109,11 @@ document.addEventListener("DOMContentLoaded", () => {
     // Bulk send button
     const sendBtn = document.getElementById("bulk-send-btn");
     if (sendBtn) {
-        sendBtn.addEventListener("click", submitBulkVouchers);
+        sendBtn.addEventListener("click", () => submitBulkForm("bulk-voucher-form"));
+    }
+
+    const sendCertificatesBtn = document.getElementById("bulk-send-certificates-btn");
+    if (sendCertificatesBtn) {
+        sendCertificatesBtn.addEventListener("click", () => submitBulkForm("bulk-certificate-form"));
     }
 });

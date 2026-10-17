@@ -4,7 +4,7 @@ from zoneinfo import ZoneInfo
 
 from django import forms
 from django.utils import timezone
-from django.utils.html import escape as html_escape
+from django.utils.html import escape as html_escape, format_html
 from django.utils.translation import gettext_lazy as _
 from django_countries import countries
 from django_scopes import scopes_disabled
@@ -805,8 +805,9 @@ class CertificateSettingsForm(forms.ModelForm):
         required=False,
         label=_("Generate automatically"),
         help_text=_(
-            "When enabled, a certificate is generated as soon as a member meets the conditions, for example "
-            "after they are marked arrived. When disabled, an organizer generates certificates manually."
+            "When enabled, a certificate is generated and emailed to a member as soon as they meet the conditions, "
+            "for example right after they are marked arrived. When disabled (default), certificates are only "
+            "generated when an organizer clicks Generate all."
         ),
     )
 
@@ -817,16 +818,31 @@ class CertificateSettingsForm(forms.ModelForm):
             "require_min_shifts",
             "min_shifts",
             "match_mode",
+            "require_after_event_end",
         )
         widgets = {
             "require_arrived": forms.CheckboxInput(),
             "require_min_shifts": forms.CheckboxInput(),
             "min_shifts": forms.NumberInput(attrs={"class": "form-control", "min": "1"}),
             "match_mode": forms.RadioSelect(choices=CertificateMatchMode.choices),
+            "require_after_event_end": forms.CheckboxInput(),
+        }
+        help_texts = {
+            "require_after_event_end": _(
+                "No certificates are generated until the last day of the event has ended in the event timezone. "
+                "With automatic generation, they are then generated and emailed to everyone who qualifies."
+            ),
         }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        after_event_end = self.fields["require_after_event_end"]
+        after_event_end.label = format_html(
+            '{} <span class="fa fa-info-circle text-muted" data-toggle="tooltip" title="{}"></span>',
+            after_event_end.label,
+            after_event_end.help_text,
+        )
+        after_event_end.help_text = ""
         if self.instance and self.instance.pk:
             self.fields["generate_automatically"].initial = self.instance.trigger == CertificateTrigger.AUTO
 

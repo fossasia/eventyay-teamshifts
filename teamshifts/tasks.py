@@ -14,6 +14,7 @@ from eventyay.celery_app import app
 from i18nfield.strings import LazyI18nString
 
 from .models import TeamMemberApplication, TeamShiftsEmailQueue
+from .services.reminders import send_due_shift_reminders
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +58,12 @@ def dispatch_scheduled_emails_task():
         if cache.add(cache_key, True, timeout=300):
             send_queued_email.delay(event_id, queue_pk)
             logger.info("[TeamShifts] Dispatched scheduled email queue %s", queue_pk)
+
+
+@app.task(name="teamshifts.send_shift_reminders")
+def send_shift_reminders_task():
+    sent = send_due_shift_reminders()
+    logger.info("[TeamShifts] Sent %s shift reminder emails", sent)
 
 
 @app.task(

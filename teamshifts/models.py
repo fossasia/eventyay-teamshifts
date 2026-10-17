@@ -582,6 +582,7 @@ class TeamShiftsEmailQueue(models.Model):
         blank=True,
         default="",
     )
+    is_shift_summary = models.BooleanField(default=False)
     send_after = models.DateTimeField(null=True, blank=True)
     sent_at = models.DateTimeField(null=True, blank=True)
     created = models.DateTimeField(auto_now_add=True)
@@ -637,6 +638,7 @@ class EmailTemplateRoles(models.TextChoices):
     SHIFT_CLAIMED_BY_VOLUNTEER = "teamshifts.shift.claimed_by_volunteer", _("Shift sign-up confirmation")
     SHIFT_DROPPED_BY_VOLUNTEER = "teamshifts.shift.dropped_by_volunteer", _("Shift drop confirmation")
     SHIFT_DROPPED_ORGANIZER = "teamshifts.shift.dropped_organizer", _("Shift dropped (organizer notification)")
+    SHIFT_SUMMARY = "teamshifts.shift.summary", _("Daily shift summary")
     VOUCHER_SENT = "teamshifts.voucher.sent", _("Voucher sent to volunteer")
     CERTIFICATE_GENERATED = "teamshifts.certificate.generated", _("Certificate of participation generated")
 

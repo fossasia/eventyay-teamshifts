@@ -13,7 +13,8 @@ from eventyay.base.services.tasks import ProfiledEventTask
 from eventyay.celery_app import app
 from i18nfield.strings import LazyI18nString
 
-from .models import TeamMemberApplication, TeamShiftsEmailQueue
+from .models import CallForTeamMembers, TeamMemberApplication, TeamShiftsEmailQueue
+from .services.shift_summary import build_shift_summary, has_shifts
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,13 @@ class MarkdownBreakString(LazyI18nString):
 
 
 SCHEDULED_EMAIL_BATCH_SIZE = 50
+
+
+def _shift_schedule_published(event: Event) -> bool:
+    try:
+        return event.call_for_team_members.shift_schedule_published
+    except CallForTeamMembers.DoesNotExist:
+        return False
 
 
 @app.task(name="teamshifts.dispatch_scheduled_emails")
@@ -90,6 +98,10 @@ def send_queued_email(self, event_id: int, queue_id: int):
             if queue.send_after and queue.send_after > now():
                 logger.debug("[TeamShifts] Queue %s not yet due, skipping", queue_id)
                 return
+            if queue.is_shift_summary and not _shift_schedule_published(event):
+                logger.info("[TeamShifts] Dropping shift summary queue %s: shift schedule is no longer published", queue_id)
+                queue.delete()
+                return
             recipients = list(queue.recipients.select_related("user").all())
 
             if not recipients:
@@ -129,7 +141,12 @@ def send_queued_email(self, event_id: int, queue_id: int):
                     if queue.shift_id:
                         ctx_kwargs["shift"] = queue.shift
                         ctx_kwargs["role"] = queue.shift_role
+                    if queue.is_shift_summary and recipient.user:
+                        ctx_kwargs["shift_summary"] = build_shift_summary(event, recipient.user, locale)
                     context = get_email_context(**ctx_kwargs)
+                    if queue.is_shift_summary and recipient.user and not has_shifts(event, recipient.user):
+                        # The My Shifts page is hidden (404) for volunteers without shifts.
+                        context["my_shifts_url"] = context.get("shift_schedule_url", "")
                     mail(
                         email=recipient.email,
                         subject=subject,

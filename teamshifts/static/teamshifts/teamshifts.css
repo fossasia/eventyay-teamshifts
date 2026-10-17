@@ -393,6 +393,11 @@ label .optional {
 .ts-send-vouchers-hint[hidden] {
   display: none;
 }
+
 .ts-voucher-sent-date {
   display: block;
+}
+
+[data-compose-status].is-overridden {
+  opacity: 0.5;
 }

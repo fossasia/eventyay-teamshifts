@@ -582,6 +582,11 @@ class TeamShiftsEmailQueue(models.Model):
         blank=True,
         default="",
     )
+    individual_recipients = models.BooleanField(
+        default=False,
+        verbose_name=_("Specific volunteers"),
+        help_text=_("Sent to hand-picked volunteers instead of everyone matching the status filter."),
+    )
     send_after = models.DateTimeField(null=True, blank=True)
     sent_at = models.DateTimeField(null=True, blank=True)
     created = models.DateTimeField(auto_now_add=True)

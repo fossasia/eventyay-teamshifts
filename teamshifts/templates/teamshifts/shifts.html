@@ -12,8 +12,8 @@
 {% block teamshifts_header %}
   <h1>{% trans "Shifts" %}</h1>
 {% endblock %}
-
 {% block teamshifts_content %}
+<div data-teamshifts-list>
   <div class="teamshifts-filter-bar clearfix">
     <div class="pull-right">
       {% if shifts and can_manage_shifts %}
@@ -43,11 +43,23 @@
                     <input type="checkbox" id="select-all" title="{% trans 'Select all' %}" aria-label="{% trans 'Select all' %}">
                     {% endif %}
                 </th>
-                <th>{% trans "Name" %}</th>
-                <th>{% trans "Location" %}</th>
+                {% trans "Name" as name_label %}
+                <th>
+                    {% include "teamshifts/_sort_header.html" with label=name_label field="name" current_ordering=current_ordering %}
+                </th>
+                    {% trans "Location" as location_label %}
+                <th>
+                    {% include "teamshifts/_sort_header.html" with label=location_label field="location__name" current_ordering=current_ordering %}
+                </th>
                 <th>{% trans "Roles" %}</th>
-                <th>{% trans "Start" %}</th>
-                <th>{% trans "End" %}</th>
+                {% trans "Start" as start_label %}
+                <th>
+                    {% include "teamshifts/_sort_header.html" with label=start_label field="start_time" current_ordering=current_ordering %}
+                </th>
+                {% trans "End" as end_label %}
+                <th>
+                    {% include "teamshifts/_sort_header.html" with label=end_label field="end_time" current_ordering=current_ordering %}
+                </th>
                 <th class="text-right">{% trans "Actions" %}</th>
             </tr>
             </thead>

@@ -12,7 +12,24 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
-from django.db.models import Case, CharField, Count, DurationField, Exists, ExpressionWrapper, F, IntegerField, Max, Min, OuterRef, Prefetch, Q, Sum, Value, When
+from django.db.models import (
+    Case,
+    CharField,
+    Count,
+    DurationField,
+    Exists,
+    ExpressionWrapper,
+    F,
+    IntegerField,
+    Max,
+    Min,
+    OuterRef,
+    Prefetch,
+    Q,
+    Sum,
+    Value,
+    When,
+)
 from django.db.models.functions import Coalesce, NullIf
 from django.forms import inlineformset_factory
 from django.forms.models import model_to_dict

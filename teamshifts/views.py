@@ -11,7 +11,7 @@ import dateutil.parser
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Count, DurationField, ExpressionWrapper, F, Max, Prefetch, Q, Sum
 from django.forms import inlineformset_factory
 from django.forms.models import model_to_dict
@@ -1859,19 +1859,32 @@ class ShiftUpdateView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Temp
         form = ShiftForm(self.request.POST, event=self.request.event, instance=self.shift)
         formset = ShiftRoleFormSet(self.request.POST, prefix="roles", instance=self.shift, form_kwargs={"event": self.request.event})
 
-        form_valid = form.is_valid()
-        formset_valid = formset.is_valid()
-
-        if form_valid and formset_valid:
+        try:
             with scope(event=request.event), transaction.atomic():
-                form.save()
-                formset.save()
-                messages.success(request, _("Shift updated successfully."))
-                return redirect("plugins:teamshifts:shift_edit", organizer=request.event.organizer.slug, event=request.event.slug, pk=self.shift.pk)
-        else:
-            messages.error(request, _("We could not save your changes. See below for details."))
-            ctx = self.get_context_data(form=form, formset=formset, has_locations=has_locations)
-            return self.render_to_response(ctx)
+                self.shift = Shift.objects.select_for_update().get(pk=self.shift.pk)
+                form.instance = self.shift
+                formset.instance = self.shift
+
+                form_valid = form.is_valid()
+                formset_valid = formset.is_valid()
+
+                if form_valid and formset_valid:
+                    form.save()
+                    formset.save()
+                    messages.success(request, _("Shift updated successfully."))
+                    return redirect("plugins:teamshifts:shift_edit", organizer=request.event.organizer.slug, event=request.event.slug, pk=self.shift.pk)
+                else:
+                    messages.error(request, _("We could not save your changes. See below for details."))
+                    ctx = self.get_context_data(form=form, formset=formset, has_locations=has_locations)
+                    return self.render_to_response(ctx)
+        except IntegrityError:
+            messages.error(request, _("We could not save your changes. Please try again."))
+            return redirect(
+                "plugins:teamshifts:shift_edit",
+                organizer=request.event.organizer.slug,
+                event=request.event.slug,
+                pk=self.shift.pk,
+            )
 
 
 class ShiftDeleteView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, DeleteView):

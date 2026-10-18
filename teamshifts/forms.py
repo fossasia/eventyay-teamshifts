@@ -758,9 +758,9 @@ class BaseShiftRoleFormSet(forms.BaseInlineFormSet):
         if not role_id:
             return form
 
-        total_forms = int(self.data.get(f"{self.prefix}-TOTAL_FORMS", 0))
+        total_forms = self.total_form_count()
 
-        for index in range(total_forms):
+        for index in range(min(total_forms, self.initial_form_count())):
             prefix = f"{self.prefix}-{index}"
 
             if not self.data.get(f"{prefix}-DELETE"):

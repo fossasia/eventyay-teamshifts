@@ -53,6 +53,24 @@ event_patterns = [
         name="public_shift_withdraw",
         require_live=False,
     ),
+    event_url(
+        r"^teamshifts/shifts/(?P<pk>\d+)/manage/$",
+        views.ShiftScheduleTalkAPIView.as_view(),
+        name="public_shift_manage",
+        require_live=False,
+    ),
+    event_url(
+        r"^teamshifts/shifts/assignments/$",
+        views.ShiftScheduleAssignmentsAPIView.as_view(),
+        name="public_shift_assignments",
+        require_live=False,
+    ),
+    event_url(
+        r"^teamshifts/shifts/members/$",
+        views.ShiftScheduleMembersAPIView.as_view(),
+        name="public_shift_members",
+        require_live=False,
+    ),
     path(
         "teamshifts/my-shifts/",
         views.MyShiftsView.as_view(),
@@ -162,6 +180,11 @@ urlpatterns = [
         name="shift_edit",
     ),
     path(
+        "teamshifts/event/<orgslug:organizer>/<slug:event>/shifts/<int:pk>/duplicate/",
+        views.ShiftDuplicateView.as_view(),
+        name="shift_duplicate",
+    ),
+    path(
         "teamshifts/event/<orgslug:organizer>/<slug:event>/shifts/bulk-delete/",
         views.BulkShiftDeleteView.as_view(),
         name="shift_bulk_delete",
@@ -205,6 +228,11 @@ urlpatterns = [
         "teamshifts/event/<orgslug:organizer>/<slug:event>/members/",
         views.MembersListView.as_view(),
         name="members",
+    ),
+    path(
+        "teamshifts/event/<orgslug:organizer>/<slug:event>/members/download/",
+        views.MembersExportView.as_view(),
+        name="members_download",
     ),
     path(
         "teamshifts/event/<orgslug:organizer>/<slug:event>/members/add/",

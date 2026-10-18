@@ -332,6 +332,11 @@ class TeamMemberApplication(models.Model):
         verbose_name=_("Added by organizer"),
         help_text=_("Whether this member was added directly by an organizer instead of applying through the public Call for Team Members."),
     )
+    shift_action_emails = models.BooleanField(
+        default=True,
+        verbose_name=_("Email on shift sign-up and drop"),
+        help_text=_("Whether the member gets an email when they sign up for or drop a shift on the shift schedule."),
+    )
     created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Applied At"))
     updated_at = models.DateTimeField(auto_now=True, verbose_name=_("Updated At"))
 
@@ -630,6 +635,8 @@ class EmailTemplateRoles(models.TextChoices):
     MEMBER_ADDED_BY_ORGANIZER = "teamshifts.member.added_by_organizer", _("Added as volunteer by organizer")
     SHIFT_ASSIGNED_BY_ORGANIZER = "teamshifts.shift.assigned_by_organizer", _("Shift assigned by organizer")
     SHIFT_CLAIMED_BY_VOLUNTEER = "teamshifts.shift.claimed_by_volunteer", _("Shift sign-up confirmation")
+    SHIFT_DROPPED_BY_VOLUNTEER = "teamshifts.shift.dropped_by_volunteer", _("Shift drop confirmation")
+    SHIFT_DROPPED_ORGANIZER = "teamshifts.shift.dropped_organizer", _("Shift dropped (organizer notification)")
     VOUCHER_SENT = "teamshifts.voucher.sent", _("Voucher sent to volunteer")
     CERTIFICATE_GENERATED = "teamshifts.certificate.generated", _("Certificate of participation generated")
 
@@ -808,7 +815,7 @@ class VolunteerVoucherSettings(models.Model):
         if not self.voucher_tag:
             return Voucher.objects.none()
         assigned_voucher_ids = MemberVoucher.objects.filter(
-            application__event=self.event,
+            event=self.event,
         ).values_list("voucher_id", flat=True)
         with scopes_disabled():
             return Voucher.objects.filter(
@@ -828,9 +835,18 @@ class VolunteerVoucherSettings(models.Model):
 
 
 class MemberVoucher(models.Model):
+    event = models.ForeignKey(
+        "base.Event",
+        on_delete=models.CASCADE,
+        related_name="teamshifts_member_vouchers",
+    )
+    # Kept (with application=NULL) when the application is deleted, so a code that
+    # was already emailed is never handed to another member.
     application = models.OneToOneField(
         TeamMemberApplication,
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
         related_name="voucher_assignment",
     )
     voucher = models.OneToOneField(
@@ -851,13 +867,15 @@ class MemberVoucher(models.Model):
     )
     created_at = models.DateTimeField(auto_now_add=True)
 
-    objects = ScopedManager(event="application__event")
+    objects = ScopedManager(event="event")
 
     class Meta:
         verbose_name = _("Member voucher")
         verbose_name_plural = _("Member vouchers")
 
     def __str__(self):
+        if self.application is None:
+            return f"(deleted member) → {self.voucher.code}"
         return f"{self.application.user.email} → {self.voucher.code}"
 
     def refresh_claimed_status(self) -> bool:

@@ -136,11 +136,23 @@ class TestResolveVolunteerApplication:
             from eventyay.base.models import Voucher
 
             voucher = Voucher.objects.create(event=event, code="VOLUNTEER-001")
-            MemberVoucher.objects.create(application=application, voucher=voucher)
+            MemberVoucher.objects.create(event=event, application=application, voucher=voucher)
 
         checkin = _make_checkin(event, voucher_id=voucher.pk)
         result = resolve_volunteer_application(checkin)
         assert result == application
+
+    @pytest.mark.django_db
+    def test_resolve_via_voucher_of_deleted_member_returns_none(self, event, volunteer, application):
+        with scopes_disabled():
+            from eventyay.base.models import Voucher
+
+            voucher = Voucher.objects.create(event=event, code="VOLUNTEER-002")
+            MemberVoucher.objects.create(event=event, application=application, voucher=voucher)
+            TeamMemberApplication.objects.filter(pk=application.pk).delete()
+
+        checkin = _make_checkin(event, voucher_id=voucher.pk)
+        assert resolve_volunteer_application(checkin) is None
 
     @pytest.mark.django_db
     def test_resolve_returns_none_for_unknown(self, event):

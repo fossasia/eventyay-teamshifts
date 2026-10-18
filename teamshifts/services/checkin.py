@@ -26,7 +26,7 @@ def resolve_volunteer_application(checkin):
                 pass
             else:
                 app = member_voucher.application
-                if app.event_id == event.pk and app.status == ApplicationStatus.ACCEPTED:
+                if app is not None and app.event_id == event.pk and app.status == ApplicationStatus.ACCEPTED:
                     return app
 
     email = position.attendee_email

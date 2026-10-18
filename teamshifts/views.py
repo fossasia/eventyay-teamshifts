@@ -2070,9 +2070,7 @@ class MembersListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Memb
             self.request.event,
             request=self.request,
         ):
-            self.sortable_fields = tuple(
-                field for field in sortable_fields if field != "user__email"
-            )
+            self.sortable_fields = tuple(field for field in sortable_fields if field != "user__email")
         try:
             return super().sort_queryset(qs)
         finally:

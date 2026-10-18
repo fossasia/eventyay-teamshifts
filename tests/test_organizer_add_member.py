@@ -540,9 +540,8 @@ def test_members_sorting(client, event, orga_user, django_user_model, sort, expe
 
     assert actual_first == expected_first
 
-def test_members_role_filter_preserves_all_assignment_aggregates(
-    client, event, orga_user, django_user_model, settings
-):
+
+def test_members_role_filter_preserves_all_assignment_aggregates(client, event, orga_user, django_user_model, settings):
     settings.SITE_URL = "https://testserver"
     with scope(event=event):
         member = django_user_model.objects.create_user(
@@ -601,6 +600,7 @@ def test_members_role_filter_preserves_all_assignment_aggregates(
     assert members[0].user == member
     assert members[0].shifts_assigned == 2
     assert members[0].hours_scheduled == timedelta(hours=4)
+
 
 @pytest.mark.django_db
 def test_bulk_vouchers_preserves_filters_and_sort(client, event, orga_user, django_user_model):

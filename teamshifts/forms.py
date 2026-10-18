@@ -748,6 +748,36 @@ class BaseShiftRoleFormSet(forms.BaseInlineFormSet):
     def validate_unique(self):
         pass
 
+    def _construct_form(self, i, **kwargs):
+        form = super()._construct_form(i, **kwargs)
+
+        if not self.is_bound or form.instance.pk:
+            return form
+
+        role_id = form.data.get(form.add_prefix("role"))
+        if not role_id:
+            return form
+
+        total_forms = int(self.data.get(f"{self.prefix}-TOTAL_FORMS", 0))
+
+        for index in range(total_forms):
+            prefix = f"{self.prefix}-{index}"
+
+            if not self.data.get(f"{prefix}-DELETE"):
+                continue
+
+            assignment_id = self.data.get(f"{prefix}-id")
+            if not assignment_id:
+                continue
+
+            assignment = self.get_queryset().filter(pk=assignment_id).first()
+
+            if assignment and str(assignment.role_id) == str(role_id):
+                form._allow_deleted_role_readdition = True
+                break
+
+        return form
+
     def clean(self):
         super().clean()
         if any(self.errors):
@@ -798,6 +828,14 @@ class ShiftRoleAssignmentForm(forms.ModelForm):
 
             with scopes_disabled():
                 self.fields["role"].queryset = TeamRole.objects.filter(event=event)
+
+    def _get_validation_exclusions(self):
+        exclude = super()._get_validation_exclusions()
+
+        if getattr(self, "_allow_deleted_role_readdition", False):
+            exclude.add("role")
+
+        return exclude
 
 
 class CertificateSettingsForm(forms.ModelForm):

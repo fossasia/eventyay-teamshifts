@@ -32,6 +32,7 @@
         <th>{% trans "Subject" %}</th>
         <th>{% trans "Filters" %}</th>
         <th>{% trans "Recipients" %}</th>
+        <th>{% trans "Scheduled for" %}</th>
         <th>{% trans "Last edited" %}</th>
         <th>{% trans "Actions" %}</th>
       </tr>
@@ -58,6 +59,13 @@
               {{ count }} recipients
             {% endblocktrans %}
           </td>
+          <td>
+            {% if mail.send_after %}
+              {{ mail.send_after|date:"SHORT_DATETIME_FORMAT" }}
+            {% else %}
+              <span class='text-muted'>{% trans "Immediate / Not scheduled" %}</span>
+            {% endif %}
+          </td>
           <td>{{ mail.updated|date:"SHORT_DATETIME_FORMAT" }}</td>
           <td>
             <div class='btn-toolbar' role='toolbar'>
@@ -78,7 +86,7 @@
         </tr>
       {% empty %}
         <tr>
-          <td colspan='5' class='text-muted'>{% trans "No drafts." %}</td>
+          <td colspan='6' class='text-muted'>{% trans "No drafts." %}</td>
         </tr>
       {% endfor %}
     </tbody>

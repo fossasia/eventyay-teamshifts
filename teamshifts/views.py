@@ -1861,7 +1861,15 @@ class ShiftUpdateView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Temp
 
         try:
             with scope(event=request.event), transaction.atomic():
-                self.shift = Shift.objects.select_for_update().get(pk=self.shift.pk)
+                try:
+                    self.shift = Shift.objects.select_for_update().get(pk=self.shift.pk)
+                except Shift.DoesNotExist:
+                    messages.error(request, _("This shift no longer exists."))
+                    return redirect(
+                        "plugins:teamshifts:shifts",
+                        organizer=request.event.organizer.slug,
+                        event=request.event.slug,
+                    )
                 form.instance = self.shift
                 formset.instance = self.shift
 

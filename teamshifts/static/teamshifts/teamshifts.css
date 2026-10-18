@@ -98,7 +98,11 @@ label .optional {
 
 .teamshifts-filter-bar {
     margin-bottom: 1em;
-    overflow: hidden;
+}
+
+.teamshifts-download-dropdown {
+    display: inline-block;
+    vertical-align: top;
 }
 
 .teamshifts-select-all-col {
@@ -388,4 +392,7 @@ label .optional {
 /* The hint's display value would otherwise override the [hidden] attribute the JS toggles. */
 .ts-send-vouchers-hint[hidden] {
   display: none;
+}
+.ts-voucher-sent-date {
+  display: block;
 }

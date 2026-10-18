@@ -1,11 +1,15 @@
+from datetime import datetime
 from html.parser import HTMLParser
+from unittest.mock import patch
 
 import pytest
+from bs4 import BeautifulSoup
 from django.urls import reverse
 from django_scopes import scope, scopes_disabled
 from eventyay.base.models import Team, Voucher
 
-from teamshifts.models import ApplicationStatus, MemberVoucher, TeamMemberApplication, VolunteerVoucherSettings, VoucherStatus
+from teamshifts.models import ApplicationStatus, CallForTeamMembers, MemberVoucher, TeamMemberApplication, VolunteerVoucherSettings, VoucherStatus
+from teamshifts.services.vouchers import allocate_and_send_vouchers
 
 VOUCHER_TAG = "volunteer-batch"
 
@@ -202,8 +206,8 @@ def test_members_voucher_filter(orga_client, event, django_user_model):
         for name in ("not-sent", "sent", "claimed"):
             user = django_user_model.objects.create_user(email=f"{name}@example.com", password="x")
             apps[name] = TeamMemberApplication.objects.create(event=event, user=user, status=ApplicationStatus.ACCEPTED)
-        MemberVoucher.objects.create(application=apps["sent"], voucher=sent_voucher, status=VoucherStatus.SENT)
-        MemberVoucher.objects.create(application=apps["claimed"], voucher=claimed_voucher, status=VoucherStatus.SENT)
+        MemberVoucher.objects.create(event=event, application=apps["sent"], voucher=sent_voucher, status=VoucherStatus.SENT)
+        MemberVoucher.objects.create(event=event, application=apps["claimed"], voucher=claimed_voucher, status=VoucherStatus.SENT)
         claimed_voucher.redeemed = 1
         claimed_voucher.save(update_fields=["redeemed"])
 
@@ -226,3 +230,108 @@ def test_members_voucher_filter_ignored_when_vouchers_disabled(orga_client, even
 
     assert [m.pk for m in response.context["members"]] == [app.pk]
     assert "name='voucher'" not in response.content.decode("utf-8")
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("status", "sent_at", "expected"),
+    [
+        (VoucherStatus.SENT, "2026-10-09T13:30:00+00:00", "Sent 9 Oct"),
+        (VoucherStatus.SENT, "2025-12-12T13:30:00+00:00", "Sent 12 Dec 2025"),
+        (VoucherStatus.SENT, None, None),
+        (VoucherStatus.NOT_SENT, "2026-10-09T13:30:00+00:00", None),
+        (VoucherStatus.CLAIMED, "2026-10-09T13:30:00+00:00", None),
+    ],
+)
+def test_members_voucher_sent_date(orga_client, event, user, status, sent_at, expected):
+    event.timezone = "Asia/Kolkata"
+    event.save(update_fields=["timezone"])
+    _make_settings(event)
+    voucher = _make_batch(event, count=1)[0]
+    with scopes_disabled():
+        application = TeamMemberApplication.objects.create(event=event, user=user, status=ApplicationStatus.ACCEPTED)
+        MemberVoucher.objects.create(
+            event=event,
+            application=application,
+            voucher=voucher,
+            status=status,
+            sent_at=datetime.fromisoformat(sent_at) if sent_at else None,
+        )
+    with patch("django.template.defaulttags.datetime") as clock:
+        clock.now.return_value = datetime.fromisoformat("2026-10-14T12:00:00+00:00")
+        response = orga_client.get(_members_url(event))
+    assert response.status_code == 200
+    soup = BeautifulSoup(response.content, "html.parser")
+    badge = soup.select_one(".label-info, .label-success, .label-default")
+    assert badge is not None
+    date = badge.find_next_sibling("small")
+    if expected is None:
+        assert date is None
+    else:
+        assert date is not None
+        assert date.get_text(strip=True) == expected
+        assert date["title"] == ("9 Oct 2026 19:00 IST" if "2026" in sent_at else "12 Dec 2025 19:00 IST")
+
+
+@pytest.mark.django_db
+def test_members_voucher_sent_date_updates_after_resending(orga_client, event, user):
+    event.timezone = "Asia/Kolkata"
+    event.save(update_fields=["timezone"])
+    settings = _make_settings(event)
+    voucher = _make_batch(event, count=1)[0]
+    with scopes_disabled():
+        CallForTeamMembers.objects.create(event=event, active=True)
+        application = TeamMemberApplication.objects.create(event=event, user=user, status=ApplicationStatus.ACCEPTED)
+        MemberVoucher.objects.create(
+            event=event,
+            application=application,
+            voucher=voucher,
+            status=VoucherStatus.SENT,
+            sent_at=datetime.fromisoformat("2026-10-09T13:30:00+00:00"),
+        )
+    sent_at = datetime.fromisoformat("2026-10-14T13:30:00+00:00")
+    with (
+        patch("teamshifts.services.vouchers._send_voucher_email", return_value=True),
+        patch(
+            "teamshifts.services.vouchers.now",
+            return_value=sent_at,
+        ),
+    ):
+        result = allocate_and_send_vouchers(event, settings, [application])
+    assert result["resent"] == 1
+    with patch("django.template.defaulttags.datetime") as clock:
+        clock.now.return_value = sent_at
+        response = orga_client.get(_members_url(event))
+    date = BeautifulSoup(response.content, "html.parser").select_one(".ts-voucher-sent-date")
+    assert date.get_text(strip=True) == "Sent 14 Oct"
+    assert date["title"] == "14 Oct 2026 19:00 IST"
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("sent_at", "expected", "tooltip"),
+    [
+        ("2026-12-31T20:00:00+00:00", "Sent 1 Jan", "1 Jan 2027 01:30 IST"),
+        ("2026-12-31T17:00:00+00:00", "Sent 31 Dec 2026", "31 Dec 2026 22:30 IST"),
+    ],
+)
+def test_members_voucher_sent_date_uses_event_local_year(orga_client, event, user, sent_at, expected, tooltip):
+    event.timezone = "Asia/Kolkata"
+    event.save(update_fields=["timezone"])
+    _make_settings(event)
+    voucher = _make_batch(event, count=1)[0]
+    with scopes_disabled():
+        application = TeamMemberApplication.objects.create(event=event, user=user, status=ApplicationStatus.ACCEPTED)
+        MemberVoucher.objects.create(
+            event=event,
+            application=application,
+            voucher=voucher,
+            status=VoucherStatus.SENT,
+            sent_at=datetime.fromisoformat(sent_at),
+        )
+    with patch("django.template.defaulttags.datetime") as clock:
+        clock.now.side_effect = lambda tz: datetime.fromisoformat("2026-12-31T20:30:00+00:00").astimezone(tz)
+        response = orga_client.get(_members_url(event))
+    date = BeautifulSoup(response.content, "html.parser").select_one(".ts-voucher-sent-date")
+    assert date.get_text(strip=True) == expected
+    assert date["title"] == tooltip

@@ -2,6 +2,7 @@
 {% load i18n %}
 {% load bootstrap3 %}
 {% load static %}
+{% load tz %}
 
 {% block custom_header %}
   {{ block.super }}
@@ -47,6 +48,21 @@
     </form>
 
     <div class='pull-right'>
+      {% if can_download_members %}
+        <details class='dropdown teamshifts-download-dropdown'>
+          <summary class='btn btn-default'>
+            <i class='fa fa-download'></i> {% trans 'Download' %} <i class='fa fa-caret-down'></i>
+          </summary>
+          <div class='dropdown-content dropdown-front dropdown-content-sw'>
+            <a class='dropdown-item' href='{{ download_xlsx_url }}'>
+              <i class='fa fa-file-excel-o'></i> {% trans 'Excel (.xlsx)' %}
+            </a>
+            <a class='dropdown-item' href='{{ download_csv_url }}'>
+              <i class='fa fa-file-text-o'></i> {% trans 'CSV' %}
+            </a>
+          </div>
+        </details>
+      {% endif %}
       {% if vouchers_enabled %}
         <button type='button' class='btn btn-primary' id='bulk-send-btn'
           {% if voucher_batch_empty %}title='{% trans "Voucher batch is empty — only resends are possible. Add more codes in Tickets → Vouchers." %}'{% endif %}>
@@ -148,6 +164,18 @@
                         <span class='label label-success'>{% trans 'Claimed' %}</span>
                       {% elif va.status == 'sent' %}
                         <span class='label label-info'>{% trans 'Sent — not claimed' %}</span>
+                        {% if va.sent_at %}
+                          {% timezone request.event.timezone %}
+                            {% now 'Y' as current_year %}
+                            <small class='text-muted ts-voucher-sent-date' title='{{ va.sent_at|date:"j M Y H:i T" }}' data-toggle='tooltip'>
+                              {% if va.sent_at|date:'Y' == current_year %}
+                                {% blocktrans trimmed with sent=va.sent_at|date:'j M' %}Sent {{ sent }}{% endblocktrans %}
+                              {% else %}
+                                {% blocktrans trimmed with sent=va.sent_at|date:'j M Y' %}Sent {{ sent }}{% endblocktrans %}
+                              {% endif %}
+                            </small>
+                          {% endtimezone %}
+                        {% endif %}
                       {% else %}
                         <span class='label label-default'>{% trans 'Not sent' %}</span>
                       {% endif %}

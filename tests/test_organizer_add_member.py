@@ -540,6 +540,67 @@ def test_members_sorting(client, event, orga_user, django_user_model, sort, expe
 
     assert actual_first == expected_first
 
+def test_members_role_filter_preserves_all_assignment_aggregates(
+    client, event, orga_user, django_user_model, settings
+):
+    settings.SITE_URL = "https://testserver"
+    with scope(event=event):
+        member = django_user_model.objects.create_user(
+            email="multi-role@example.com",
+            password="x",
+            fullname="Multi Role Member",
+        )
+        TeamMemberApplication.objects.create(
+            event=event,
+            user=member,
+            status=ApplicationStatus.ACCEPTED,
+        )
+
+        role_a = TeamRole.objects.create(event=event, name="Registration")
+        role_b = TeamRole.objects.create(event=event, name="Logistics")
+
+        start = now()
+        shift_a = Shift.objects.create(
+            event=event,
+            name="Registration Shift",
+            start_time=start,
+            end_time=start + timedelta(hours=1),
+        )
+        shift_b = Shift.objects.create(
+            event=event,
+            name="Logistics Shift",
+            start_time=start + timedelta(hours=2),
+            end_time=start + timedelta(hours=5),
+        )
+
+        ShiftAssignment.objects.create(
+            shift=shift_a,
+            team_member=member,
+            role=role_a,
+        )
+        ShiftAssignment.objects.create(
+            shift=shift_b,
+            team_member=member,
+            role=role_b,
+        )
+
+    client.force_login(orga_user)
+
+    url = reverse(
+        "plugins:teamshifts:members",
+        kwargs={
+            "organizer": event.organizer.slug,
+            "event": event.slug,
+        },
+    )
+    response = client.get(url, {"role": str(role_a.pk)})
+
+    assert response.status_code == 200
+    members = list(response.context["members"])
+    assert len(members) == 1
+    assert members[0].user == member
+    assert members[0].shifts_assigned == 2
+    assert members[0].hours_scheduled == timedelta(hours=4)
 
 @pytest.mark.django_db
 def test_bulk_vouchers_preserves_filters_and_sort(client, event, orga_user, django_user_model):

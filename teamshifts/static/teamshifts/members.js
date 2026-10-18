@@ -159,6 +159,12 @@ async function loadMembers(url, updateHistory = true) {
 
         currentList.replaceWith(updatedList);
 
+        const sortInput = document.querySelector('input[name="sort"]');
+        if (sortInput) {
+            const params = new URL(url, window.location.origin).searchParams;
+            sortInput.value = params.get("sort") || "display_name_sort";
+        }
+
         if (updateHistory) {
             window.history.pushState({}, "", url);
         }

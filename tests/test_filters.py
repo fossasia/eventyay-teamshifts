@@ -1,6 +1,7 @@
 from datetime import timedelta
 
 import pytest
+from django.db.models import Count
 from django.utils.timezone import now
 from django_scopes import scope
 
@@ -209,3 +210,46 @@ def test_email_queue_filter(event, role_a, role_b, django_user_model):
         form = TeamShiftsEmailFilterForm({"role": role_a.pk}, event=event, date_field="created")
         assert form.is_valid()
         assert list(form.filter_qs(qs)) == [q1]
+
+        form_hidden = TeamShiftsEmailFilterForm({"query": "volunteer2@test.com"}, event=event, date_field="created", hide_emails=True)
+        assert form_hidden.is_valid()
+        assert not list(form_hidden.filter_qs(qs))
+
+        form_hidden_subject = TeamShiftsEmailFilterForm({"query": "Urgent"}, event=event, date_field="created", hide_emails=True)
+        assert form_hidden_subject.is_valid()
+        assert list(form_hidden_subject.filter_qs(qs)) == [q2]
+
+
+@pytest.mark.django_db
+def test_email_queue_filter_subquery_does_not_inflate_recipient_count(event, django_user_model):
+    with scope(event=event):
+        sender = django_user_model.objects.create_user(email="sender@test.com")
+        queue = TeamShiftsEmailQueue.objects.create(event=event, user=sender, subject="Announcement", message="Hello")
+        TeamShiftsEmailQueueRecipient.objects.create(queue=queue, email="recip1@test.com")
+        TeamShiftsEmailQueueRecipient.objects.create(queue=queue, email="recip2@test.com")
+
+        qs = TeamShiftsEmailQueue.objects.filter(event=event).annotate(recipient_count=Count("recipients"))
+        form = TeamShiftsEmailFilterForm({"query": "Announcement"}, event=event, date_field="created")
+        assert form.is_valid()
+        results = list(form.filter_qs(qs))
+        assert len(results) == 1
+        assert results[0].recipient_count == 2
+
+
+@pytest.mark.django_db
+def test_member_filter_role_subquery_does_not_inflate_shift_counts(event, django_user_model, role_a, location_a):
+    with scope(event=event):
+        member_user = django_user_model.objects.create_user(email="member@test.com", fullname="Member Multi")
+        app = TeamMemberApplication.objects.create(event=event, user=member_user, status=ApplicationStatus.ACCEPTED)
+        shift1 = Shift.objects.create(event=event, name="Shift 1", location=location_a, start_time=now(), end_time=now() + timedelta(hours=1))
+        shift2 = Shift.objects.create(event=event, name="Shift 2", location=location_a, start_time=now(), end_time=now() + timedelta(hours=2))
+        ShiftAssignment.objects.create(shift=shift1, team_member=member_user, role=role_a)
+        ShiftAssignment.objects.create(shift=shift2, team_member=member_user, role=role_a)
+
+        qs = TeamMemberApplication.objects.filter(event=event, status=ApplicationStatus.ACCEPTED).annotate(shifts_assigned=Count("user__shift_assignments"))
+        form = MemberFilterForm({"role": role_a.pk}, event=event)
+        assert form.is_valid()
+        results = list(form.filter_qs(qs))
+        assert len(results) == 1
+        assert results[0] == app
+        assert results[0].shifts_assigned == 2

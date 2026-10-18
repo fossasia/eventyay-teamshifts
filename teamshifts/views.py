@@ -1249,10 +1249,12 @@ class EmailOutboxView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Filt
     context_object_name = "mails"
 
     def build_filter_form(self):
+        can_view_email = can_view_email_addresses(self.request.user, self.request.organizer, self.request.event, request=self.request)
         return TeamShiftsEmailFilterForm(
             self.request.GET,
             event=self.request.event,
             date_field="created",
+            hide_emails=not can_view_email,
         )
 
     def get_queryset(self):
@@ -1278,10 +1280,12 @@ class EmailSentView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Filter
     context_object_name = "mails"
 
     def build_filter_form(self):
+        can_view_email = can_view_email_addresses(self.request.user, self.request.organizer, self.request.event, request=self.request)
         return TeamShiftsEmailFilterForm(
             self.request.GET,
             event=self.request.event,
             date_field="sent_at",
+            hide_emails=not can_view_email,
         )
 
     def get_queryset(self):

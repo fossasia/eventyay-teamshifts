@@ -9,6 +9,7 @@ from eventyay.control.forms.filter import FilterForm
 
 from .models import (
     ApplicationStatus,
+    ShiftAssignment,
     ShiftLocation,
     TeamRole,
     VoucherStatus,
@@ -128,12 +129,12 @@ class ApplicationFilterForm(TeamShiftsFilterForm):
         if fdata.get("status"):
             queryset = queryset.filter(status=fdata["status"])
 
-        if fdata.get("role"):
-            role = fdata["role"]
-            queryset = queryset.filter(
-                user__shift_assignments__role=role,
-                user__shift_assignments__shift__event=self.event,
-            ).distinct()
+        if role := fdata.get("role"):
+            matching_users = ShiftAssignment.objects.filter(
+                role=role,
+                shift__event=self.event,
+            ).values("team_member_id")
+            queryset = queryset.filter(user_id__in=matching_users)
 
         return self.apply_ordering(queryset)
 
@@ -216,12 +217,12 @@ class MemberFilterForm(TeamShiftsFilterForm):
                 lookup |= Q(user__email__icontains=query)
             queryset = queryset.filter(lookup)
 
-        if fdata.get("role"):
-            role = fdata["role"]
-            queryset = queryset.filter(
-                user__shift_assignments__role=role,
-                user__shift_assignments__shift__event=self.event,
-            ).distinct()
+        if role := fdata.get("role"):
+            matching_users = ShiftAssignment.objects.filter(
+                role=role,
+                shift__event=self.event,
+            ).values("team_member_id")
+            queryset = queryset.filter(user_id__in=matching_users)
 
         voucher_status = fdata.get("voucher")
         if self.vouchers_enabled and voucher_status in VoucherStatus.values:
@@ -309,7 +310,7 @@ class TeamShiftsEmailFilterForm(TeamShiftsFilterForm):
         widget=search_widget(_("Search by subject or recipient…"), _("Search emails")),
         required=False,
     )
-    role = forms.ModelChoiceField(
+    role = LenientModelChoiceField(
         label=_("Role"),
         queryset=TeamRole.objects.none(),
         required=False,
@@ -326,9 +327,10 @@ class TeamShiftsEmailFilterForm(TeamShiftsFilterForm):
         widget=DatePickerWidget(attrs={"placeholder": _("End date")}),
     )
 
-    def __init__(self, *args, event=None, date_field="created", **kwargs):
+    def __init__(self, *args, event=None, date_field="created", hide_emails=False, **kwargs):
         self.event = event
         self.date_field = date_field
+        self.hide_emails = hide_emails
         self.default_order = f"-{date_field}"
         self.orders = {
             "subject": "subject",
@@ -337,15 +339,26 @@ class TeamShiftsEmailFilterForm(TeamShiftsFilterForm):
         super().__init__(*args, **kwargs)
         if event:
             self.fields["role"].queryset = TeamRole.objects.filter(event=event)
+        if hide_emails:
+            self.fields["query"].widget.attrs.update(
+                {
+                    "placeholder": _("Search by subject…"),
+                    "aria-label": _("Search emails by subject"),
+                }
+            )
 
     def filter_qs(self, queryset):
         fdata = self.cleaned_data
 
         if query := (fdata.get("query") or "").strip():
-            queryset = queryset.filter(Q(subject__icontains=query) | Q(recipients__email__icontains=query)).distinct()
+            if self.hide_emails:
+                queryset = queryset.filter(subject__icontains=query)
+            else:
+                recipient_matches = queryset.model.objects.filter(recipients__email__icontains=query).values("pk")
+                queryset = queryset.filter(Q(subject__icontains=query) | Q(pk__in=recipient_matches))
 
-        if fdata.get("role"):
-            queryset = queryset.filter(role_filter=fdata["role"])
+        if role := fdata.get("role"):
+            queryset = queryset.filter(role_filter=role)
 
         tz = getattr(self.event, "tz", None) or timezone.get_current_timezone()
         if fdata.get("date_from"):

@@ -1,4 +1,3 @@
-
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -6,14 +5,12 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_add_role_supports_zero_existing_rows():
     """Adding a role must work when every existing role row has been removed."""
-    javascript = (
-        ROOT / "teamshifts/static/teamshifts/shift_role_formset.js"
-    ).read_text()
+    javascript = (ROOT / "teamshifts/static/teamshifts/shift_role_formset.js").read_text()
 
     assert 'document.getElementById("role-form-template")' in javascript
     assert "const templateRow = rowTemplate?.content.firstElementChild;" in javascript
-    assert "const newRow = lastRow" in javascript
-    assert ": templateRow?.cloneNode(true);" in javascript
+    assert 'const fallbackRow = rolesBody.querySelector(".role-form-row")?.cloneNode(true);' in javascript
+    assert "const newRow = templateRow?.cloneNode(true) || fallbackRow?.cloneNode(true);" in javascript
     assert "totalFormsInput.value = formCount + 1;" in javascript
 
 

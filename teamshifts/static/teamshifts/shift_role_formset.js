@@ -11,15 +11,13 @@ export function setupDynamicFormset() {
         return;
     }
 
+    const fallbackRow = rolesBody.querySelector(".role-form-row")?.cloneNode(true);
+
     addRoleBtn.addEventListener("click", () => {
         const formCount = parseInt(totalFormsInput.value, 10) || 0;
-        const rows = rolesBody.querySelectorAll(".role-form-row");
-        const lastRow = rows[rows.length - 1];
 
         const templateRow = rowTemplate?.content.firstElementChild;
-        const newRow = lastRow
-            ? lastRow.cloneNode(true)
-            : templateRow?.cloneNode(true);
+        const newRow = templateRow?.cloneNode(true) || fallbackRow?.cloneNode(true);
 
         if (!newRow) {
             return;

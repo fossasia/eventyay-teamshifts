@@ -15,7 +15,7 @@ from django.db import transaction
 from django.db.models import Count, DurationField, ExpressionWrapper, F, Max, Prefetch, Q, Sum
 from django.forms import inlineformset_factory
 from django.forms.models import model_to_dict
-from django.http import FileResponse, Http404, HttpResponse, HttpResponseBadRequest, JsonResponse
+from django.http import FileResponse, Http404, HttpResponse, HttpResponseBadRequest, HttpResponseRedirect, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.decorators import method_decorator
@@ -25,7 +25,7 @@ from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.timezone import now
 from django.utils.translation import get_language, get_language_info, gettext_lazy as _, ngettext
 from django.views.decorators.csrf import ensure_csrf_cookie
-from django.views.generic import DeleteView, FormView, ListView, TemplateView, View
+from django.views.generic import DeleteView, FormView, ListView, RedirectView, TemplateView, View
 from django_scopes import scope, scopes_disabled
 from eventyay.base.i18n import LazyI18nString, language
 from eventyay.base.models import Event, User
@@ -3340,58 +3340,41 @@ def _notify_organizers_new_application(event, application):
     )
 
 
-class MyShiftsView(PublicShiftScheduleMixin, TemplateView):
-    template_name = "teamshifts/my_shifts.html"
-    redirect_unpublished_to_schedule = False
-    allow_teamshifts_managers = True
+class MyShiftsRedirectView(RedirectView):
+    permanent = False
+    query_string = True
 
-    def get_context_data(self, **kwargs):
-        ctx = super().get_context_data(**kwargs)
-        event = self.event
-        with scopes_disabled():
-            assignments = (
-                ShiftAssignment.objects.filter(
-                    team_member=self.request.user,
-                    shift__event=event,
-                    shift__event__plugins__contains="teamshifts",
-                )
-                .select_related(
-                    "shift",
-                    "shift__event",
-                    "shift__event__organizer",
-                    "shift__location",
-                    "role",
-                    "assigned_by",
-                )
-                .order_by("shift__start_time")
-            )
-        shifts_by_day = defaultdict(list)
-        for assignment in assignments:
-            local_start = assignment.shift.start_time.astimezone(assignment.shift.event.tz)
-            day = local_start.date()
-            shifts_by_day[day].append(assignment)
-        ctx["shifts_by_day"] = dict(shifts_by_day)
-        ctx["event"] = event
-        ctx["now"] = now()
-        return ctx
+    def get_redirect_url(self, *args, **kwargs):
+        url = reverse("plugins:teamshifts:my_shifts_global")
+        query = self.request.META.get("QUERY_STRING", "")
+        if query and self.query_string:
+            url = f"{url}?{query}"
+        return url
 
 
-class ShiftCheckOutView(PublicShiftScheduleMixin, View):
-    redirect_unpublished_to_schedule = False
+class ShiftCheckOutRedirectView(View):
+    def dispatch(self, request, *args, **kwargs):
+        if request.method == "POST":
+            url = reverse("plugins:teamshifts:shift_checkout", kwargs={"pk": kwargs["pk"]})
+            response = HttpResponseRedirect(url)
+            response.status_code = 307
+            return response
+        return redirect("plugins:teamshifts:my_shifts_global")
 
+
+class ShiftCheckOutView(LoginRequiredMixin, View):
     def post(self, request, *args, **kwargs):
-        event = self.event
         assignment_pk = kwargs["pk"]
 
-        with scope(event=event), transaction.atomic():
+        with scopes_disabled(), transaction.atomic():
             assignment = (
                 ShiftAssignment.objects.select_for_update()
                 .filter(
                     pk=assignment_pk,
                     team_member=request.user,
-                    shift__event=event,
+                    shift__event__plugins__contains="teamshifts",
                 )
-                .select_related("shift")
+                .select_related("shift", "shift__event")
                 .first()
             )
 

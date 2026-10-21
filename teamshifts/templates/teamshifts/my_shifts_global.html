@@ -143,7 +143,7 @@
                 <td data-label="{% translate 'Actions' %}">
                   {% if assignment.started_at and not assignment.ended_at %}
                     <form method="post"
-                          action="{% url 'plugins:teamshifts:shift_checkout' organizer=event.organizer.slug event=event.slug pk=assignment.pk %}"
+                          action="{% url 'plugins:teamshifts:shift_checkout' pk=assignment.pk %}"
                           class="shift-checkout-form">
                       {% csrf_token %}
                       <button type="submit" class="btn btn-warning btn-xs">

@@ -71,14 +71,16 @@ event_patterns = [
         name="public_shift_members",
         require_live=False,
     ),
-    path(
-        "teamshifts/my-shifts/",
+    event_url(
+        r"^teamshifts/my-shifts/$",
         views.MyShiftsRedirectView.as_view(),
         name="my_shifts",
+        require_live=False,
     ),
-    path(
-        "teamshifts/my-shifts/<int:pk>/checkout/",
+    event_url(
+        r"^teamshifts/my-shifts/(?P<pk>\d+)/checkout/$",
         views.ShiftCheckOutRedirectView.as_view(),
+        require_live=False,
     ),
 ]
 

@@ -129,6 +129,20 @@ def build_shift_role_formset(extra=1):
 ShiftRoleFormSet = build_shift_role_formset()
 
 
+def get_safe_next_url(request, fallback_url):
+    next_url = request.GET.get("next") or request.POST.get("next")
+    return (
+        next_url
+        if next_url
+        and url_has_allowed_host_and_scheme(
+            url=next_url,
+            allowed_hosts={request.get_host()},
+            require_https=request.is_secure(),
+        )
+        else fallback_url
+    )
+
+
 class PluginActiveMixin:
     def dispatch(self, request, *args, **kwargs):
         if "teamshifts" not in request.event.get_plugins():
@@ -900,11 +914,8 @@ class ApplicationStatusView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin
                 else:
                     messages.success(request, _("Application status updated to %s.") % application.get_status_display())
 
-            next_url = request.GET.get("next") or request.POST.get("next")
-            if next_url and url_has_allowed_host_and_scheme(url=next_url, allowed_hosts={request.get_host()}):
-                return redirect(next_url)
-
-        return redirect(reverse("plugins:teamshifts:applications", kwargs={"organizer": event.organizer.slug, "event": event.slug}))
+            fallback_url = reverse("plugins:teamshifts:applications", kwargs={"organizer": event.organizer.slug, "event": event.slug})
+            return redirect(get_safe_next_url(request, fallback_url))
 
 
 class BulkApplicationStatusView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):
@@ -914,8 +925,7 @@ class BulkApplicationStatusView(PluginActiveMixin, TeamShiftsPermissionRequiredM
         event = request.event
         with scope(event=event):
             fallback_url = reverse("plugins:teamshifts:applications", kwargs={"organizer": event.organizer.slug, "event": event.slug})
-            next_url = request.GET.get("next") or request.POST.get("next")
-            redirect_url = next_url if next_url and url_has_allowed_host_and_scheme(url=next_url, allowed_hosts={request.get_host()}) else fallback_url
+            redirect_url = get_safe_next_url(request, fallback_url)
 
             action = request.POST.get("action")
             if action not in ("accept", "reject"):
@@ -1830,8 +1840,7 @@ class BulkShiftDeleteView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, 
                 "plugins:teamshifts:shifts",
                 kwargs={"organizer": event.organizer.slug, "event": event.slug},
             )
-            next_url = request.GET.get("next") or request.POST.get("next")
-            redirect_url = next_url if next_url and url_has_allowed_host_and_scheme(url=next_url, allowed_hosts={request.get_host()}) else fallback_url
+            redirect_url = get_safe_next_url(request, fallback_url)
 
             shift_ids = [int(v) for v in request.POST.getlist("shift_ids") if str(v).strip().isdigit()]
             if not shift_ids:
@@ -3701,12 +3710,8 @@ class BulkSendVouchersView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin,
         else:
             messages.warning(request, summary)
 
-        next_url = request.GET.get("next") or request.POST.get("next")
-        if next_url and url_has_allowed_host_and_scheme(url=next_url, allowed_hosts={request.get_host()}):
-            return redirect(next_url)
-
-        return redirect(
+        fallback_url = reverse(
             "plugins:teamshifts:members",
-            organizer=request.organizer.slug,
-            event=event.slug,
+            kwargs={"organizer": request.organizer.slug, "event": event.slug},
         )
+        return redirect(get_safe_next_url(request, fallback_url))

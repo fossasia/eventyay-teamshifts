@@ -170,3 +170,50 @@ def test_bulk_action_redirect_preserves_next_url(orga_client, event, test_data):
     )
     assert resp.status_code == 302
     assert resp["Location"] == next_page
+
+
+@pytest.mark.django_db
+def test_bulk_action_redirect_rejects_unsafe_next_url(orga_client, event, test_data):
+    bulk_url = reverse("plugins:teamshifts:application_bulk_action", kwargs={"organizer": event.organizer.slug, "event": event.slug})
+    fallback = reverse("plugins:teamshifts:applications", kwargs={"organizer": event.organizer.slug, "event": event.slug})
+
+    resp = orga_client.post(
+        bulk_url,
+        {
+            "application_ids": [test_data["app2"].pk],
+            "action": "accept",
+            "next": "https://malicious.example.com/steal-creds",
+        },
+    )
+    assert resp.status_code == 302
+    assert resp["Location"] == fallback
+
+
+def test_get_safe_next_url_helper(rf):
+    from teamshifts.views import get_safe_next_url
+
+    fallback = "/fallback/path/"
+
+    # Empty next returns fallback
+    req_empty = rf.get("/current/")
+    assert get_safe_next_url(req_empty, fallback) == fallback
+
+    # Relative next URL is allowed
+    req_rel = rf.get("/current/?next=/allowed/path/?foo=bar")
+    assert get_safe_next_url(req_rel, fallback) == "/allowed/path/?foo=bar"
+
+    # POST next parameter is also read
+    req_post = rf.post("/current/", {"next": "/from/post/"})
+    assert get_safe_next_url(req_post, fallback) == "/from/post/"
+
+    # External domain is rejected
+    req_ext = rf.get("/current/?next=https://evil.com/phish")
+    assert get_safe_next_url(req_ext, fallback) == fallback
+
+    # HTTP scheme on an HTTPS request is rejected
+    req_https = rf.get("/current/?next=http://testserver/safe/", secure=True)
+    assert get_safe_next_url(req_https, fallback) == fallback
+
+    # HTTPS scheme on HTTPS request with allowed host is accepted
+    req_https_ok = rf.get("/current/?next=https://testserver/safe/", secure=True)
+    assert get_safe_next_url(req_https_ok, fallback) == "https://testserver/safe/"

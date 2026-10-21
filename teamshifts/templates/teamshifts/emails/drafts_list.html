@@ -1,0 +1,94 @@
+{% extends "teamshifts/base.html" %}
+{% load i18n %}
+
+{% block title %}{% trans "Drafts" %} :: {{ request.event.name }}{% endblock %}
+
+{% block teamshifts_header %}
+        <h1>
+          {% blocktrans count mail_count=mails|length trimmed %}
+            {{ mail_count }} draft
+          {% plural %}
+            {{ mail_count }} drafts
+          {% endblocktrans %}
+        </h1>
+{% endblock %}
+
+{% block teamshifts_content %}
+  <p class='help-block'>
+    {% blocktrans trimmed %}
+      Drafts are never sent. Open a draft to keep editing it, then send it or move it to the outbox when it is ready.
+    {% endblocktrans %}
+  </p>
+  <p class='text-right'>
+    <a href='{% url "plugins:teamshifts:email_compose" organizer=request.organizer.slug event=request.event.slug %}'
+       class='btn btn-primary'>
+      <i class='fa fa-plus'></i> {% trans "New email" %}
+    </a>
+  </p>
+
+  <table class='table'>
+    <thead>
+      <tr>
+        <th>{% trans "Subject" %}</th>
+        <th>{% trans "Filters" %}</th>
+        <th>{% trans "Recipients" %}</th>
+        <th>{% trans "Scheduled for" %}</th>
+        <th>{% trans "Last edited" %}</th>
+        <th>{% trans "Actions" %}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for mail in mails %}
+        <tr>
+          <td>
+            <a href='{% url "plugins:teamshifts:email_compose" organizer=request.organizer.slug event=request.event.slug %}?draft={{ mail.pk }}'>
+              {% if mail.subject %}{{ mail.subject }}{% else %}<em class='text-muted'>{% trans "(no subject)" %}</em>{% endif %}
+            </a>
+          </td>
+          <td>
+            {% if mail.status_filter %}
+              <span class='label label-default'>{{ mail.get_status_filter_display }}</span>
+            {% else %}
+              <span class='text-muted'>{% trans "All statuses" %}</span>
+            {% endif %}
+          </td>
+          <td>
+            {% blocktrans count count=mail.recipient_count trimmed %}
+              {{ count }} recipient
+            {% plural %}
+              {{ count }} recipients
+            {% endblocktrans %}
+          </td>
+          <td>
+            {% if mail.send_after %}
+              {{ mail.send_after|date:"SHORT_DATETIME_FORMAT" }}
+            {% else %}
+              <span class='text-muted'>{% trans "Immediate / Not scheduled" %}</span>
+            {% endif %}
+          </td>
+          <td>{{ mail.updated|date:"SHORT_DATETIME_FORMAT" }}</td>
+          <td>
+            <div class='btn-toolbar' role='toolbar'>
+              <div class='btn-group' role='group'>
+                <a class='btn btn-sm btn-default' title='{% trans "Edit" %}'
+                   href='{% url "plugins:teamshifts:email_compose" organizer=request.organizer.slug event=request.event.slug %}?draft={{ mail.pk }}'>
+                  <i class='fa fa-edit'></i>
+                </a>
+              </div>
+              <div class='btn-group' role='group'>
+                <a class='btn btn-sm btn-danger' title='{% trans "Delete" %}'
+                   href='{% url "plugins:teamshifts:email_delete" organizer=request.organizer.slug event=request.event.slug pk=mail.pk %}'>
+                  <i class='fa fa-trash'></i>
+                </a>
+              </div>
+            </div>
+          </td>
+        </tr>
+      {% empty %}
+        <tr>
+          <td colspan='6' class='text-muted'>{% trans "No drafts." %}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}

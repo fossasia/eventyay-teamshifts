@@ -46,6 +46,7 @@ def dispatch_scheduled_emails_task():
                     send_after__isnull=False,
                     send_after__lte=now(),
                     sent_at__isnull=True,
+                    is_draft=False,
                 )
                 .select_for_update(skip_locked=True)
                 .order_by("pk")
@@ -86,6 +87,9 @@ def send_queued_email(self, event_id: int, queue_id: int):
                 logger.debug("[TeamShifts] Queue %s not found or locked", queue_id)
                 return
             if queue.sent_at:
+                return
+            if queue.is_draft:
+                logger.debug("[TeamShifts] Queue %s is a draft, skipping", queue_id)
                 return
             if queue.send_after and queue.send_after > now():
                 logger.debug("[TeamShifts] Queue %s not yet due, skipping", queue_id)

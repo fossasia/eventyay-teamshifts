@@ -295,6 +295,11 @@ urlpatterns = [
         name="email_outbox",
     ),
     path(
+        "teamshifts/event/<orgslug:organizer>/<slug:event>/emails/drafts/",
+        views.EmailDraftsView.as_view(),
+        name="email_drafts",
+    ),
+    path(
         "teamshifts/event/<orgslug:organizer>/<slug:event>/emails/sent/",
         views.EmailSentView.as_view(),
         name="email_sent",

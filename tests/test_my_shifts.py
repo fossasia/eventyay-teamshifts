@@ -173,6 +173,21 @@ def test_my_shifts_with_active_assignment_renders_checkout_form(client, user, ev
 
 
 @pytest.mark.django_db
+def test_my_shifts_rejected_volunteer_does_not_render_checkout_form(client, user, event, cfm, accepted_application, shift_assignment, global_url):
+    accepted_application.status = ApplicationStatus.REJECTED
+    accepted_application.save(update_fields=["status"])
+    shift_assignment.started_at = now() - timedelta(minutes=30)
+    shift_assignment.save(update_fields=["started_at"])
+    client.force_login(user)
+    with scopes_disabled():
+        response = client.get(global_url)
+    assert response.status_code == 200
+    checkout_url = reverse("plugins:teamshifts:shift_checkout", kwargs={"pk": shift_assignment.pk})
+    assert checkout_url.encode() not in response.content
+    assert b'class="shift-checkout-form"' not in response.content
+
+
+@pytest.mark.django_db
 def test_shift_checkout_unauthenticated(client, shift_assignment):
     url = reverse("plugins:teamshifts:shift_checkout", kwargs={"pk": shift_assignment.pk})
     response = client.post(url)

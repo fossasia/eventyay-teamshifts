@@ -3468,7 +3468,15 @@ class MyShiftsGlobalView(LoginRequiredMixin, TemplateView):
                 .exclude(file="")
                 .values_list("application__event_id", flat=True)
             )
+            accepted_event_ids = set(
+                TeamMemberApplication.objects.filter(
+                    user=self.request.user,
+                    event_id__in=event_ids,
+                    status=ApplicationStatus.ACCEPTED,
+                ).values_list("event_id", flat=True)
+            )
         ctx["cert_event_ids"] = cert_event_ids
+        ctx["accepted_event_ids"] = accepted_event_ids
         return ctx
 
 

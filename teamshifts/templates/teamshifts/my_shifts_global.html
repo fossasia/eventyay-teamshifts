@@ -141,7 +141,7 @@
                   {% endif %}
                 </td>
                 <td data-label="{% translate 'Actions' %}">
-                  {% if assignment.started_at and not assignment.ended_at %}
+                  {% if assignment.started_at and not assignment.ended_at and event.pk|in_set:accepted_event_ids %}
                     <form method="post"
                           action="{% url 'plugins:teamshifts:shift_checkout' pk=assignment.pk %}"
                           class="shift-checkout-form">

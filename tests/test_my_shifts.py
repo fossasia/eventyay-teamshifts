@@ -97,7 +97,8 @@ def test_my_shifts_unauthenticated(client, global_url):
 def test_my_shifts_no_shifts(client, user, global_url):
     client.force_login(user)
     response = client.get(global_url)
-    assert response.status_code == 404
+    assert response.status_code == 200
+    assert b"You have no shifts assigned yet." in response.content
 
 
 @pytest.mark.django_db
@@ -106,7 +107,8 @@ def test_my_shifts_plugin_disabled(client, user, event, accepted_application, sh
     event.save(update_fields=["plugins"])
     client.force_login(user)
     response = client.get(global_url)
-    assert response.status_code == 404
+    assert response.status_code == 200
+    assert b"You have no shifts assigned yet." in response.content
 
 
 @pytest.mark.django_db
@@ -136,15 +138,25 @@ def test_old_event_my_shifts_preserves_query_string(client, event, global_url):
 
 
 @pytest.mark.django_db
+def test_old_event_my_shifts_without_shifts_renders_empty_state_not_404(client, user, event):
+    client.force_login(user)
+    old_url = reverse("plugins:teamshifts:my_shifts", kwargs={"organizer": event.organizer.slug, "event": event.slug})
+    response = client.get(old_url, follow=True)
+    assert response.status_code == 200
+    assert b"You have no shifts assigned yet." in response.content
+
+
+@pytest.mark.django_db
 def test_old_checkout_url_redirects(client, event, shift_assignment):
     old_url = f"/{event.organizer.slug}/{event.slug}/teamshifts/my-shifts/{shift_assignment.pk}/checkout/"
-    response = client.get(old_url)
+    response = client.get(f"{old_url}?ref=mail")
     assert response.status_code == 302
-    assert response.url == reverse("plugins:teamshifts:my_shifts_global")
+    assert response.url == f"{reverse('plugins:teamshifts:my_shifts_global')}?ref=mail"
 
-    response_post = client.post(old_url)
+    response_post = client.post(f"{old_url}?ref=mail")
     assert response_post.status_code == 307
-    assert response_post.url == reverse("plugins:teamshifts:shift_checkout", kwargs={"pk": shift_assignment.pk})
+    expected_checkout = reverse("plugins:teamshifts:shift_checkout", kwargs={"pk": shift_assignment.pk})
+    assert response_post.url == f"{expected_checkout}?ref=mail"
 
 
 @pytest.mark.django_db
@@ -169,7 +181,7 @@ def test_shift_checkout_unauthenticated(client, shift_assignment):
 
 
 @pytest.mark.django_db
-def test_shift_checkout_success(client, user, shift_assignment):
+def test_shift_checkout_success(client, user, accepted_application, shift_assignment):
     shift_assignment.started_at = now() - timedelta(minutes=30)
     shift_assignment.save(update_fields=["started_at"])
     client.force_login(user)
@@ -184,7 +196,20 @@ def test_shift_checkout_success(client, user, shift_assignment):
 
 
 @pytest.mark.django_db
-def test_shift_checkout_not_started_yet(client, user, shift, shift_assignment):
+def test_shift_checkout_rejected_volunteer_forbidden(client, user, accepted_application, shift_assignment):
+    accepted_application.status = ApplicationStatus.REJECTED
+    accepted_application.save(update_fields=["status"])
+    shift_assignment.started_at = now() - timedelta(minutes=30)
+    shift_assignment.save(update_fields=["started_at"])
+    client.force_login(user)
+    url = reverse("plugins:teamshifts:shift_checkout", kwargs={"pk": shift_assignment.pk})
+    response = client.post(url)
+    assert response.status_code == 403
+    assert response.json()["status"] == "error"
+
+
+@pytest.mark.django_db
+def test_shift_checkout_not_started_yet(client, user, accepted_application, shift, shift_assignment):
     shift.start_time = now() + timedelta(hours=1)
     shift.end_time = now() + timedelta(hours=4)
     shift.save(update_fields=["start_time", "end_time"])
@@ -198,7 +223,7 @@ def test_shift_checkout_not_started_yet(client, user, shift, shift_assignment):
 
 
 @pytest.mark.django_db
-def test_shift_checkout_not_checked_in(client, user, shift_assignment):
+def test_shift_checkout_not_checked_in(client, user, accepted_application, shift_assignment):
     client.force_login(user)
     url = reverse("plugins:teamshifts:shift_checkout", kwargs={"pk": shift_assignment.pk})
     response = client.post(url)
@@ -207,7 +232,7 @@ def test_shift_checkout_not_checked_in(client, user, shift_assignment):
 
 
 @pytest.mark.django_db
-def test_shift_checkout_already_ended(client, user, shift_assignment):
+def test_shift_checkout_already_ended(client, user, accepted_application, shift_assignment):
     shift_assignment.started_at = now() - timedelta(hours=2)
     shift_assignment.ended_at = now() - timedelta(hours=1)
     shift_assignment.save(update_fields=["started_at", "ended_at"])
@@ -229,7 +254,7 @@ def test_shift_checkout_other_user(client, shift_assignment):
 
 
 @pytest.mark.django_db
-def test_shift_checkout_plugin_disabled(client, user, event, shift_assignment):
+def test_shift_checkout_plugin_disabled(client, user, accepted_application, event, shift_assignment):
     event.plugins = ""
     event.save(update_fields=["plugins"])
     shift_assignment.started_at = now() - timedelta(minutes=30)

@@ -3342,24 +3342,30 @@ def _notify_organizers_new_application(event, application):
 
 class MyShiftsRedirectView(RedirectView):
     permanent = False
-    query_string = True
+    query_string = False
 
     def get_redirect_url(self, *args, **kwargs):
         url = reverse("plugins:teamshifts:my_shifts_global")
         query = self.request.META.get("QUERY_STRING", "")
-        if query and self.query_string:
+        if query:
             url = f"{url}?{query}"
         return url
 
 
 class ShiftCheckOutRedirectView(View):
     def dispatch(self, request, *args, **kwargs):
+        query = request.META.get("QUERY_STRING", "")
         if request.method == "POST":
             url = reverse("plugins:teamshifts:shift_checkout", kwargs={"pk": kwargs["pk"]})
+            if query:
+                url = f"{url}?{query}"
             response = HttpResponseRedirect(url)
             response.status_code = 307
             return response
-        return redirect("plugins:teamshifts:my_shifts_global")
+        url = reverse("plugins:teamshifts:my_shifts_global")
+        if query:
+            url = f"{url}?{query}"
+        return redirect(url)
 
 
 class ShiftCheckOutView(LoginRequiredMixin, View):
@@ -3381,6 +3387,17 @@ class ShiftCheckOutView(LoginRequiredMixin, View):
             if assignment is None:
                 return JsonResponse({"status": "error", "error": str(_("Shift assignment not found."))}, status=404)
 
+            has_accepted_app = TeamMemberApplication.objects.filter(
+                user=request.user,
+                event=assignment.shift.event,
+                status=ApplicationStatus.ACCEPTED,
+            ).exists()
+            if not has_accepted_app:
+                return JsonResponse(
+                    {"status": "error", "error": str(_("You need to be an accepted team member to check out of this shift."))},
+                    status=403,
+                )
+
             current_time = now()
 
             if not assignment.started_at:
@@ -3401,15 +3418,6 @@ class ShiftCheckOutView(LoginRequiredMixin, View):
 
 class MyShiftsGlobalView(LoginRequiredMixin, TemplateView):
     template_name = "teamshifts/my_shifts_global.html"
-
-    def dispatch(self, request, *args, **kwargs):
-        if not request.user.is_authenticated:
-            return super().dispatch(request, *args, **kwargs)
-        with scopes_disabled():
-            has_active = ShiftAssignment.objects.filter(team_member=request.user, shift__event__plugins__contains="teamshifts").exists()
-        if not has_active:
-            raise Http404
-        return super().dispatch(request, *args, **kwargs)
 
     def get_context_data(self, **kwargs):
         from .forms import MyShiftsFilterForm

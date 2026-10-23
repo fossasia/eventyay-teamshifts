@@ -15,29 +15,30 @@
 
 {% block title %}{% trans "Shift Schedule" %} :: {{ request.event.name }}{% endblock %}
 
-{% block teamshifts_header %}
-  <h1>{% trans "Shift Schedule" %}</h1>
-{% endblock %}
-
-{% block teamshifts_content %}
-  <p class="text-right">
-    {% if shift_schedule_published %}
-      <button type="submit" form="ts-publish-form" class="btn btn-primary">
-        <i class="fa fa-eye-slash"></i> {% trans "Unpublish" %}
-      </button>
-    {% else %}
-      <button type="submit" form="ts-publish-form" class="btn btn-primary">
-        <i class="fa fa-globe"></i> {% trans "Publish" %}
-      </button>
-    {% endif %}
-    <a href="{% url 'plugins:teamshifts:shift_create' organizer=request.event.organizer.slug event=request.event.slug %}" class="btn btn-primary">
-      <i class="fa fa-plus"></i> {% trans "Create Shift" %}
-    </a>
-  </p>
-
+{% block content %}
   <form id="ts-publish-form" method="post" action="{% url 'plugins:teamshifts:schedule_toggle_publish' organizer=request.event.organizer.slug event=request.event.slug %}">
     {% csrf_token %}
   </form>
 
-  <div id="app" data-gettext="{{ gettext_language }}" data-mode="shifts" data-csrf-token="{{ csrf_token }}"></div>
+  <div class="schedule-editor-container">
+    <div class="schedule-header">
+      <div id="schedule-action-wrapper">
+        <div id="schedule-timezone-mount"></div>
+        {% if shift_schedule_published %}
+          <button type="submit" form="ts-publish-form" class="btn btn-sm btn-primary">
+            <i class="fa fa-eye-slash"></i> {% trans "Unpublish" %}
+          </button>
+        {% else %}
+          <button type="submit" form="ts-publish-form" class="btn btn-sm btn-primary">
+            <i class="fa fa-globe"></i> {% trans "Publish" %}
+          </button>
+        {% endif %}
+        <a href="{% url 'plugins:teamshifts:shift_create' organizer=request.event.organizer.slug event=request.event.slug %}" class="btn btn-sm btn-primary">
+          <i class="fa fa-plus"></i> {% trans "Create Shift" %}
+        </a>
+        <div id="schedule-fullscreen-mount"></div>
+      </div>
+    </div>
+    <div id="app" data-gettext="{{ gettext_language }}" data-mode="shifts" data-csrf-token="{{ csrf_token }}"></div>
+  </div>
 {% endblock %}

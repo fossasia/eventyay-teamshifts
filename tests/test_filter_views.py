@@ -68,7 +68,7 @@ def test_data(event, django_user_model):
             message="Content",
             sent_at=now(),
         )
-        TeamShiftsEmailQueueRecipient.objects.create(queue=sent_email, email="bob@test.com")
+        TeamShiftsEmailQueueRecipient.objects.create(queue=sent_email, user=u2, email="bob@test.com", sent_at=now())
 
         return {
             "app1": app1,
@@ -150,7 +150,7 @@ def test_emails_outbox_and_sent_filter_views(orga_client, event, test_data):
 
     resp_sent = orga_client.get(sent_url, {"query": "Newsletter"})
     assert resp_sent.status_code == 200
-    assert "filter_form" in resp_sent.context
+    assert "search" in resp_sent.context
     assert b"data-ajax-results-region" in resp_sent.content
     assert b"Sent Newsletter" in resp_sent.content
 

@@ -9,6 +9,7 @@ from eventyay.control.forms.filter import FilterForm
 
 from .models import (
     ApplicationStatus,
+    CertificateStatus,
     ShiftAssignment,
     ShiftLocation,
     TeamRole,
@@ -171,6 +172,11 @@ class MemberFilterForm(TeamShiftsFilterForm):
         ),
         required=False,
     )
+    certificate = forms.ChoiceField(
+        label=_("Certificate"),
+        choices=(("", _("All certificate statuses")),) + tuple(CertificateStatus.choices),
+        required=False,
+    )
 
     def __init__(self, *args, event=None, hide_emails=False, vouchers_enabled=False, **kwargs):
         self.event = event
@@ -234,7 +240,24 @@ class MemberFilterForm(TeamShiftsFilterForm):
         elif arrived in ("no", "0", "false"):
             queryset = queryset.filter(arrived=False)
 
+        certificate_status = fdata.get("certificate")
+        if certificate_status in CertificateStatus.values:
+            queryset = queryset.filter(self.certificate_status_filter(certificate_status))
+
         return self.apply_ordering(queryset)
+
+    @staticmethod
+    def certificate_status_filter(certificate_status):
+        downloaded = Q(certificate__downloaded_at__isnull=False)
+        sent = Q(certificate__notified_at__isnull=False) & ~downloaded
+        generated = (
+            Q(certificate__file__isnull=False) & ~Q(certificate__file="") & Q(certificate__notified_at__isnull=True, certificate__downloaded_at__isnull=True)
+        )
+        if certificate_status == CertificateStatus.DOWNLOADED:
+            return downloaded
+        if certificate_status == CertificateStatus.SENT:
+            return sent
+        return generated if certificate_status == CertificateStatus.GENERATED else ~downloaded & ~sent & ~generated
 
 
 class ShiftFilterForm(TeamShiftsFilterForm):

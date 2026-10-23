@@ -4,8 +4,8 @@
 {% block title %}{% trans "Outbox" %} :: {{ request.event.name }}{% endblock %}
 
 {% block teamshifts_header %}
-        <h1>
-          {% blocktrans count mail_count=paginator.count|default:mails|length trimmed %}
+        <h1 data-ajax-sync="mail-count">
+          {% blocktrans count mail_count=paginator.count trimmed %}
             {{ mail_count }} pending email
           {% plural %}
             {{ mail_count }} pending emails

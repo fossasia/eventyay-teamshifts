@@ -10,29 +10,8 @@
         badge.hidden = count === 0;
     }
 
-    function initToggles() {
-        var toggles = document.querySelectorAll('[data-advanced-filter-toggle]');
-        toggles.forEach(function (toggle) {
-            if (toggle.dataset.teamshiftsBound === '1') {
-                return;
-            }
-            toggle.dataset.teamshiftsBound = '1';
-            toggle.addEventListener('click', function () {
-                var searchRoot = toggle.closest('[data-advanced-filter-search]');
-                if (!searchRoot) return;
-                var panel = searchRoot.querySelector('[data-advanced-filter-advanced]');
-                if (!panel) return;
-                var expanded = toggle.getAttribute('aria-expanded') === 'true';
-                toggle.setAttribute('aria-expanded', expanded ? 'false' : 'true');
-                panel.hidden = expanded;
-                panel.classList.toggle('is-collapsed', expanded);
-            });
-        });
-    }
-
     function init() {
         syncFilterCount();
-        initToggles();
     }
 
     if (document.readyState === 'loading') {

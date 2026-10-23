@@ -781,8 +781,13 @@ class ApplicationListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, 
     permission = None
     template_name = "teamshifts/applications.html"
     context_object_name = "applications"
-    default_sort_field = "-created_at"
+    default_sort_field = "-updated"
     sortable_fields = ("user__fullname", "status", "created_at")
+    secondary_sort = {
+        "user__fullname": ["pk"],
+        "status": ["pk"],
+        "created_at": ["pk"],
+    }
 
     def get_queryset(self):
         event = self.request.event
@@ -1332,7 +1337,7 @@ class EmailDraftsView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Sort
     permission = "can_teamshifts_send_emails"
     template_name = "teamshifts/emails/drafts_list.html"
     default_sort_field = "-sent_at"
-    sortable_fields = ("subject", "recipient_count", "sent_at")
+    sortable_fields = ("subject", "recipient_count", "updated")
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -1534,6 +1539,7 @@ class ShiftLocationListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin
     template_name = "teamshifts/locations.html"
     default_sort_field = "position"
     sortable_fields = ("name", "linked_room", "position")
+    secondary_sort = {"position": ["name"]}
 
     def get(self, request, *args, **kwargs):
         ordering = request.GET.get("sort") or self.default_sort_field
@@ -1839,6 +1845,12 @@ class ShiftListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Pagina
     DEFAULT_PAGINATION = 50
     default_sort_field = "start_time"
     sortable_fields = ("name", "location__name", "start_time", "end_time")
+    secondary_sort = {
+        "name": ["pk"],
+        "location__name": ["pk"],
+        "start_time": ["pk"],
+        "end_time": ["pk"],
+    }
 
     def get_queryset(self):
         event = self.request.event

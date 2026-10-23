@@ -1,29 +1,76 @@
-from pathlib import Path
+import pytest
+from django.urls import reverse
+from django.utils.timezone import now
+from django_scopes import scope
+from eventyay.base.models import Team
+from datetime import timedelta
 
-ROOT = Path(__file__).resolve().parents[1]
-
-
-def test_add_role_supports_zero_existing_rows():
-    """Adding a role must work when every existing role row has been removed."""
-    javascript = (ROOT / "teamshifts/static/teamshifts/shift_role_formset.js").read_text()
-
-    assert 'document.getElementById("role-form-template")' in javascript
-    assert "const templateRow = rowTemplate?.content.firstElementChild;" in javascript
-    assert 'const fallbackRow = rolesBody.querySelector(".role-form-row")?.cloneNode(true);' in javascript
-    assert "const newRow = templateRow?.cloneNode(true) || fallbackRow?.cloneNode(true);" in javascript
-    assert "totalFormsInput.value = formCount + 1;" in javascript
+from teamshifts.models import Shift, ShiftLocation
 
 
-def test_create_and_edit_templates_include_empty_role_form():
-    """Both shift forms must provide an empty role-row template."""
-    templates = [
-        ROOT / "teamshifts/templates/teamshifts/shift_create.html",
-        ROOT / "teamshifts/templates/teamshifts/shift_edit.html",
-    ]
+@pytest.fixture
+def orga_client(client, event, user, settings):
+    settings.SITE_URL = "https://testserver"
+    with scope(event=event):
+        team = Team.objects.create(
+            organizer=event.organizer,
+            name="Orga Team",
+            can_change_event_settings=True,
+            all_events=True,
+        )
+        team.members.add(user)
+    client.force_login(user)
+    return client
 
-    for template_path in templates:
-        template = template_path.read_text()
 
-        assert '<template id="role-form-template">' in template
-        assert "{% with form=formset.empty_form %}" in template
-        assert 'class="role-form-row"' in template
+@pytest.fixture
+def location(event):
+    with scope(event=event):
+        return ShiftLocation.objects.create(event=event, name="Stage A")
+
+
+@pytest.fixture
+def shift(event, location):
+    with scope(event=event):
+        start = now()
+        return Shift.objects.create(
+            event=event,
+            name="Test Shift",
+            location=location,
+            start_time=start,
+            end_time=start + timedelta(hours=2),
+        )
+
+
+@pytest.mark.django_db
+def test_create_shift_page_renders_empty_role_form(orga_client, event, location):
+    url = reverse(
+        "plugins:teamshifts:shift_create",
+        kwargs={"organizer": event.organizer.slug, "event": event.slug},
+    )
+
+    response = orga_client.get(url)
+
+    assert response.status_code == 200
+    assert b'id="role-form-template"' in response.content
+    assert b'name="roles-__prefix__-role"' in response.content
+    assert b'name="roles-__prefix__-capacity"' in response.content
+
+
+@pytest.mark.django_db
+def test_edit_shift_page_renders_empty_role_form(orga_client, event, shift):
+    url = reverse(
+        "plugins:teamshifts:shift_edit",
+        kwargs={
+            "organizer": event.organizer.slug,
+            "event": event.slug,
+            "pk": shift.pk,
+        },
+    )
+
+    response = orga_client.get(url)
+
+    assert response.status_code == 200
+    assert b'id="role-form-template"' in response.content
+    assert b'name="roles-__prefix__-role"' in response.content
+    assert b'name="roles-__prefix__-capacity"' in response.content

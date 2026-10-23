@@ -11,13 +11,11 @@ export function setupDynamicFormset() {
         return;
     }
 
-    const fallbackRow = rolesBody.querySelector(".role-form-row")?.cloneNode(true);
-
     addRoleBtn.addEventListener("click", () => {
         const formCount = parseInt(totalFormsInput.value, 10) || 0;
 
         const templateRow = rowTemplate?.content.firstElementChild;
-        const newRow = templateRow?.cloneNode(true) || fallbackRow?.cloneNode(true);
+        const newRow = templateRow?.cloneNode(true);
 
         if (!newRow) {
             return;

@@ -200,81 +200,14 @@ label .optional {
 }
 
 
-.my-shifts-event-panel {
-  margin-bottom: 24px;
-}
-
-.my-shifts-event-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.my-shifts-event-header .panel-title {
-  flex: 1;
-}
-
-.my-shifts-event-dates {
-  font-size: 90%;
-  margin-left: 8px;
-}
-
-.my-shifts-event-header .badge {
-  margin-left: 6px;
-}
-
-.my-shifts-event-actions {
-  display: flex;
-  gap: 6px;
-  flex-shrink: 0;
-}
-
 .my-shifts-cert-btn {
   white-space: nowrap;
-  opacity: 0.6;
 }
 
-.my-shifts-cert-btn:not([disabled]) {
-  opacity: 1;
+.shift-checkout-form {
+  display: inline-block;
 }
 
-
-.my-shifts-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  border-radius: 3px;
-  font-size: 12px;
-  font-weight: 500;
-  white-space: nowrap;
-}
-
-.my-shifts-badge-role {
-  background: #dce8fb;
-  color: #1a5ca8;
-  border: 1px solid #b3cff5;
-}
-
-.my-shifts-badge-moderator {
-  background: #fff3cd;
-  color: #856404;
-  border: 1px solid #ffe082;
-}
-
-.my-shifts-badge-self {
-  background: #d4edda;
-  color: #155724;
-  border: 1px solid #b8dfc4;
-}
-
-.my-shifts-badge-assigned {
-  background: #e2e3e5;
-  color: #383d41;
-  border: 1px solid #d6d8db;
-}
 
 .richtext-preview,
 .mail-preview {

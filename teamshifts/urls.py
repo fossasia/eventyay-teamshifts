@@ -71,15 +71,16 @@ event_patterns = [
         name="public_shift_members",
         require_live=False,
     ),
-    path(
-        "teamshifts/my-shifts/",
-        views.MyShiftsView.as_view(),
+    event_url(
+        r"^teamshifts/my-shifts/$",
+        views.MyShiftsRedirectView.as_view(),
         name="my_shifts",
+        require_live=False,
     ),
-    path(
-        "teamshifts/my-shifts/<int:pk>/checkout/",
-        views.ShiftCheckOutView.as_view(),
-        name="shift_checkout",
+    event_url(
+        r"^teamshifts/my-shifts/(?P<pk>\d+)/checkout/$",
+        views.ShiftCheckOutRedirectView.as_view(),
+        require_live=False,
     ),
 ]
 
@@ -93,6 +94,11 @@ urlpatterns = [
         "common/my-shifts/certificate/<int:event_id>/",
         views.MyShiftsCertificateDownloadView.as_view(),
         name="my_shifts_certificate_download",
+    ),
+    path(
+        "common/my-shifts/<int:pk>/checkout/",
+        views.ShiftCheckOutView.as_view(),
+        name="shift_checkout",
     ),
     path(
         "teamshifts/event/<orgslug:organizer>/<slug:event>/",

@@ -11,19 +11,21 @@
 {% block title %}{% trans "Compose email" %} :: {{ request.event.name }}{% endblock %}
 
 {% block teamshifts_header %}
-        <h1>{% trans "Compose email" %}</h1>
+        <h1>{% if draft %}{% trans "Edit draft" %}{% else %}{% trans "Compose email" %}{% endif %}</h1>
 {% endblock %}
 
 {% block teamshifts_content %}
     <p class='help-block'>
     {% blocktrans trimmed %}
       Write a message to your team members. You can filter recipients by role
-      and application status. Send immediately or schedule it for later.
+      and application status. Send immediately, schedule it for later, or save
+      it as a draft to finish another time.
     {% endblocktrans %}
   </p>
 
   <form action='' method='post' class='form-horizontal'>
     {% csrf_token %}
+    {% if draft %}<input type='hidden' name='draft_id' value='{{ draft.pk }}'>{% endif %}
     {% bootstrap_form_errors form %}
 
     <fieldset>
@@ -100,7 +102,10 @@
       <button type='submit' class='btn btn-default btn-save' name='action' value='preview' formnovalidate>
         {% trans "Preview recipients" %}
       </button>
-      <button type='submit' class='btn btn-default btn-save' name='action' value='draft'>
+      <button type='submit' class='btn btn-default btn-save' name='action' value='draft' formnovalidate>
+        <i class='fa fa-floppy-o'></i> {% trans "Save as draft" %}
+      </button>
+      <button type='submit' class='btn btn-default btn-save' name='action' value='outbox'>
         {% trans "Send to outbox" %}
       </button>
       <button type='submit' class='btn btn-primary btn-save' name='action' value='send'>

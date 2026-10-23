@@ -1,11 +1,12 @@
 {% extends "teamshifts/base.html" %}
 {% load i18n %}
+{% load tz %}
 
 {% block title %}{% trans "Sent emails" %} :: {{ request.event.name }}{% endblock %}
 
 {% block teamshifts_header %}
         <h1>
-          {% blocktrans count mail_count=mails|length trimmed %}
+          {% blocktrans count mail_count=page_obj.paginator.count trimmed %}
             {{ mail_count }} sent email
           {% plural %}
             {{ mail_count }} sent emails
@@ -14,19 +15,27 @@
 {% endblock %}
 
 {% block teamshifts_content %}
-  <p class='text-right'>
-    <a href='{% url "plugins:teamshifts:email_compose" organizer=request.organizer.slug event=request.event.slug %}'
-       class='btn btn-primary'>
-      <i class='fa fa-plus'></i> {% trans "New email" %}
-    </a>
-  </p>
+  <div class='teamshifts-filter-bar clearfix'>
+    <form method='get' class='form-inline pull-left'>
+      <div class='form-group'>
+        <input type='text' name='q' value='{{ search }}' class='form-control teamshifts-search-input' placeholder='{% trans "Search by subject or recipient" %}'>
+      </div>
+      <button type='submit' class='btn btn-default'>{% trans "Search" %}</button>
+    </form>
+    <div class='pull-right'>
+      <a href='{% url "plugins:teamshifts:email_compose" organizer=request.organizer.slug event=request.event.slug %}'
+         class='btn btn-primary'>
+        <i class='fa fa-plus'></i> {% trans "New email" %}
+      </a>
+    </div>
+  </div>
 
   <table class='table'>
     <thead>
       <tr>
         <th>{% trans "Subject" %}</th>
-        <th>{% trans "Filters" %}</th>
-        <th>{% trans "Recipients" %}</th>
+        <th>{% trans "To" %}</th>
+        <th>{% trans "Type" %}</th>
         <th>{% trans "Sent at" %}</th>
         <th>{% trans "Actions" %}</th>
       </tr>
@@ -35,35 +44,40 @@
       {% for mail in mails %}
         <tr>
           <td>
-            <a href='{% url "plugins:teamshifts:email_edit" organizer=request.organizer.slug event=request.event.slug pk=mail.pk %}'>
-              {{ mail.subject }}
+            <a href='{% url "plugins:teamshifts:email_edit" organizer=request.organizer.slug event=request.event.slug pk=mail.queue_id %}'>
+              {% if mail.display_subject %}{{ mail.display_subject }}{% else %}<span class='text-muted'>{% trans "(No subject)" %}</span>{% endif %}
             </a>
           </td>
           <td>
-            {% if mail.role_filter %}
-              <span class='label label-default'>{{ mail.role_filter.name }}</span>
-            {% else %}
-              <span class='text-muted'>{% trans "All roles" %}</span>
-            {% endif %}
-            {% if mail.status_filter %}
-              <span class='label label-default'>{{ mail.get_status_filter_display }}</span>
+            {{ mail.user.fullname|default:"-" }}
+            {% if can_view_email %}
+              <br><small class='text-muted'>{{ mail.email }}</small>
             {% endif %}
           </td>
-          <td>{{ mail.recipient_count }}</td>
-          <td>{{ mail.sent_at|date:"SHORT_DATETIME_FORMAT" }}</td>
+          <td><span class='label label-default'>{{ mail.queue.mail_type_label }}</span></td>
           <td>
-            <a class='btn btn-sm btn-default'
-               href='{% url "plugins:teamshifts:email_compose" organizer=request.organizer.slug event=request.event.slug %}?copy={{ mail.pk }}'
-               title='{% trans "Copy" %}'>
-              <i class='fa fa-copy'></i> {% trans "Copy" %}
-            </a>
+            {% timezone request.event.timezone %}
+              {{ mail.sent_at|date:"SHORT_DATETIME_FORMAT" }} {{ request.event.timezone }}
+            {% endtimezone %}
+          </td>
+          <td>
+            {% if not mail.queue.mail_type %}
+              <a class='btn btn-sm btn-default'
+                 href='{% url "plugins:teamshifts:email_compose" organizer=request.organizer.slug event=request.event.slug %}?copy={{ mail.queue_id }}'
+                 title='{% trans "Copy" %}'>
+                <i class='fa fa-copy'></i> {% trans "Copy" %}
+              </a>
+            {% endif %}
           </td>
         </tr>
       {% empty %}
         <tr>
-          <td colspan='5' class='text-muted'>{% trans "No sent emails yet." %}</td>
+          <td colspan='5' class='text-muted'>
+            {% if search %}{% trans "No sent emails match your search." %}{% else %}{% trans "No sent emails yet." %}{% endif %}
+          </td>
         </tr>
       {% endfor %}
     </tbody>
   </table>
+  {% include "pretixcontrol/pagination.html" %}
 {% endblock %}

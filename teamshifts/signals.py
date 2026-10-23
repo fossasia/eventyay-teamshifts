@@ -13,13 +13,14 @@ from eventyay.base.email import SimpleFunctionalMailTextPlaceholder
 from eventyay.base.models.checkin import Checkin
 from eventyay.base.models.organizer import Team
 from eventyay.base.signals import checkin_created, register_mail_placeholders
-from eventyay.common.signals import periodic_task, user_menu_items
+from eventyay.common.signals import minimum_interval, periodic_task, user_menu_items
 from eventyay.control.signals import event_dashboard_components, nav_event_common, nav_global
 from eventyay.multidomain.urlreverse import build_absolute_uri
 from eventyay.presale.signals import header_nav_tabs
 
 from .models import ApplicationStatus, CallForTeamMembers, Shift, ShiftAssignment, TeamMemberApplication, TeamRole, TeamShiftsEmailQueue
 from .permissions import has_any_teamshifts_permission
+from .services.certificates import events_awaiting_certificates, issue_event_end_certificates_task
 from .services.checkin import handle_volunteer_checkin, handle_volunteer_checkout
 from .tasks import send_queued_email
 
@@ -297,6 +298,7 @@ def dispatch_scheduled_emails(sender, **kwargs):
                 send_after__isnull=False,
                 send_after__lte=now(),
                 sent_at__isnull=True,
+                is_draft=False,
             )
             .select_for_update(skip_locked=True)
             .order_by("pk")
@@ -307,6 +309,13 @@ def dispatch_scheduled_emails(sender, **kwargs):
         if cache.add(cache_key, True, timeout=300):
             send_queued_email.delay(event_id, queue_pk)
             logger.info("[TeamShifts] Dispatched scheduled email queue %s", queue_pk)
+
+
+@receiver(periodic_task, dispatch_uid="teamshifts_issue_event_end_certificates")
+@minimum_interval(minutes_after_success=15)
+def dispatch_event_end_certificates(sender, **kwargs):
+    for event_id in events_awaiting_certificates():
+        issue_event_end_certificates_task.apply_async(args=(event_id,))
 
 
 @receiver(checkin_created, dispatch_uid="teamshifts_volunteer_checkin")

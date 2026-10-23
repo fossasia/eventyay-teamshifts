@@ -98,10 +98,12 @@
       </div>
     {% else %}
       <div class='form-group submit-group'>
-        <a href='{% url "plugins:teamshifts:email_compose" organizer=request.organizer.slug event=request.event.slug %}?copy={{ queue.pk }}'
-           class='btn btn-primary'>
-          <i class='fa fa-copy'></i> {% trans "Copy to new email" %}
-        </a>
+        {% if not queue.mail_type %}
+          <a href='{% url "plugins:teamshifts:email_compose" organizer=request.organizer.slug event=request.event.slug %}?copy={{ queue.pk }}'
+             class='btn btn-primary'>
+            <i class='fa fa-copy'></i> {% trans "Copy to new email" %}
+          </a>
+        {% endif %}
         <a href='{% url "plugins:teamshifts:email_sent" organizer=request.organizer.slug event=request.event.slug %}'
            class='btn btn-default'>
           {% trans "Back" %}

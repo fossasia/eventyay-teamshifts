@@ -15,9 +15,13 @@ from ..models import (
     TeamShiftsEmailQueue,
     TeamShiftsEmailQueueRecipient,
 )
-from ..tasks import send_queued_email
+from ..tasks import render_subject, send_queued_email
 
 logger = logging.getLogger(__name__)
+
+
+class DraftNoLongerEditable(Exception):
+    pass
 
 
 def get_recipients(
@@ -47,8 +51,10 @@ def queue_email(
     shift: Shift | None = None,
     shift_role: TeamRole | None = None,
     status_filter: str = "",
+    mail_type: str = "",
     send_after=None,
     dispatch: bool = True,
+    is_draft: bool = False,
 ) -> TeamShiftsEmailQueue:
     with scope(event=event):
         queue = TeamShiftsEmailQueue.objects.create(
@@ -63,22 +69,87 @@ def queue_email(
             shift=shift,
             shift_role=shift_role,
             status_filter=status_filter or "",
+            mail_type=mail_type,
             send_after=send_after,
+            is_draft=is_draft,
         )
-        seen: set[str] = set()
-        rows: list[TeamShiftsEmailQueueRecipient] = []
-        for u in recipients:
-            email = (u.email or "").strip().lower()
-            if not email or email in seen:
-                continue
-            seen.add(email)
-            rows.append(TeamShiftsEmailQueueRecipient(queue=queue, user=u, email=email))
-        if rows:
-            TeamShiftsEmailQueueRecipient.objects.bulk_create(rows)
+        _set_recipients(queue, recipients)
 
-    if dispatch:
+    if dispatch and not is_draft:
         _dispatch(event.pk, queue.pk, eta=send_after)
     return queue
+
+
+def record_sent_email(
+    event: Event,
+    user: User,
+    subject,
+    message,
+    context: dict,
+    locale: str,
+    mail_type: str,
+) -> TeamShiftsEmailQueue:
+    sent_now = now()
+    with scope(event=event):
+        queue = TeamShiftsEmailQueue.objects.create(
+            event=event,
+            user=user,
+            subject=subject,
+            message=message,
+            locale=locale or "",
+            mail_type=mail_type,
+            sent_at=sent_now,
+        )
+        TeamShiftsEmailQueueRecipient.objects.create(
+            queue=queue,
+            user=user,
+            email=user.email,
+            subject=render_subject(subject, context, locale or event.settings.locale, event),
+            sent_at=sent_now,
+        )
+    return queue
+
+
+def update_queued_email(
+    queue: TeamShiftsEmailQueue,
+    *,
+    subject,
+    message,
+    recipients: Iterable[User],
+    status_filter: str = "",
+    send_after=None,
+    is_draft: bool = False,
+    dispatch: bool = True,
+) -> TeamShiftsEmailQueue:
+    with scope(event=queue.event), transaction.atomic():
+        locked = TeamShiftsEmailQueue.objects.select_for_update().filter(pk=queue.pk, is_draft=True, sent_at__isnull=True).first()
+        if locked is None:
+            raise DraftNoLongerEditable(queue.pk)
+        locked.subject = subject
+        locked.message = message
+        locked.status_filter = status_filter or ""
+        locked.send_after = send_after
+        locked.is_draft = is_draft
+        locked.save(update_fields=["subject", "message", "status_filter", "send_after", "is_draft", "updated"])
+        locked.recipients.all().delete()
+        _set_recipients(locked, recipients)
+
+    if dispatch and not is_draft:
+        _dispatch(locked.event_id, locked.pk, eta=send_after)
+    return locked
+
+
+def _set_recipients(queue: TeamShiftsEmailQueue, recipients: Iterable[User]) -> None:
+    seen: set[str] = set()
+    rows: list[TeamShiftsEmailQueueRecipient] = []
+    for u in recipients:
+        email = (u.email or "").strip().lower()
+        if not email or email in seen:
+            continue
+        seen.add(email)
+        rows.append(TeamShiftsEmailQueueRecipient(queue=queue, user=u, email=email))
+    if rows:
+        TeamShiftsEmailQueueRecipient.objects.bulk_create(rows)
 
 
 def _dispatch(event_id: int, queue_id: int, eta=None) -> None:
@@ -117,6 +188,7 @@ def queue_lifecycle_email(application, role: str) -> TeamShiftsEmailQueue | None
         message=template.body,
         recipients=[application.user],
         status_filter=application.status,
+        mail_type=role,
     )
 
 
@@ -154,4 +226,5 @@ def queue_shift_notification_email(
         recipients=[user],
         shift=shift,
         shift_role=role,
+        mail_type=template_role,
     )

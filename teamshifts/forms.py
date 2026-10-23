@@ -1,10 +1,11 @@
 import re
+from datetime import timedelta
 from zoneinfo import ZoneInfo
 
 from django import forms
 from django.forms import inlineformset_factory
 from django.utils import timezone
-from django.utils.html import escape as html_escape
+from django.utils.html import escape as html_escape, format_html
 from django.utils.translation import gettext_lazy as _
 from django_countries import countries
 from django_scopes import scopes_disabled
@@ -521,7 +522,7 @@ class CustomEmailTemplateForm(forms.ModelForm):
 
 
 class EmailComposeForm(forms.Form):
-    def __init__(self, *args, event=None, **kwargs):
+    def __init__(self, *args, event=None, draft_save=False, **kwargs):
         super().__init__(*args, **kwargs)
         self._event = event
         locales = list(event.settings.get("locales") or [event.settings.locale])
@@ -529,13 +530,13 @@ class EmailComposeForm(forms.Form):
         self.fields["subject"] = I18nFormField(
             label=_("Subject"),
             widget=I18nTextInput,
-            required=True,
+            required=not draft_save,
             locales=locales,
         )
         self.fields["message"] = I18nFormField(
             label=_("Message"),
             widget=_HtmlNormalizingEmailWidget,
-            required=True,
+            required=not draft_save,
             locales=locales,
             widget_kwargs={
                 "attrs": {"rows": 10},
@@ -645,6 +646,51 @@ class ShiftLocationForm(forms.ModelForm):
         return cleaned_data
 
 
+MAX_SHIFTS_PER_ACTION = 50
+MIN_FINAL_SHIFT_MINUTES = 15
+
+
+def merges_into_previous_shift(remainder):
+    """Return True if the time left over after the last full shift should extend that shift.
+
+    ``remainder`` is a timedelta shorter than one shift. A leftover under
+    ``MIN_FINAL_SHIFT_MINUTES`` is too short to staff on its own, so it is
+    added to the previous shift instead.
+    """
+    return remainder < timedelta(minutes=MIN_FINAL_SHIFT_MINUTES)
+
+
+def split_shift_range(start_time, end_time, shift_length_minutes):
+    """Split a time range into consecutive shifts of the given length.
+
+    If time is left over after the last full-length shift, it becomes one final
+    shorter shift that ends exactly at ``end_time``, unless
+    ``merges_into_previous_shift()`` says it should extend the previous shift.
+    """
+    length = timedelta(minutes=shift_length_minutes)
+    slots = []
+    curr_start = start_time
+    while curr_start < end_time:
+        curr_end = min(curr_start + length, end_time)
+        slots.append((curr_start, curr_end))
+        curr_start = curr_end
+    if len(slots) > 1:
+        remainder = slots[-1][1] - slots[-1][0]
+        if remainder < length and merges_into_previous_shift(remainder):
+            slots.pop()
+            slots[-1] = (slots[-1][0], end_time)
+    return slots
+
+
+def count_shifts(start_time, end_time, shift_length_minutes):
+    """Return how many shifts ``split_shift_range()`` creates, without building them."""
+    length = timedelta(minutes=shift_length_minutes)
+    full_shifts, remainder = divmod(end_time - start_time, length)
+    if remainder and (full_shifts == 0 or not merges_into_previous_shift(remainder)):
+        full_shifts += 1
+    return full_shifts
+
+
 class ShiftForm(forms.ModelForm):
     mode = forms.ChoiceField(
         choices=[("single", _("Single shift")), ("repeating", _("Repeating shifts"))],
@@ -718,15 +764,14 @@ class ShiftForm(forms.ModelForm):
                 self.add_error("shift_length_minutes", _("Please provide a shift length."))
             elif start_time and end_time and end_time > start_time:
                 duration_seconds = int((end_time - start_time).total_seconds())
-                if duration_seconds % (shift_length * 60) != 0:
-                    self.add_error("shift_length_minutes", _("The shift length must divide evenly into the total duration between start and end time."))
-                else:
-                    count = duration_seconds // (shift_length * 60)
-                    if count > 50:
-                        self.add_error(
-                            "shift_length_minutes",
-                            _("The maximum allowed is 50 per action. Please adjust the interval or date range."),
-                        )
+                length_seconds = shift_length * 60
+                if length_seconds > duration_seconds:
+                    self.add_error("shift_length_minutes", _("The shift length is longer than the time between start and end."))
+                elif count_shifts(start_time, end_time, shift_length) > MAX_SHIFTS_PER_ACTION:
+                    self.add_error(
+                        "shift_length_minutes",
+                        _("The maximum allowed is %(max)s per action. Please adjust the interval or date range.") % {"max": MAX_SHIFTS_PER_ACTION},
+                    )
         return cleaned_data
 
 
@@ -790,10 +835,6 @@ class CertificateSettingsForm(forms.ModelForm):
     generate_automatically = forms.BooleanField(
         required=False,
         label=_("Generate automatically"),
-        help_text=_(
-            "When enabled, a certificate is generated as soon as a member meets the conditions, for example "
-            "after they are marked arrived. When disabled, an organizer generates certificates manually."
-        ),
     )
 
     class Meta:
@@ -803,22 +844,39 @@ class CertificateSettingsForm(forms.ModelForm):
             "require_min_shifts",
             "min_shifts",
             "match_mode",
+            "require_after_event_end",
         )
         widgets = {
             "require_arrived": forms.CheckboxInput(),
             "require_min_shifts": forms.CheckboxInput(),
             "min_shifts": forms.NumberInput(attrs={"class": "form-control", "min": "1"}),
             "match_mode": forms.RadioSelect(choices=CertificateMatchMode.choices),
+            "require_after_event_end": forms.CheckboxInput(),
+        }
+        help_texts = {
+            "require_after_event_end": _(
+                "No certificates are generated until the last day of the event has ended in the event timezone. "
+                "With automatic generation, they are then generated and emailed to everyone who qualifies. "
+                "Selected on its own, every accepted member qualifies once the event has ended."
+            ),
         }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        after_event_end = self.fields["require_after_event_end"]
+        after_event_end.label = format_html(
+            '{} <span class="fa fa-info-circle text-muted" data-toggle="tooltip" title="{}"></span>',
+            after_event_end.label,
+            after_event_end.help_text,
+        )
+        after_event_end.help_text = ""
+        self._issued_after_event_end = bool(self.instance and self.instance.pk and self.instance.issues_after_event_end)
         if self.instance and self.instance.pk:
             self.fields["generate_automatically"].initial = self.instance.trigger == CertificateTrigger.AUTO
 
     def clean(self):
         cleaned = super().clean()
-        if not cleaned.get("require_arrived") and not cleaned.get("require_min_shifts"):
+        if not any(cleaned.get(field) for field in ("require_arrived", "require_after_event_end", "require_min_shifts")):
             raise forms.ValidationError(_("Select at least one qualification condition."))
         min_shifts = cleaned.get("min_shifts") or 1
         if cleaned.get("require_min_shifts") and min_shifts < 1:
@@ -828,6 +886,10 @@ class CertificateSettingsForm(forms.ModelForm):
     def save(self, commit=True):
         instance = super().save(commit=False)
         instance.trigger = CertificateTrigger.AUTO if self.cleaned_data.get("generate_automatically") else CertificateTrigger.MANUAL
+        if not instance.issues_after_event_end:
+            instance.after_event_end_issuing_since = None
+        elif not self._issued_after_event_end:
+            instance.after_event_end_issuing_since = timezone.now()
         if commit:
             instance.save()
         return instance

@@ -53,10 +53,33 @@ event_patterns = [
         name="public_shift_withdraw",
         require_live=False,
     ),
+    event_url(
+        r"^teamshifts/shifts/(?P<pk>\d+)/manage/$",
+        views.ShiftScheduleTalkAPIView.as_view(),
+        name="public_shift_manage",
+        require_live=False,
+    ),
+    event_url(
+        r"^teamshifts/shifts/assignments/$",
+        views.ShiftScheduleAssignmentsAPIView.as_view(),
+        name="public_shift_assignments",
+        require_live=False,
+    ),
+    event_url(
+        r"^teamshifts/shifts/members/$",
+        views.ShiftScheduleMembersAPIView.as_view(),
+        name="public_shift_members",
+        require_live=False,
+    ),
     path(
         "teamshifts/my-shifts/",
         views.MyShiftsView.as_view(),
         name="my_shifts",
+    ),
+    path(
+        "teamshifts/my-shifts/<int:pk>/checkout/",
+        views.ShiftCheckOutView.as_view(),
+        name="shift_checkout",
     ),
 ]
 
@@ -157,6 +180,11 @@ urlpatterns = [
         name="shift_edit",
     ),
     path(
+        "teamshifts/event/<orgslug:organizer>/<slug:event>/shifts/<int:pk>/duplicate/",
+        views.ShiftDuplicateView.as_view(),
+        name="shift_duplicate",
+    ),
+    path(
         "teamshifts/event/<orgslug:organizer>/<slug:event>/shifts/bulk-delete/",
         views.BulkShiftDeleteView.as_view(),
         name="shift_bulk_delete",
@@ -202,6 +230,11 @@ urlpatterns = [
         name="members",
     ),
     path(
+        "teamshifts/event/<orgslug:organizer>/<slug:event>/members/download/",
+        views.MembersExportView.as_view(),
+        name="members_download",
+    ),
+    path(
         "teamshifts/event/<orgslug:organizer>/<slug:event>/members/add/",
         views.MemberCreateView.as_view(),
         name="member_add",
@@ -215,6 +248,11 @@ urlpatterns = [
         "teamshifts/event/<orgslug:organizer>/<slug:event>/members/send-vouchers/",
         views.BulkSendVouchersView.as_view(),
         name="bulk_send_vouchers",
+    ),
+    path(
+        "teamshifts/event/<orgslug:organizer>/<slug:event>/members/send-certificates/",
+        views.BulkSendCertificatesView.as_view(),
+        name="bulk_send_certificates",
     ),
     path(
         "teamshifts/event/<orgslug:organizer>/<slug:event>/voucher-settings/",
@@ -260,6 +298,11 @@ urlpatterns = [
         "teamshifts/event/<orgslug:organizer>/<slug:event>/emails/outbox/",
         views.EmailOutboxView.as_view(),
         name="email_outbox",
+    ),
+    path(
+        "teamshifts/event/<orgslug:organizer>/<slug:event>/emails/drafts/",
+        views.EmailDraftsView.as_view(),
+        name="email_drafts",
     ),
     path(
         "teamshifts/event/<orgslug:organizer>/<slug:event>/emails/sent/",
@@ -325,6 +368,16 @@ urlpatterns = [
         "teamshifts/event/<orgslug:organizer>/<slug:event>/certificates/",
         certificate_views.CertificateSettingsView.as_view(),
         name="certificates",
+    ),
+    path(
+        "teamshifts/event/<orgslug:organizer>/<slug:event>/certificates/generate/",
+        certificate_views.CertificateGenerateView.as_view(),
+        name="certificates_generate",
+    ),
+    path(
+        "teamshifts/event/<orgslug:organizer>/<slug:event>/certificates/send/",
+        certificate_views.CertificateSendView.as_view(),
+        name="certificates_send",
     ),
     path(
         "teamshifts/event/<orgslug:organizer>/<slug:event>/certificates/preview/",

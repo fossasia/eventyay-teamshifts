@@ -38,8 +38,8 @@ function restoreButtonChildren(button, originalChildren) {
     button.replaceChildren(...originalChildren);
 }
 
-function submitBulkVouchers() {
-    const form = document.getElementById("bulk-voucher-form");
+function submitBulkForm(formId, button) {
+    const form = document.getElementById(formId);
     if (!form) return;
 
     // Clear any previously injected hidden inputs
@@ -59,7 +59,8 @@ function submitBulkVouchers() {
         form.appendChild(hidden);
     });
 
-    form.submit();
+    button.disabled = true;
+    form.requestSubmit();
 }
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -109,6 +110,19 @@ document.addEventListener("DOMContentLoaded", () => {
     // Bulk send button
     const sendBtn = document.getElementById("bulk-send-btn");
     if (sendBtn) {
-        sendBtn.addEventListener("click", submitBulkVouchers);
+        sendBtn.addEventListener("click", () => submitBulkForm("bulk-voucher-form", sendBtn));
     }
+
+    const sendCertificatesBtn = document.getElementById("bulk-send-certificates-btn");
+    if (sendCertificatesBtn) {
+        sendCertificatesBtn.addEventListener("click", () => submitBulkForm("bulk-certificate-form", sendCertificatesBtn));
+    }
+
+    window.addEventListener("pageshow", (event) => {
+        if (event.persisted) {
+            [sendBtn, sendCertificatesBtn].forEach((button) => {
+                if (button) button.disabled = false;
+            });
+        }
+    });
 });

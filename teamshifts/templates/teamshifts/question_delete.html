@@ -21,6 +21,9 @@
                         Are you sure you want to delete the custom field "<strong>{{ name }}</strong>"?
                     {% endblocktrans %}
                 </p>
+                <div class="alert alert-warning">
+                    {% trans "Answers are permanently deleted. Deactivate the question instead to stop asking it while keeping its answers." %}
+                </div>
                 <p>
                     <em>{% trans "This action cannot be undone." %}</em>
                 </p>

@@ -16,14 +16,15 @@ from ..models import (
     EmailTemplateRoles,
     MemberVoucher,
     TeamMemberApplication,
-    TeamShiftsEmailQueue,
-    TeamShiftsEmailQueueRecipient,
     VolunteerVoucherSettings,
     VoucherStatus,
 )
 from ..tasks import MarkdownBreakString
+from .email import record_sent_email
 
 logger = logging.getLogger(__name__)
+
+VOUCHER_CREDENTIAL_CONTEXT_KEYS = frozenset({"voucher_code", "ticket_claim_url"})
 
 
 class SendResult(TypedDict):
@@ -72,7 +73,6 @@ def allocate_and_send_vouchers(
         existing_map: dict[int, MemberVoucher] = {
             mv.application_id: mv for mv in MemberVoucher.objects.filter(application_id__in=application_ids).select_related("voucher")
         }
-        assigned_voucher_ids: set[int] = {mv.voucher_id for mv in existing_map.values()}
 
     for application in applications:
         user = application.user
@@ -100,18 +100,23 @@ def allocate_and_send_vouchers(
             continue
 
         with scope(event=event), transaction.atomic():
-            voucher = _claim_next_voucher(settings, assigned_voucher_ids)
+            if TeamMemberApplication.objects.select_for_update().filter(pk=application.pk).first() is None:
+                continue
+            if MemberVoucher.objects.filter(application=application).exists():
+                continue
+
+            voucher = _claim_next_voucher(settings)
             if voucher is None:
                 result["skipped_no_vouchers"] += 1
                 continue
 
             member_voucher = MemberVoucher.objects.create(
+                event=event,
                 application=application,
                 voucher=voucher,
                 status=VoucherStatus.NOT_SENT,
                 sent_at=None,
             )
-            assigned_voucher_ids.add(voucher.pk)
 
         if _send_voucher_email(event, user, voucher, template, locale):
             member_voucher.status = VoucherStatus.SENT
@@ -122,14 +127,14 @@ def allocate_and_send_vouchers(
     return result
 
 
-def _claim_next_voucher(settings: VolunteerVoucherSettings, assigned_voucher_ids: set[int]) -> Voucher | None:
+def _claim_next_voucher(settings: VolunteerVoucherSettings) -> Voucher | None:
     """Pick and lock one unused voucher from the batch.
 
     Must be called inside a transaction.atomic() block so the row lock
     is held until the caller creates the MemberVoucher assignment.
 
-    ``assigned_voucher_ids`` is the caller-maintained set of already-reserved
-    voucher PKs, passed in as a concrete set to avoid a subquery on each call.
+    A voucher is free only if no MemberVoucher points at it, whoever it was
+    assigned to and in whichever earlier send, so codes are never reused.
     """
     with scopes_disabled():
         return (
@@ -137,9 +142,10 @@ def _claim_next_voucher(settings: VolunteerVoucherSettings, assigned_voucher_ids
                 event=settings.event,
                 tag=settings.voucher_tag,
                 redeemed=0,
+                teamshifts_member_link__isnull=True,
             )
-            .exclude(pk__in=assigned_voucher_ids)
-            .select_for_update(skip_locked=True)
+            .order_by("pk")
+            .select_for_update(skip_locked=True, of=("self",))
             .first()
         )
 
@@ -171,20 +177,6 @@ def _send_voucher_email(event, user, voucher, template, locale) -> bool:
         logger.exception("[TeamShifts] Failed to send voucher email to %s", user.email)
         return False
 
-    with scope(event=event):
-        sent_now = now()
-        queue = TeamShiftsEmailQueue.objects.create(
-            event=event,
-            user=user,
-            subject=template.subject,
-            message=template.body,
-            locale=locale or "",
-            sent_at=sent_now,
-        )
-        TeamShiftsEmailQueueRecipient.objects.create(
-            queue=queue,
-            user=user,
-            email=user.email,
-            sent_at=sent_now,
-        )
+    listing_context = {key: "[redacted]" if key in VOUCHER_CREDENTIAL_CONTEXT_KEYS else value for key, value in context.items()}
+    record_sent_email(event, user, template.subject, template.body, listing_context, locale, EmailTemplateRoles.VOUCHER_SENT)
     return True

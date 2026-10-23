@@ -258,7 +258,7 @@ def teamshifts_nav_global_my_shifts(sender, request=None, **kwargs):
             return []
     return [
         {
-            "label": _("My Shifts"),
+            "label": _("My shifts"),
             "url": reverse("plugins:teamshifts:my_shifts_global"),
             "active": "/common/my-shifts/" in getattr(request, "path_info", ""),
             "icon": "calendar-check-o",
@@ -271,7 +271,7 @@ try:
 
     @receiver(user_dashboard_links, dispatch_uid="teamshifts_user_dashboard_link")
     def teamshifts_user_dashboard_link(sender, **kwargs):
-        """Add 'My Shifts' to the global dashboard dropdown for users with any shift assignment."""
+        """Add 'My shifts' to the global dashboard dropdown for users with any shift assignment."""
         request = sender
         if not getattr(request, "user", None) or not request.user.is_authenticated:
             return ""
@@ -283,6 +283,31 @@ try:
             reverse("plugins:teamshifts:my_shifts_global"),
             _("My shifts"),
         )
+
+    # Match dropdown ordering with the sidebar menu ordering (e.g. My exhibitions before My shifts)
+    if not getattr(user_dashboard_links, "_teamshifts_ordered", False):
+        _orig_user_dashboard_links_send = user_dashboard_links.send
+        _orig_user_dashboard_links_send_robust = user_dashboard_links.send_robust
+
+        def _sort_user_dashboard_responses(responses):
+            def _sort_key(item):
+                _rec, resp = item
+                text = str(resp or "")
+                if "my-shifts" in text or "My shifts" in text or "teamshifts" in text:
+                    return 1
+                return 0
+
+            return sorted(responses, key=_sort_key)
+
+        def _ordered_user_dashboard_links_send(sender, **named):
+            return _sort_user_dashboard_responses(_orig_user_dashboard_links_send(sender, **named))
+
+        def _ordered_user_dashboard_links_send_robust(sender, **named):
+            return _sort_user_dashboard_responses(_orig_user_dashboard_links_send_robust(sender, **named))
+
+        user_dashboard_links.send = _ordered_user_dashboard_links_send
+        user_dashboard_links.send_robust = _ordered_user_dashboard_links_send_robust
+        user_dashboard_links._teamshifts_ordered = True
 
 except ImportError:
     pass

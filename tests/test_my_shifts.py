@@ -279,3 +279,66 @@ def test_shift_checkout_plugin_disabled(client, user, accepted_application, even
     response = client.post(url)
     assert response.status_code == 404
     assert response.json()["status"] == "error"
+
+@pytest.mark.django_db
+def test_nav_global_my_shifts_casing(user, event, shift_assignment):
+    """Ensure the sidebar nav item uses lowercase 'My shifts'."""
+    from django.test import RequestFactory
+    from eventyay.control.signals import nav_global
+
+    rf = RequestFactory()
+    request = rf.get("/common/my-shifts/")
+    request.user = user
+
+    responses = nav_global.send(request, request=request)
+    my_shifts_item = None
+    for _receiver, items in responses:
+        if isinstance(items, list):
+            for item in items:
+                if item.get("url") == reverse("plugins:teamshifts:my_shifts_global"):
+                    my_shifts_item = item
+                    break
+    assert my_shifts_item is not None
+    assert str(my_shifts_item["label"]) == "My shifts"
+
+
+@pytest.mark.django_db
+def test_user_dashboard_links_ordering_after_exhibition(user, event, shift_assignment):
+    """Ensure user_dashboard_links places My shifts after My exhibitions."""
+    from django.test import RequestFactory
+    from django.utils.safestring import mark_safe
+    from eventyay.common.signals import user_dashboard_links
+
+    rf = RequestFactory()
+    request = rf.get("/common/")
+    request.user = user
+
+    def dummy_exhibition(sender, **kwargs):
+        return mark_safe('<a class="dropdown-item" href="/common/exhibitions/"><i class="fa fa-building-o"></i> My exhibitions</a>')
+
+    user_dashboard_links.connect(dummy_exhibition, dispatch_uid="test_dummy_exhibition")
+    try:
+        responses = user_dashboard_links.send(request)
+        html_responses = [str(resp) for _r, resp in responses if resp]
+        assert any("My exhibitions" in h for h in html_responses)
+        assert any("My shifts" in h for h in html_responses)
+        exhibition_idx = next(i for i, h in enumerate(html_responses) if "My exhibitions" in h)
+        shifts_idx = next(i for i, h in enumerate(html_responses) if "My shifts" in h)
+        assert exhibition_idx < shifts_idx
+    finally:
+        user_dashboard_links.disconnect(dispatch_uid="test_dummy_exhibition")
+
+
+@pytest.mark.django_db
+def test_my_shifts_global_table_matches_common_area(client, user, event, cfm, accepted_application, shift_assignment, global_url):
+    """Ensure the global page uses the common area table UI without panel wrappers."""
+    client.force_login(user)
+    with scopes_disabled():
+        response = client.get(global_url)
+    assert response.status_code == 200
+    content = response.content.decode("utf-8")
+    assert "table table-condensed table-hover events-table" in content
+    assert 'class="panel panel-default' not in content
+    assert 'class="panel-heading"' not in content
+    assert 'class="panel-body"' not in content
+    assert "<h1>My shifts</h1>" in content

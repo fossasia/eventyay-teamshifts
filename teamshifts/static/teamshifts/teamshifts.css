@@ -200,8 +200,14 @@ label .optional {
 }
 
 
-.my-shifts-event-panel {
-  margin-bottom: 24px;
+.my-shifts-event-panel,
+.my-shifts-event-section {
+  margin-top: 24px;
+  margin-bottom: 32px;
+}
+
+.my-shifts-event-section:first-child {
+  margin-top: 16px;
 }
 
 .my-shifts-event-header {
@@ -210,10 +216,19 @@ label .optional {
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 8px;
+  margin-bottom: 12px;
 }
 
-.my-shifts-event-header .panel-title {
+.my-shifts-event-header .panel-title,
+.my-shifts-event-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
   flex: 1;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .my-shifts-event-dates {

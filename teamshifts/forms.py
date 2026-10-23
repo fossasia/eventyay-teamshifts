@@ -26,6 +26,7 @@ from .models import (
     CertificateMatchMode,
     CertificateSettings,
     CertificateTrigger,
+    EmailTemplateRoles,
     QuestionVariant,
     ShiftLocation,
     TeamApplicationQuestion,
@@ -446,14 +447,20 @@ class EmailTemplateForm(forms.ModelForm):
         from .models import TeamShiftsEmailTemplate
 
         model = TeamShiftsEmailTemplate
-        fields = ("subject", "body")
+        fields = ("subject", "body", "send_automatically")
         labels = {
             "subject": _("Subject"),
             "body": _("Body"),
+            "send_automatically": _("Send this reminder automatically"),
+        }
+        help_texts = {
+            "send_automatically": _("Sent to each team member about 24 hours before their first shift of the day."),
         }
 
     def __init__(self, *args, locales=None, **kwargs):
         super().__init__(*args, **kwargs)
+        if self.instance.role != EmailTemplateRoles.SHIFT_REMINDER:
+            del self.fields["send_automatically"]
         self.fields["subject"].required = False
         self.fields["body"].required = False
         if locales:

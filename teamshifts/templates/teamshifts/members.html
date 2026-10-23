@@ -21,8 +21,14 @@
     </form>
   {% endif %}
 
-  <div class='teamshifts-filter-bar clearfix'>
-    <form method='get' class='form-inline pull-left'>
+  {% if can_add_member %}
+    <form method='post' action='{% url "plugins:teamshifts:bulk_send_certificates" organizer=request.organizer.slug event=request.event.slug %}' id='bulk-certificate-form' class='ts-hidden' data-asynctask>
+      {% csrf_token %}
+    </form>
+  {% endif %}
+
+  <div class='teamshifts-filter-bar'>
+    <form method='get' class='form-inline'>
       <div class='form-group'>
         <input type='text' name='q' value='{{ request.GET.q|default:"" }}' class='form-control' placeholder='{% trans "Search by name or email" %}'>
       </div>
@@ -44,42 +50,55 @@
           </select>
         </div>
       {% endif %}
+      <div class='form-group'>
+        <select name='certificate' class='form-control' aria-label='{% trans "Certificate" %}'>
+          <option value=''>{% trans 'All certificate statuses' %}</option>
+          {% for value, label in certificate_status_choices %}
+            <option value='{{ value }}' {% if request.GET.certificate == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
       <button type='submit' class='btn btn-default'>{% trans 'Filter' %}</button>
     </form>
+  </div>
 
-    <div class='pull-right'>
-      {% if can_download_members %}
-        <details class='dropdown teamshifts-download-dropdown'>
-          <summary class='btn btn-default'>
-            <i class='fa fa-download'></i> {% trans 'Download' %} <i class='fa fa-caret-down'></i>
-          </summary>
-          <div class='dropdown-content dropdown-front dropdown-content-sw'>
-            <a class='dropdown-item' href='{{ download_xlsx_url }}'>
-              <i class='fa fa-file-excel-o'></i> {% trans 'Excel (.xlsx)' %}
-            </a>
-            <a class='dropdown-item' href='{{ download_csv_url }}'>
-              <i class='fa fa-file-text-o'></i> {% trans 'CSV' %}
-            </a>
-          </div>
-        </details>
-      {% endif %}
-      {% if vouchers_enabled %}
-        <button type='button' class='btn btn-primary' id='bulk-send-btn'
-          {% if voucher_batch_empty %}title='{% trans "Voucher batch is empty — only resends are possible. Add more codes in Tickets → Vouchers." %}'{% endif %}>
-          <i class='fa fa-ticket'></i> {% trans 'Send voucher' %}
-        </button>
-      {% elif vouchers_not_configured %}
-        <button type='button' class='btn btn-primary' disabled
-          title='{% trans "Configure a voucher batch in settings first." %}'>
-          <i class='fa fa-ticket'></i> {% trans 'Send voucher' %}
-        </button>
-      {% endif %}
-      {% if can_add_member %}
-        <a href='{% url "plugins:teamshifts:member_add" organizer=request.organizer.slug event=request.event.slug %}' class='btn btn-primary'>
-          <i class='fa fa-plus'></i> {% trans 'Add member' %}
-        </a>
-      {% endif %}
-    </div>
+  <div class='teamshifts-list-toolbar'>
+    {% if can_add_member %}
+      <a href='{% url "plugins:teamshifts:member_add" organizer=request.organizer.slug event=request.event.slug %}' class='btn btn-primary'>
+        <i class='fa fa-plus'></i> {% trans 'Add member' %}
+      </a>
+    {% endif %}
+    {% if vouchers_enabled %}
+      <button type='button' class='btn btn-primary' id='bulk-send-btn'
+        {% if voucher_batch_empty %}title='{% trans "Voucher batch is empty — only resends are possible. Add more codes in Tickets → Vouchers." %}'{% endif %}>
+        <i class='fa fa-ticket'></i> {% trans 'Send voucher' %}
+      </button>
+    {% elif vouchers_not_configured %}
+      <button type='button' class='btn btn-primary' disabled
+        title='{% trans "Configure a voucher batch in settings first." %}'>
+        <i class='fa fa-ticket'></i> {% trans 'Send voucher' %}
+      </button>
+    {% endif %}
+    {% if can_add_member %}
+      <button type='button' class='btn btn-primary' id='bulk-send-certificates-btn'>
+        <i class='fa fa-certificate'></i> {% trans 'Send certificates' %}
+      </button>
+    {% endif %}
+    {% if can_download_members %}
+      <details class='dropdown teamshifts-download-dropdown'>
+        <summary class='btn btn-default'>
+          <i class='fa fa-download'></i> {% trans 'Download' %} <i class='fa fa-caret-down'></i>
+        </summary>
+        <div class='dropdown-content dropdown-front dropdown-content-se'>
+          <a class='dropdown-item' href='{{ download_xlsx_url }}'>
+            <i class='fa fa-file-excel-o'></i> {% trans 'Excel (.xlsx)' %}
+          </a>
+          <a class='dropdown-item' href='{{ download_csv_url }}'>
+            <i class='fa fa-file-text-o'></i> {% trans 'CSV' %}
+          </a>
+        </div>
+      </details>
+    {% endif %}
   </div>
 
   {% if members %}
@@ -87,11 +106,9 @@
       <table class='table table-hover table-quotas'>
         <thead>
           <tr>
-            {% if vouchers_enabled or vouchers_not_configured %}
-              <th class='checkbox-column'>
-                <input type='checkbox' id='select-all' title='{% trans "Select all" %}'>
-              </th>
-            {% endif %}
+            <th class='checkbox-column'>
+              <input type='checkbox' id='select-all' title='{% trans "Select all" %}'>
+            </th>
             <th>{% trans 'Name' %}</th>
             {% if can_view_email %}
               <th>{% trans 'Email' %}</th>
@@ -103,17 +120,16 @@
             {% if vouchers_enabled %}
               <th>{% trans 'Voucher' %}</th>
             {% endif %}
+            <th>{% trans 'Certificate' %}</th>
             <th>{% trans 'Arrived' %}</th>
           </tr>
         </thead>
         <tbody>
           {% for member in members %}
             <tr>
-              {% if vouchers_enabled or vouchers_not_configured %}
-                <td class='checkbox-column'>
-                  <input type='checkbox' data-member-id='{{ member.pk }}' class='member-checkbox'>
-                </td>
-              {% endif %}
+              <td class='checkbox-column'>
+                <input type='checkbox' data-member-id='{{ member.pk }}' class='member-checkbox'>
+              </td>
               <td>
                 <strong>
                   <a href='{% url "plugins:teamshifts:application_detail" organizer=request.organizer.slug event=request.event.slug pk=member.pk %}'>
@@ -185,6 +201,23 @@
                   {% endwith %}
                 </td>
               {% endif %}
+              <td>
+                {% with cert=member.certificate status=member.certificate_status %}
+                  <span class='label {{ status.label_class }}'>{{ status.label }}</span>
+                  {% if cert.notified_at %}
+                    {% timezone request.event.timezone %}
+                      {% now 'Y' as current_year %}
+                      <small class='text-muted ts-certificate-sent-date' title='{{ cert.notified_at|date:"j M Y H:i T" }}' data-toggle='tooltip'>
+                        {% if cert.notified_at|date:'Y' == current_year %}
+                          {% blocktrans trimmed with sent=cert.notified_at|date:'j M' %}Sent {{ sent }}{% endblocktrans %}
+                        {% else %}
+                          {% blocktrans trimmed with sent=cert.notified_at|date:'j M Y' %}Sent {{ sent }}{% endblocktrans %}
+                        {% endif %}
+                      </small>
+                    {% endtimezone %}
+                  {% endif %}
+                {% endwith %}
+              </td>
               <td>
                 <form method='post' action='{% url "plugins:teamshifts:member_toggle_arrived" organizer=request.organizer.slug event=request.event.slug pk=member.pk %}' class='toggle-arrived-form'>
                   {% csrf_token %}

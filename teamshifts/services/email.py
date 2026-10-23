@@ -15,7 +15,7 @@ from ..models import (
     TeamShiftsEmailQueue,
     TeamShiftsEmailQueueRecipient,
 )
-from ..tasks import send_queued_email
+from ..tasks import render_subject, send_queued_email
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +51,7 @@ def queue_email(
     shift: Shift | None = None,
     shift_role: TeamRole | None = None,
     status_filter: str = "",
+    mail_type: str = "",
     send_after=None,
     dispatch: bool = True,
     is_draft: bool = False,
@@ -68,6 +69,7 @@ def queue_email(
             shift=shift,
             shift_role=shift_role,
             status_filter=status_filter or "",
+            mail_type=mail_type,
             send_after=send_after,
             is_draft=is_draft,
         )
@@ -75,6 +77,36 @@ def queue_email(
 
     if dispatch and not is_draft:
         _dispatch(event.pk, queue.pk, eta=send_after)
+    return queue
+
+
+def record_sent_email(
+    event: Event,
+    user: User,
+    subject,
+    message,
+    context: dict,
+    locale: str,
+    mail_type: str,
+) -> TeamShiftsEmailQueue:
+    sent_now = now()
+    with scope(event=event):
+        queue = TeamShiftsEmailQueue.objects.create(
+            event=event,
+            user=user,
+            subject=subject,
+            message=message,
+            locale=locale or "",
+            mail_type=mail_type,
+            sent_at=sent_now,
+        )
+        TeamShiftsEmailQueueRecipient.objects.create(
+            queue=queue,
+            user=user,
+            email=user.email,
+            subject=render_subject(subject, context, locale or event.settings.locale, event),
+            sent_at=sent_now,
+        )
     return queue
 
 
@@ -156,6 +188,7 @@ def queue_lifecycle_email(application, role: str) -> TeamShiftsEmailQueue | None
         message=template.body,
         recipients=[application.user],
         status_filter=application.status,
+        mail_type=role,
     )
 
 
@@ -193,4 +226,5 @@ def queue_shift_notification_email(
         recipients=[user],
         shift=shift,
         shift_role=role,
+        mail_type=template_role,
     )

@@ -2,19 +2,13 @@
 {% load i18n %}
 {% load bootstrap3 %}
 {% block title %}{% trans "Certificates" %} :: {{ request.event.name }}{% endblock %}
-{% block content %}
-    <nav id="event-nav" class="header-nav">
-        <div class="navigation">
-            <div class="navigation-title">
-                <h1>{% trans "Certificates" %}</h1>
-            </div>
-        </div>
-    </nav>
+{% block teamshifts_header %}
+    <h1>{% trans "Certificates" %}</h1>
+{% endblock %}
 
+{% block teamshifts_content %}
     <form action="" method="post" class="form-horizontal">
         {% csrf_token %}
-        {% bootstrap_form_errors form %}
-
         <fieldset>
             <legend>{% trans "Certificate design" %}</legend>
             <div class="form-group">
@@ -60,7 +54,9 @@
             <p class="help-block">
                 {% trans "A member qualifies when they meet the selected conditions. Shift completion is stored when a member checks out on My Shifts." %}
             </p>
+            {% bootstrap_form_errors form type="non_fields" %}
             {% bootstrap_field form.require_arrived layout="control" %}
+            {% bootstrap_field form.require_after_event_end layout="control" %}
             {% bootstrap_field form.require_min_shifts layout="control" %}
             {% bootstrap_field form.min_shifts layout="control" %}
             {% bootstrap_field form.match_mode layout="control" %}
@@ -69,18 +65,66 @@
         <fieldset>
             <legend>{% trans "Generation trigger" %}</legend>
             {% bootstrap_field form.generate_automatically layout="control" %}
+            <div class="form-group">
+                <div class="col-md-9 col-md-offset-3">
+                    <p class="help-block">
+                        {% blocktrans trimmed %}
+                            Off: you create certificates with <strong>Generate certificates</strong> and email them with
+                            <strong>Send certificates</strong> below, or send them to selected members from the
+                            <a href="{{ members_url }}">Members page</a>.
+                        {% endblocktrans %}
+                        <br>
+                        {% trans "On: each member's certificate is generated and emailed as soon as they meet the conditions." %}
+                    </p>
+                </div>
+            </div>
         </fieldset>
 
         <fieldset>
             <legend>{% trans "Organizer actions" %}</legend>
             <div class="form-group">
                 <div class="col-md-9 col-md-offset-3">
-                    <button type="submit" name="action" value="generate_all" class="btn btn-default">
-                        <span class="fa fa-cogs"></span> {% trans "Generate all" %}
+                    <button type="submit" form="certificates-generate-form" class="btn btn-default"
+                            {% if not generate_count %}disabled{% endif %}
+                            {% if generation_hint %}aria-describedby="certificate-generation-hint"{% endif %}>
+                        <span class="fa fa-cogs"></span>
+                        {% if generate_count %}
+                            {% blocktrans with count=generate_count %}Generate certificates ({{ count }}){% endblocktrans %}
+                        {% else %}
+                            {% trans "Generate certificates" %}
+                        {% endif %}
                     </button>
-                    <button type="submit" name="action" value="download_all" class="btn btn-default">
+                    <button type="submit" form="certificates-send-form" class="btn {% if send_count %}btn-primary{% else %}btn-default{% endif %}"
+                            {% if not send_count %}disabled{% endif %}
+                            {% if generation_hint %}aria-describedby="certificate-generation-hint"{% endif %}>
+                        <span class="fa fa-envelope"></span>
+                        {% if send_count %}
+                            {% blocktrans with count=send_count %}Send certificates ({{ count }}){% endblocktrans %}
+                        {% else %}
+                            {% trans "Send certificates" %}
+                        {% endif %}
+                    </button>
+                    <button type="submit" name="action" value="download_all" class="btn btn-default"{% if not can_download %} disabled{% endif %}>
                         <span class="fa fa-download"></span> {% trans "Download all" %}
                     </button>
+                    {% if generate_count or send_count %}
+                        <p class="help-block">
+                            {% blocktrans trimmed %}
+                                <strong>Step 1 – Generate:</strong> creates the certificate PDFs. No emails are sent, so you can download and check them first.
+                            {% endblocktrans %}
+                            <br>
+                            {% blocktrans trimmed %}
+                                <strong>Step 2 – Send:</strong> emails the generated certificates to the members.
+                            {% endblocktrans %}
+                        </p>
+                    {% endif %}
+                    {% if generation_hint %}
+                        <div>
+                            <p id="certificate-generation-hint" class="ts-certificate-hint">
+                                <i class="fa fa-info-circle"></i> {{ generation_hint }}
+                            </p>
+                        </div>
+                    {% endif %}
                 </div>
             </div>
         </fieldset>
@@ -88,6 +132,13 @@
         <div class="form-group submit-group">
             <button type="submit" class="btn btn-primary btn-save">{% trans "Save" %}</button>
         </div>
+    </form>
+
+    <form id="certificates-generate-form" method="post" action="{% url 'plugins:teamshifts:certificates_generate' organizer=request.organizer.slug event=request.event.slug %}" data-asynctask>
+        {% csrf_token %}
+    </form>
+    <form id="certificates-send-form" method="post" action="{% url 'plugins:teamshifts:certificates_send' organizer=request.organizer.slug event=request.event.slug %}" data-asynctask>
+        {% csrf_token %}
     </form>
 
     <fieldset>
@@ -102,6 +153,7 @@
                         <th>{% trans "Completed shifts" %}</th>
                         <th>{% trans "Qualifies" %}</th>
                         <th>{% trans "Generated" %}</th>
+                        <th>{% trans "Sent" %}</th>
                         <th>{% trans "Downloaded" %}</th>
                     </tr>
                 </thead>
@@ -114,11 +166,12 @@
                             <td>{{ row.completed }}</td>
                             <td>{% if row.qualifies %}{% trans "Yes" %}{% else %}{% trans "No" %}{% endif %}</td>
                             <td>{% if row.generated %}{% trans "Yes" %}{% else %}{% trans "No" %}{% endif %}</td>
+                            <td>{% if row.sent %}{% trans "Yes" %}{% else %}{% trans "No" %}{% endif %}</td>
                             <td>{% if row.downloaded %}{% trans "Yes" %}{% else %}{% trans "No" %}{% endif %}</td>
                         </tr>
                     {% empty %}
                         <tr>
-                            <td colspan="{% if can_view_email %}7{% else %}6{% endif %}">{% trans "No accepted team members yet." %}</td>
+                            <td colspan="{% if can_view_email %}8{% else %}7{% endif %}">{% trans "No accepted team members yet." %}</td>
                         </tr>
                     {% endfor %}
                 </tbody>

@@ -770,7 +770,10 @@ class BaseShiftRoleFormSet(forms.BaseInlineFormSet):
             if not assignment_id:
                 continue
 
-            assignment = self.get_queryset().filter(pk=assignment_id).first()
+            try:
+                assignment = self.get_queryset().filter(pk=assignment_id).first()
+            except (ValueError, TypeError):
+                continue
 
             if assignment and str(assignment.role_id) == str(role_id):
                 form._allow_deleted_role_readdition = True

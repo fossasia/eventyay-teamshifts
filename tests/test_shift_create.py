@@ -652,7 +652,7 @@ def test_shift_edit_allows_readding_role_marked_for_deletion(orga_client, event,
             "roles-0-id": assignment.pk,
             "roles-0-DELETE": "on",
             "roles-1-role": team_role.pk,
-            "roles-1-capacity": "2",
+            "roles-1-capacity": "4",
         }
     )
 
@@ -663,5 +663,6 @@ def test_shift_edit_allows_readding_role_marked_for_deletion(orga_client, event,
         response.context["formset"].non_form_errors(),
     )
     with scope(event=event):
-        assignments = ShiftRoleAssignment.objects.filter(shift=shift, role=team_role)
-        assert assignments.count() == 1
+        new_assignment = ShiftRoleAssignment.objects.get(shift=shift, role=team_role)
+        assert new_assignment.pk != assignment.pk
+        assert new_assignment.capacity == 4

@@ -5,10 +5,7 @@
 {% block title %}{% trans "Outbox" %} :: {{ request.event.name }}{% endblock %}
 {% block custom_header %}
   {{ block.super }}
-  <script type="module">
-    import { setupAjaxSorting } from "{% static 'teamshifts/list_sorting.js' %}";
-    setupAjaxSorting(() => {});
-  </script>
+   <script type="module" src="{% static 'teamshifts/outbox_list.js' %}"></script>
 {% endblock %}
 {% block teamshifts_header %}
         <h1>

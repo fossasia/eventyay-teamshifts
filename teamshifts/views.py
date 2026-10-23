@@ -36,7 +36,7 @@ from eventyay.common.text.phrases import phrases
 from eventyay.control.forms.orders import ExporterForm
 from eventyay.control.views import PaginationMixin
 from eventyay.multidomain.urlreverse import build_absolute_uri
-
+from eventyay.common.views.mixins import Sortable
 from .exporters import EXPORT_FORMAT_CSV, EXPORT_FORMAT_XLSX, MembersExporter
 from .forms import (
     MAX_SHIFTS_PER_ACTION,
@@ -317,14 +317,18 @@ class RichTextPreviewView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, 
         return JsonResponse({"html": str(rich_text(html)) if html else ""})
 
 
-class TeamRoleListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):
+class TeamRoleListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Sortable, View):
     permission = None
     template_name = "teamshifts/roles.html"
+    default_sort_field = "name"
+    sortable_fields = ("name", "is_restricted")
 
     def get(self, request, *args, **kwargs):
         with scope(event=request.event):
-            ordering = self.get_current_ordering()
-            roles = list(TeamRole.objects.filter(event=request.event).order_by(ordering, "-pk" if ordering.startswith("-") else "pk"))
+            roles = list(
+                self.sort_queryset(TeamRole.objects.filter(event=request.event))
+            )
+            ordering = request.GET.get("sort") or self.default_sort_field
         allowed = get_allowed_role_ids(request.user, request.organizer, request.event, request=request)
         can_create = has_teamshifts_permission(request.user, request.organizer, request.event, "can_teamshifts_create_roles", request=request)
         return render(
@@ -351,8 +355,8 @@ class TeamRoleListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Vie
             messages.success(request, _("Role '%s' created.") % role.name)
             return redirect("plugins:teamshifts:roles", organizer=request.organizer.slug, event=request.event.slug)
         with scope(event=request.event):
-            ordering = self.get_current_ordering()
-            roles = list(TeamRole.objects.filter(event=request.event).order_by(ordering, "-pk" if ordering.startswith("-") else "pk"))
+            ordering = request.GET.get("sort") or self.default_sort_field
+            roles = list(self.sort_queryset(TeamRole.objects.filter(event=request.event)))
         allowed = get_allowed_role_ids(request.user, request.organizer, request.event, request=request)
         return render(
             request,
@@ -365,15 +369,6 @@ class TeamRoleListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Vie
                 "current_ordering": ordering,
             },
         )
-
-    def get_current_ordering(self):
-        ordering = self.request.GET.get("ordering", "name")
-        allowed_fields = {"name", "is_restricted"}
-
-        if ordering in allowed_fields or (ordering.startswith("-") and ordering[1:] in allowed_fields):
-            return ordering
-
-        return "name"
 
 
 class TeamRoleDeleteView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):
@@ -783,10 +778,12 @@ class QuestionToggleView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, V
         return JsonResponse({"success": True, "field": field, "value": value})
 
 
-class ApplicationListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, PaginationMixin, ListView):
+class ApplicationListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, PaginationMixin, Sortable, ListView):
     permission = None
     template_name = "teamshifts/applications.html"
     context_object_name = "applications"
+    default_sort_field = "-created_at"
+    sortable_fields = ("user__fullname", "status", "created_at")
 
     def get_queryset(self):
         event = self.request.event
@@ -795,10 +792,6 @@ class ApplicationListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, 
                 TeamMemberApplication.objects.filter(event=event, added_by_organizer=False)
                 .select_related("user")
                 .prefetch_related("answers__question")
-                .order_by(
-                    self.get_current_ordering(),
-                    "-pk" if self.get_current_ordering().startswith("-") else "pk",
-                )
             )
             status_filter = self.request.GET.get("status")
 
@@ -813,7 +806,8 @@ class ApplicationListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, 
                     qs = qs.filter(Q(user__email__icontains=search) | Q(user__fullname__icontains=search))
                 else:
                     qs = qs.filter(Q(user__fullname__icontains=search))
-            return qs
+
+            return self.sort_queryset(qs)
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -888,17 +882,8 @@ class ApplicationListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, 
                 self.request.user, self.request.organizer, event, "can_teamshifts_manage_applicants", request=self.request
             )
             ctx["search"] = search
-            ctx["current_ordering"] = self.get_current_ordering()
+            ctx["current_ordering"] = self.request.GET.get("sort") or self.default_sort_field
         return ctx
-
-    def get_current_ordering(self):
-        ordering = self.request.GET.get("ordering", "-created_at")
-        allowed_fields = {"user__fullname", "status", "created_at"}
-
-        if ordering in allowed_fields or (ordering.startswith("-") and ordering[1:] in allowed_fields):
-            return ordering
-
-        return "-created_at"
 
 
 class ApplicationStatusView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):
@@ -1325,50 +1310,49 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
         )
 
 
-class EmailOutboxView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, TemplateView):
+class EmailOutboxView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Sortable, TemplateView):
     permission = "can_teamshifts_send_emails"
     template_name = "teamshifts/emails/outbox_list.html"
+    default_sort_field = "-created"
+    sortable_fields = ("subject", "recipient_count", "send_after", "created")
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         event = self.request.event
-        ordering = self.request.GET.get("ordering", "-created")
-        allowed_orderings = {"subject", "recipient_count", "send_after"}
-        if not (ordering in allowed_orderings or (ordering.startswith("-") and ordering[1:] in allowed_orderings)):
-            ordering = "-created"
         with scope(event=event):
-            queues = list(
-                TeamShiftsEmailQueue.objects.filter(event=event, sent_at__isnull=True, is_draft=False, user__isnull=False)
+            queues = list(self.sort_queryset(
+                TeamShiftsEmailQueue.objects.filter(
+                    event=event, sent_at__isnull=True, is_draft=False, user__isnull=False
+                )
                 .select_related("role_filter", "user")
                 .annotate(recipient_count=Count("recipients"))
-                .order_by(ordering, "pk")
-            )
+            ))
         ctx["mails"] = queues
-        ctx["current_ordering"] = ordering
+        ctx["current_ordering"] = self.request.GET.get("sort") or self.default_sort_field
         ctx["can_view_email"] = can_view_email_addresses(self.request.user, self.request.organizer, event, request=self.request)
         return ctx
 
 
-class EmailDraftsView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, TemplateView):
+class EmailDraftsView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Sortable, TemplateView):
     permission = "can_teamshifts_send_emails"
     template_name = "teamshifts/emails/drafts_list.html"
+    default_sort_field = "-sent_at"
+    sortable_fields = ("subject", "recipient_count", "sent_at")
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         event = self.request.event
-        ordering = self.request.GET.get("ordering", "-sent_at")
-        allowed_orderings = {"subject", "recipient_count", "sent_at"}
-
-        if not (ordering in allowed_orderings or (ordering.startswith("-") and ordering[1:] in allowed_orderings)):
-            ordering = "-sent_at"
         with scope(event=event):
             ctx["mails"] = list(
-                TeamShiftsEmailQueue.objects.filter(event=event, sent_at__isnull=True, is_draft=True, user__isnull=False)
-                .select_related("user")
-                .annotate(recipient_count=Count("recipients"))
-                .order_by(ordering, "pk")
+                self.sort_queryset(
+                    TeamShiftsEmailQueue.objects.filter(
+                        event=event, sent_at__isnull=True, is_draft=True, user__isnull=False
+                    )
+                    .select_related("user")
+                    .annotate(recipient_count=Count("recipients"))
+                )
             )
-        ctx["current_ordering"] = ordering
+        ctx["current_ordering"] = self.request.GET.get("sort") or self.default_sort_field
         ctx["can_view_email"] = can_view_email_addresses(
             self.request.user,
             self.request.organizer,
@@ -1378,10 +1362,12 @@ class EmailDraftsView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Temp
         return ctx
 
 
-class EmailSentView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, PaginationMixin, ListView):
+class EmailSentView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, PaginationMixin, Sortable, ListView):
     permission = "can_teamshifts_send_emails"
     template_name = "teamshifts/emails/sent_list.html"
     context_object_name = "mails"
+    default_sort_field = "-sent_at"
+    sortable_fields = ("subject", "sent_at")
 
     def get_queryset(self):
         event = self.request.event
@@ -1392,7 +1378,6 @@ class EmailSentView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Pagina
                 )
                 .filter(Q(queue__user__isnull=False) | ~Q(queue__mail_type=""))
                 .select_related("queue", "user")
-                .order_by("-sent_at", "-pk")
             )
 
             search = self.request.GET.get("q", "").strip()
@@ -1410,7 +1395,7 @@ class EmailSentView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Pagina
                 ):
                     condition |= Q(email__icontains=search)
                 qs = qs.filter(condition)
-        return qs
+        return self.sort_queryset(qs)
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -1421,6 +1406,7 @@ class EmailSentView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Pagina
             self.request.event,
             request=self.request,
         )
+        ctx["current_ordering"] = self.request.GET.get("sort") or self.default_sort_field
         return ctx
 
 
@@ -1556,29 +1542,44 @@ class EmailQueueSendNowView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin
         )
 
 
-class ShiftLocationListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):
+class ShiftLocationListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Sortable, View):
     permission = "can_teamshifts_create_shifts"
     template_name = "teamshifts/locations.html"
+    default_sort_field = "position"
+    sortable_fields = ("name", "linked_room", "position")
 
     def get(self, request, *args, **kwargs):
-        ordering = self.get_current_ordering()
+        ordering = request.GET.get("sort") or self.default_sort_field
+
         with scope(event=request.event):
-            locations = list(
-                ShiftLocation.objects.filter(event=request.event)
-                .select_related("linked_room")
-                .order_by(
+            qs = ShiftLocation.objects.filter(event=request.event).select_related("linked_room")
+
+            if ordering in ("name", "-name"):
+                qs = qs.order_by(
                     Coalesce("linked_room__name", "name").desc()
                     if ordering == "-name"
-                    else Coalesce("linked_room__name", "name").asc()
-                    if ordering == "name"
-                    else ordering,
+                    else Coalesce("linked_room__name", "name").asc(),
                     "-pk" if ordering.startswith("-") else "pk",
                 )
-            )
-            already_linked_room_ids = {loc.linked_room_id for loc in locations if loc.linked_room_id is not None}
+            elif ordering in ("linked_room", "-linked_room"):
+                qs = qs.order_by(
+                    f"{'-' if ordering.startswith('-') else ''}linked_room__name",
+                    "-pk" if ordering.startswith("-") else "pk",
+                )
+            else:
+                ordering = self.default_sort_field
+                qs = self.sort_queryset(qs)
+
+            locations = list(qs)
+            already_linked_room_ids = {
+                loc.linked_room_id for loc in locations if loc.linked_room_id is not None
+            }
             importable_rooms = list(
-                request.event.rooms.filter(deleted=False, is_unscheduled=False).exclude(pk__in=already_linked_room_ids).order_by("position", "pk")
+                request.event.rooms.filter(
+                    deleted=False, is_unscheduled=False
+                ).exclude(pk__in=already_linked_room_ids).order_by("position", "pk")
             )
+
         return render(
             request,
             self.template_name,
@@ -1588,15 +1589,6 @@ class ShiftLocationListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin
                 "current_ordering": ordering,
             },
         )
-
-    def get_current_ordering(self):
-        ordering = self.request.GET.get("ordering", "position")
-        allowed_fields = {"name", "linked_room"}
-
-        if ordering in allowed_fields or (ordering.startswith("-") and ordering[1:] in allowed_fields):
-            return ordering
-
-        return "position"
 
 
 class ShiftLocationReorderView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):
@@ -1859,23 +1851,24 @@ class ImportTalksRoomsView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin,
         return redirect("plugins:teamshifts:locations", organizer=request.organizer.slug, event=request.event.slug)
 
 
-class ShiftListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, PaginationMixin, ListView):
+class ShiftListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, PaginationMixin, Sortable, ListView):
     permission = "can_teamshifts_create_shifts"
     template_name = "teamshifts/shifts.html"
     context_object_name = "shifts"
     DEFAULT_PAGINATION = 50
+    default_sort_field = "start_time"
+    sortable_fields = ("name", "location__name", "start_time", "end_time")
 
     def get_queryset(self):
         event = self.request.event
-        ordering = self.get_current_ordering()
 
         with scope(event=event):
-            return (
+            qs = (
                 Shift.objects.filter(event=event)
                 .select_related("location")
                 .prefetch_related("role_assignments__role")
-                .order_by(ordering, "-pk" if ordering.startswith("-") else "pk")
             )
+            return self.sort_queryset(qs)
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -1883,17 +1876,8 @@ class ShiftListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Pagina
         ctx["can_manage_shifts"] = has_teamshifts_permission(
             self.request.user, self.request.organizer, event, "can_teamshifts_create_shifts", request=self.request
         )
-        ctx["current_ordering"] = self.get_current_ordering()
+        ctx["current_ordering"] = self.request.GET.get("sort") or self.default_sort_field
         return ctx
-
-    def get_current_ordering(self):
-        ordering = self.request.GET.get("ordering", "start_time")
-        allowed_fields = {"name", "location__name", "start_time", "end_time"}
-
-        if ordering in allowed_fields or (ordering.startswith("-") and ordering[1:] in allowed_fields):
-            return ordering
-
-        return "start_time"
 
 
 class BulkShiftDeleteView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):

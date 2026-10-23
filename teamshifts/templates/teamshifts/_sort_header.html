@@ -4,13 +4,13 @@
 {{ label }}
 <span class="list-sort">
     <a data-ajax
-       href="?{% url_replace request 'ordering' field 'page' '1' %}"
+       href="?{% url_replace request 'sort' field 'page' '1' %}"
        class="{% if current_ordering == field %}text-primary{% else %}text-muted{% endif %}"
        aria-label="{% blocktrans with column=label %}Sort {{ column }} ascending{% endblocktrans %}">
         <i class="fa fa-caret-up"></i>
     </a>
     <a data-ajax
-       href="?{% url_replace request 'ordering' '-'|add:field 'page' '1' %}"
+       href="?{% url_replace request 'sort' '-'|add:field 'page' '1' %}"
        class="{% if current_ordering == '-'|add:field %}text-primary{% else %}text-muted{% endif %}"
        aria-label="{% blocktrans with column=label %}Sort {{ column }} descending{% endblocktrans %}">
         <i class="fa fa-caret-down"></i>

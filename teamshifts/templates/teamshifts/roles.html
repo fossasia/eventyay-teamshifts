@@ -2,7 +2,16 @@
 {% load i18n %}
 {% load bootstrap3 %}
 {% load rich_text %}
+{% load static %}
 
+
+{% block custom_header %}
+    {{ block.super }}
+    <script type="module">
+        import { setupAjaxSorting } from "{% static 'teamshifts/list_sorting.js' %}";
+        setupAjaxSorting(() => {});
+    </script>
+{% endblock %}
 {% block title %}{% trans "Team Roles" %} :: {{ request.event.name }}{% endblock %}
 
 {% block teamshifts_header %}
@@ -10,6 +19,7 @@
 {% endblock %}
 
 {% block teamshifts_content %}
+    <div data-teamshifts-list>
     {% if not roles %}
     <div class='empty-collection'>
       <p>{% blocktrans trimmed %}No roles have been defined for this event yet.{% endblocktrans %}</p>
@@ -19,8 +29,10 @@
       <table class='table table-hover table-quotas'>
         <thead>
           <tr>
-            <th>{% trans "Role name" %}</th>
-            <th>{% trans "Status" %}</th>
+            {% trans "Role name" as role_name_label %}
+            <th>{% include "teamshifts/_sort_header.html" with label=role_name_label field="name" current_ordering=current_ordering %}</th>
+            {% trans "Status" as status_label %}
+            <th>{% include "teamshifts/_sort_header.html" with label=status_label field="is_restricted" current_ordering=current_ordering %}</th>
             <th>{% trans "Description" %}</th>
             <th>{% trans "Applications" %}</th>
             <th class='action-col-2'></th>
@@ -61,7 +73,7 @@
       </table>
     </div>
   {% endif %}
-
+  </div>
   {% if can_create_roles %}
   <div class='panel panel-default'>
     <div class='panel-heading'>

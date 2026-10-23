@@ -1,3 +1,6 @@
+import { setupAjaxSorting } from "./list_sorting.js";
+
+setupAjaxSorting(() => {});
 document.addEventListener("DOMContentLoaded", () => {
     const selectAll = document.getElementById("select-all-rooms");
     if (!selectAll) return;

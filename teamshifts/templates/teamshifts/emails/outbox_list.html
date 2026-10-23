@@ -1,8 +1,12 @@
 {% extends "teamshifts/base.html" %}
 {% load i18n %}
-
+{% load static %}
+{% load urlreplace %}
 {% block title %}{% trans "Outbox" %} :: {{ request.event.name }}{% endblock %}
-
+{% block custom_header %}
+  {{ block.super }}
+   <script type="module" src="{% static 'teamshifts/outbox_list.js' %}"></script>
+{% endblock %}
 {% block teamshifts_header %}
         <h1>
           {% blocktrans count mail_count=mails|length trimmed %}
@@ -20,14 +24,23 @@
       <i class='fa fa-plus'></i> {% trans "New email" %}
     </a>
   </p>
-
+  <div data-teamshifts-list>
   <table class='table'>
     <thead>
       <tr>
-        <th>{% trans "Subject" %}</th>
+        <th>
+          {% trans "Subject" as subject_label %}
+          {% include "teamshifts/_sort_header.html" with label=subject_label field="subject" current_ordering=current_ordering %}
+        </th>
         <th>{% trans "Filters" %}</th>
-        <th>{% trans "Recipients" %}</th>
-        <th>{% trans "Scheduled for" %}</th>
+        <th>
+          {% trans "Recipients" as recipients_label %}
+          {% include "teamshifts/_sort_header.html" with label=recipients_label field="recipient_count" current_ordering=current_ordering %}
+        </th>
+        <th>
+          {% trans "Scheduled for" as scheduled_label %}
+          {% include "teamshifts/_sort_header.html" with label=scheduled_label field="send_after" current_ordering=current_ordering %}
+        </th>
         <th>{% trans "Actions" %}</th>
       </tr>
     </thead>
@@ -89,4 +102,5 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
 {% endblock %}

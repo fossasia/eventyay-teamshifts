@@ -781,7 +781,7 @@ class ApplicationListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, 
     permission = None
     template_name = "teamshifts/applications.html"
     context_object_name = "applications"
-    default_sort_field = "-updated"
+    default_sort_field = "-created_at"
     sortable_fields = ("user__fullname", "status", "created_at")
     secondary_sort = {
         "user__fullname": ["pk"],
@@ -1336,7 +1336,7 @@ class EmailOutboxView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Sort
 class EmailDraftsView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Sortable, TemplateView):
     permission = "can_teamshifts_send_emails"
     template_name = "teamshifts/emails/drafts_list.html"
-    default_sort_field = "-sent_at"
+    default_sort_field = "-updated"
     sortable_fields = ("subject", "recipient_count", "updated")
 
     def get_context_data(self, **kwargs):

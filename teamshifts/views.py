@@ -3474,7 +3474,7 @@ class MyShiftsGlobalView(LoginRequiredMixin, TemplateView):
                     "role",
                     "assigned_by",
                 )
-                .order_by("shift__event__name", "shift__start_time")
+                .order_by("shift__event__name", "shift__event_id", "shift__start_time")
             )
 
             if filter_form.is_valid():
@@ -3485,13 +3485,11 @@ class MyShiftsGlobalView(LoginRequiredMixin, TemplateView):
                 if search:
                     qs = qs.filter(shift__name__icontains=search)
 
-        shifts_by_event = defaultdict(list)
-        for assignment in qs:
-            shifts_by_event[assignment.shift.event].append(assignment)
-        ctx["shifts_by_event"] = dict(shifts_by_event)
+        assignments = list(qs)
+        ctx["assignments"] = assignments
         ctx["filter_form"] = filter_form
 
-        event_ids = {e.pk for e in shifts_by_event}
+        event_ids = {assignment.shift.event_id for assignment in assignments}
         with scopes_disabled():
             from .models import MemberCertificate
 

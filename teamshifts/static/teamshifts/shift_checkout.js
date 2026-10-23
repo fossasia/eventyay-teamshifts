@@ -42,33 +42,34 @@ function restoreButtonChildren(button, originalChildren) {
   button.replaceChildren(...originalChildren)
 }
 
-document.addEventListener("DOMContentLoaded", () => {
-  document.querySelectorAll(".shift-checkout-form").forEach((form) => {
-    form.addEventListener("submit", async (event) => {
-      event.preventDefault()
-      const button = form.querySelector("button")
-      const originalChildren = Array.from(button.childNodes).map((n) => n.cloneNode(true))
-      setButtonLoading(button)
-      let succeeded = false
+// Delegated so forms re-rendered by the AJAX filter (data-ajax-results-region) keep working.
+document.addEventListener("submit", async (event) => {
+  const form = event.target.closest(".shift-checkout-form")
+  if (!form) {
+    return
+  }
+  event.preventDefault()
+  const button = form.querySelector("button")
+  const originalChildren = Array.from(button.childNodes).map((n) => n.cloneNode(true))
+  setButtonLoading(button)
+  let succeeded = false
 
-      try {
-        const data = await submitCheckout(form)
-        if (data.status === "ok") {
-          setButtonDone(button)
-          succeeded = true
-        } else {
-          restoreButtonChildren(button, originalChildren)
-          alert(data.error || gettext("An error occurred."))
-        }
-      } catch (error) {
-        console.error("Checkout failed", error)
-        restoreButtonChildren(button, originalChildren)
-        alert(error.message || gettext("An error occurred."))
-      } finally {
-        if (!succeeded) {
-          button.disabled = false
-        }
-      }
-    })
-  })
+  try {
+    const data = await submitCheckout(form)
+    if (data.status === "ok") {
+      setButtonDone(button)
+      succeeded = true
+    } else {
+      restoreButtonChildren(button, originalChildren)
+      alert(data.error || gettext("An error occurred."))
+    }
+  } catch (error) {
+    console.error("Checkout failed", error)
+    restoreButtonChildren(button, originalChildren)
+    alert(error.message || gettext("An error occurred."))
+  } finally {
+    if (!succeeded) {
+      button.disabled = false
+    }
+  }
 })

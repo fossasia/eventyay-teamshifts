@@ -200,59 +200,12 @@ label .optional {
 }
 
 
-.my-shifts-event-panel,
-.my-shifts-event-section {
-  margin-top: 24px;
-  margin-bottom: 32px;
-}
-
-.my-shifts-event-section:first-child {
-  margin-top: 16px;
-}
-
-.my-shifts-event-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-
-.my-shifts-event-header .panel-title,
-.my-shifts-event-title {
-  margin: 0;
-  font-size: 18px;
-  font-weight: 600;
-  flex: 1;
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.my-shifts-event-dates {
-  font-size: 90%;
-  margin-left: 8px;
-}
-
-.my-shifts-event-header .badge {
-  margin-left: 6px;
-}
-
-.my-shifts-event-actions {
-  display: flex;
-  gap: 6px;
-  flex-shrink: 0;
-}
-
 .my-shifts-cert-btn {
   white-space: nowrap;
-  opacity: 0.6;
 }
 
-.my-shifts-cert-btn:not([disabled]) {
-  opacity: 1;
+.shift-checkout-form {
+  display: inline-block;
 }
 
 

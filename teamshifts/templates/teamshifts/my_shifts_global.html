@@ -50,118 +50,104 @@
 </div>
 
 <div data-ajax-results-region>
-  {% if not shifts_by_event %}
+  {% if assignments %}
+    <div class="table-responsive mt-3">
+      <table class="table table-condensed table-hover events-table">
+        <thead>
+          <tr>
+            <th>{% translate "Shift" %}</th>
+            <th>{% translate "Event" %}</th>
+            <th>{% translate "Date" %}</th>
+            <th>{% translate "Time" %}</th>
+            <th>{% translate "Role" %}</th>
+            <th>{% translate "Location" %}</th>
+            <th>{% translate "Status" %}</th>
+            <th class="text-right"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for assignment in assignments %}
+            {% with event=assignment.shift.event %}
+            {% timezone event.timezone %}
+              <tr>
+                <td class="event-name-col" data-label="{% translate 'Shift' %}">
+                  {{ assignment.shift.name|default:"—" }}
+                </td>
+                <td data-label="{% translate 'Event' %}">
+                  <a href="{% url 'presale:event.index' event=event.slug organizer=event.organizer.slug %}">
+                    {{ event.name }}
+                  </a>
+                </td>
+                <td data-label="{% translate 'Date' %}">
+                  {{ assignment.shift.start_time|date:"D, N j" }}
+                </td>
+                <td data-label="{% translate 'Time' %}">
+                  {{ assignment.shift.start_time|time:"H:i" }}–{{ assignment.shift.end_time|time:"H:i" }}
+                </td>
+                <td data-label="{% translate 'Role' %}">
+                  {% if assignment.role %}
+                    <span class="label label-info">{{ assignment.role.name }}</span>
+                  {% else %}
+                    —
+                  {% endif %}
+                  {% if assignment.is_moderator %}
+                    <span class="label label-warning">{% translate "Moderator" %}</span>
+                  {% endif %}
+                </td>
+                <td data-label="{% translate 'Location' %}">
+                  {% if assignment.shift.location %}
+                    {{ assignment.shift.location.name }}
+                  {% elif assignment.shift.location_text %}
+                    {{ assignment.shift.location_text }}
+                  {% else %}
+                    —
+                  {% endif %}
+                </td>
+                <td data-label="{% translate 'Status' %}">
+                  {% if assignment.ended_at %}
+                    <span class="label label-success">{% translate "Completed" %}</span>
+                  {% elif assignment.started_at %}
+                    <span class="label label-primary">{% translate "Checked in" %}</span>
+                  {% else %}
+                    <span class="label label-default">{% translate "Pending" %}</span>
+                  {% endif %}
+                </td>
+                <td class="text-right events-table__cell--no-border">
+                  {% if assignment.started_at and not assignment.ended_at and event.pk|in_set:accepted_event_ids %}
+                    <form method="post"
+                          action="{% url 'plugins:teamshifts:shift_checkout' pk=assignment.pk %}"
+                          class="shift-checkout-form">
+                      {% csrf_token %}
+                      <button type="submit" class="btn btn-warning btn-xs">
+                        <i class="fa fa-sign-out"></i>
+                        {% translate "Check out" %}
+                      </button>
+                    </form>
+                  {% endif %}
+                  {% ifchanged event.pk %}
+                    {% if event.pk|in_set:cert_event_ids %}
+                      <a href="{% url 'plugins:teamshifts:my_shifts_certificate_download' event_id=event.pk %}"
+                         class="btn btn-default btn-xs my-shifts-cert-btn">
+                        <i class="fa fa-download"></i>
+                        {% translate "Certificate" %}
+                      </a>
+                    {% endif %}
+                  {% endifchanged %}
+                </td>
+              </tr>
+            {% endtimezone %}
+            {% endwith %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
     <div class="alert alert-info">
       <i class="fa fa-info-circle"></i>
       {% blocktranslate trimmed %}
         You have no shifts assigned yet.
       {% endblocktranslate %}
     </div>
-  {% else %}
-    {% for event, assignments in shifts_by_event.items %}
-      <div class="my-shifts-event-section">
-        <div class="my-shifts-event-header">
-          <h3 class="my-shifts-event-title">
-            <a href="{% url 'presale:event.index' event=event.slug organizer=event.organizer.slug %}">
-              {{ event.name }}
-            </a>
-            <span class="text-muted my-shifts-event-dates">{{ event.get_date_range_display }}</span>
-            <span class="badge">{{ assignments|length }}</span>
-          </h3>
-          <div class="my-shifts-event-actions">
-            {% if event.pk|in_set:cert_event_ids %}
-              <a href="{% url 'plugins:teamshifts:my_shifts_certificate_download' event_id=event.pk %}"
-                 class="btn btn-xs btn-primary my-shifts-cert-btn">
-                <i class="fa fa-download"></i>
-                {% translate "Download Certificate" %}
-              </a>
-            {% else %}
-              <button type="button"
-                      class="btn btn-xs btn-default my-shifts-cert-btn" disabled
-                      title="{% translate 'Certificate not yet available' %}">
-                <i class="fa fa-download"></i>
-                {% translate "Download Certificate" %}
-              </button>
-            {% endif %}
-          </div>
-        </div>
-        <div class="table-responsive">
-          <table class="table table-condensed table-hover events-table">
-            <thead>
-              <tr>
-                <th>{% translate "Date" %}</th>
-                <th>{% translate "Time" %}</th>
-                <th>{% translate "Shift" %}</th>
-                <th>{% translate "Role" %}</th>
-                <th>{% translate "Location" %}</th>
-                <th>{% translate "Status" %}</th>
-                <th>{% translate "Actions" %}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% timezone event.timezone %}
-              {% for assignment in assignments %}
-                <tr>
-                  <td data-label="{% translate 'Date' %}">
-                    {{ assignment.shift.start_time|date:"D, N j" }}
-                  </td>
-                  <td data-label="{% translate 'Time' %}">
-                    {{ assignment.shift.start_time|time:"H:i" }}–{{ assignment.shift.end_time|time:"H:i" }}
-                  </td>
-                  <td data-label="{% translate 'Shift' %}">
-                    {{ assignment.shift.name|default:"—" }}
-                  </td>
-                  <td data-label="{% translate 'Role' %}">
-                    {% if assignment.role %}
-                      <span class="label label-info">{{ assignment.role.name }}</span>
-                    {% else %}
-                      —
-                    {% endif %}
-                    {% if assignment.is_moderator %}
-                      <span class="label label-warning">{% translate "Moderator" %}</span>
-                    {% endif %}
-                  </td>
-                  <td data-label="{% translate 'Location' %}">
-                    {% if assignment.shift.location %}
-                      {{ assignment.shift.location.name }}
-                    {% elif assignment.shift.location_text %}
-                      {{ assignment.shift.location_text }}
-                    {% else %}
-                      —
-                    {% endif %}
-                  </td>
-                  <td data-label="{% translate 'Status' %}">
-                    {% if assignment.ended_at %}
-                      <span class="label label-success">{% translate "Completed" %}</span>
-                    {% elif assignment.started_at %}
-                      <span class="label label-primary">{% translate "Checked in" %}</span>
-                    {% else %}
-                      <span class="label label-default">{% translate "Pending" %}</span>
-                    {% endif %}
-                  </td>
-                  <td data-label="{% translate 'Actions' %}">
-                    {% if assignment.started_at and not assignment.ended_at and event.pk|in_set:accepted_event_ids %}
-                      <form method="post"
-                            action="{% url 'plugins:teamshifts:shift_checkout' pk=assignment.pk %}"
-                            class="shift-checkout-form">
-                        {% csrf_token %}
-                        <button type="submit" class="btn btn-warning btn-xs">
-                          <i class="fa fa-sign-out"></i>
-                          {% translate "Check out" %}
-                        </button>
-                      </form>
-                    {% else %}
-                      —
-                    {% endif %}
-                  </td>
-                </tr>
-              {% endfor %}
-              {% endtimezone %}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    {% endfor %}
   {% endif %}
 </div>
 {% endblock %}

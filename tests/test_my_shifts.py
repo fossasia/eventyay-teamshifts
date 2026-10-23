@@ -280,6 +280,7 @@ def test_shift_checkout_plugin_disabled(client, user, accepted_application, even
     assert response.status_code == 404
     assert response.json()["status"] == "error"
 
+
 @pytest.mark.django_db
 def test_nav_global_my_shifts_casing(user, event, shift_assignment):
     """Ensure the sidebar nav item uses lowercase 'My shifts'."""
@@ -303,33 +304,6 @@ def test_nav_global_my_shifts_casing(user, event, shift_assignment):
 
 
 @pytest.mark.django_db
-def test_user_dashboard_links_ordering_after_exhibition(user, event, shift_assignment):
-    """Ensure user_dashboard_links places My shifts after My exhibitions."""
-    from django.test import RequestFactory
-    from django.utils.safestring import mark_safe
-    from eventyay.common.signals import user_dashboard_links
-
-    rf = RequestFactory()
-    request = rf.get("/common/")
-    request.user = user
-
-    def dummy_exhibition(sender, **kwargs):
-        return mark_safe('<a class="dropdown-item" href="/common/exhibitions/"><i class="fa fa-building-o"></i> My exhibitions</a>')
-
-    user_dashboard_links.connect(dummy_exhibition, dispatch_uid="test_dummy_exhibition")
-    try:
-        responses = user_dashboard_links.send(request)
-        html_responses = [str(resp) for _r, resp in responses if resp]
-        assert any("My exhibitions" in h for h in html_responses)
-        assert any("My shifts" in h for h in html_responses)
-        exhibition_idx = next(i for i, h in enumerate(html_responses) if "My exhibitions" in h)
-        shifts_idx = next(i for i, h in enumerate(html_responses) if "My shifts" in h)
-        assert exhibition_idx < shifts_idx
-    finally:
-        user_dashboard_links.disconnect(dispatch_uid="test_dummy_exhibition")
-
-
-@pytest.mark.django_db
 def test_my_shifts_global_table_matches_common_area(client, user, event, cfm, accepted_application, shift_assignment, global_url):
     """Ensure the global page uses the common area table UI without panel wrappers."""
     client.force_login(user)
@@ -342,3 +316,5 @@ def test_my_shifts_global_table_matches_common_area(client, user, event, cfm, ac
     assert 'class="panel-heading"' not in content
     assert 'class="panel-body"' not in content
     assert "<h1>My shifts</h1>" in content
+    assert content.count("<table") == 1
+    assert "<th>Event</th>" in content

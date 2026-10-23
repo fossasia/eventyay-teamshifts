@@ -1,9 +1,10 @@
+from datetime import timedelta
+
 import pytest
 from django.urls import reverse
 from django.utils.timezone import now
 from django_scopes import scope
 from eventyay.base.models import Team
-from datetime import timedelta
 
 from teamshifts.models import Shift, ShiftLocation
 

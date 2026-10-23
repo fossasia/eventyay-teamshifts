@@ -33,10 +33,11 @@ from eventyay.base.models import Event, User
 from eventyay.base.templatetags.rich_text import compile_email_body, rich_text
 from eventyay.base.views.tasks import AsyncAction
 from eventyay.common.text.phrases import phrases
+from eventyay.common.views.mixins import Sortable
 from eventyay.control.forms.orders import ExporterForm
 from eventyay.control.views import PaginationMixin
 from eventyay.multidomain.urlreverse import build_absolute_uri
-from eventyay.common.views.mixins import Sortable
+
 from .exporters import EXPORT_FORMAT_CSV, EXPORT_FORMAT_XLSX, MembersExporter
 from .forms import (
     MAX_SHIFTS_PER_ACTION,
@@ -325,9 +326,7 @@ class TeamRoleListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Sor
 
     def get(self, request, *args, **kwargs):
         with scope(event=request.event):
-            roles = list(
-                self.sort_queryset(TeamRole.objects.filter(event=request.event))
-            )
+            roles = list(self.sort_queryset(TeamRole.objects.filter(event=request.event)))
             ordering = request.GET.get("sort") or self.default_sort_field
         allowed = get_allowed_role_ids(request.user, request.organizer, request.event, request=request)
         can_create = has_teamshifts_permission(request.user, request.organizer, request.event, "can_teamshifts_create_roles", request=request)
@@ -788,11 +787,7 @@ class ApplicationListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, 
     def get_queryset(self):
         event = self.request.event
         with scope(event=event):
-            qs = (
-                TeamMemberApplication.objects.filter(event=event, added_by_organizer=False)
-                .select_related("user")
-                .prefetch_related("answers__question")
-            )
+            qs = TeamMemberApplication.objects.filter(event=event, added_by_organizer=False).select_related("user").prefetch_related("answers__question")
             status_filter = self.request.GET.get("status")
 
             search = self.request.GET.get("q", "").strip()
@@ -1320,13 +1315,13 @@ class EmailOutboxView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Sort
         ctx = super().get_context_data(**kwargs)
         event = self.request.event
         with scope(event=event):
-            queues = list(self.sort_queryset(
-                TeamShiftsEmailQueue.objects.filter(
-                    event=event, sent_at__isnull=True, is_draft=False, user__isnull=False
+            queues = list(
+                self.sort_queryset(
+                    TeamShiftsEmailQueue.objects.filter(event=event, sent_at__isnull=True, is_draft=False, user__isnull=False)
+                    .select_related("role_filter", "user")
+                    .annotate(recipient_count=Count("recipients"))
                 )
-                .select_related("role_filter", "user")
-                .annotate(recipient_count=Count("recipients"))
-            ))
+            )
         ctx["mails"] = queues
         ctx["current_ordering"] = self.request.GET.get("sort") or self.default_sort_field
         ctx["can_view_email"] = can_view_email_addresses(self.request.user, self.request.organizer, event, request=self.request)
@@ -1345,9 +1340,7 @@ class EmailDraftsView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Sort
         with scope(event=event):
             ctx["mails"] = list(
                 self.sort_queryset(
-                    TeamShiftsEmailQueue.objects.filter(
-                        event=event, sent_at__isnull=True, is_draft=True, user__isnull=False
-                    )
+                    TeamShiftsEmailQueue.objects.filter(event=event, sent_at__isnull=True, is_draft=True, user__isnull=False)
                     .select_related("user")
                     .annotate(recipient_count=Count("recipients"))
                 )
@@ -1373,20 +1366,14 @@ class EmailSentView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Pagina
         event = self.request.event
         with scope(event=event):
             qs = (
-                TeamShiftsEmailQueueRecipient.objects.filter(
-                    queue__event=event, sent_at__isnull=False
-                )
+                TeamShiftsEmailQueueRecipient.objects.filter(queue__event=event, sent_at__isnull=False)
                 .filter(Q(queue__user__isnull=False) | ~Q(queue__mail_type=""))
                 .select_related("queue", "user")
             )
 
             search = self.request.GET.get("q", "").strip()
             if search:
-                condition = (
-                    Q(subject__icontains=search)
-                    | Q(subject="", queue__subject__icontains=search)
-                    | Q(user__fullname__icontains=search)
-                )
+                condition = Q(subject__icontains=search) | Q(subject="", queue__subject__icontains=search) | Q(user__fullname__icontains=search)
                 if can_view_email_addresses(
                     self.request.user,
                     self.request.organizer,
@@ -1556,9 +1543,7 @@ class ShiftLocationListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin
 
             if ordering in ("name", "-name"):
                 qs = qs.order_by(
-                    Coalesce("linked_room__name", "name").desc()
-                    if ordering == "-name"
-                    else Coalesce("linked_room__name", "name").asc(),
+                    Coalesce("linked_room__name", "name").desc() if ordering == "-name" else Coalesce("linked_room__name", "name").asc(),
                     "-pk" if ordering.startswith("-") else "pk",
                 )
             elif ordering in ("linked_room", "-linked_room"):
@@ -1571,13 +1556,9 @@ class ShiftLocationListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin
                 qs = self.sort_queryset(qs)
 
             locations = list(qs)
-            already_linked_room_ids = {
-                loc.linked_room_id for loc in locations if loc.linked_room_id is not None
-            }
+            already_linked_room_ids = {loc.linked_room_id for loc in locations if loc.linked_room_id is not None}
             importable_rooms = list(
-                request.event.rooms.filter(
-                    deleted=False, is_unscheduled=False
-                ).exclude(pk__in=already_linked_room_ids).order_by("position", "pk")
+                request.event.rooms.filter(deleted=False, is_unscheduled=False).exclude(pk__in=already_linked_room_ids).order_by("position", "pk")
             )
 
         return render(
@@ -1863,11 +1844,7 @@ class ShiftListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Pagina
         event = self.request.event
 
         with scope(event=event):
-            qs = (
-                Shift.objects.filter(event=event)
-                .select_related("location")
-                .prefetch_related("role_assignments__role")
-            )
+            qs = Shift.objects.filter(event=event).select_related("location").prefetch_related("role_assignments__role")
             return self.sort_queryset(qs)
 
     def get_context_data(self, **kwargs):

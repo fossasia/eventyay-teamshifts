@@ -55,6 +55,7 @@ from .forms import (
     TeamMemberApplicationForm,
     TeamRoleForm,
     VoucherSettingsForm,
+    overfilled_role_errors,
     render_answer_for_review,
     split_shift_range,
 )
@@ -2043,22 +2044,24 @@ class ShiftUpdateView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Temp
             messages.error(request, _("No locations defined yet, add locations first."))
             return redirect("plugins:teamshifts:location_create", organizer=request.event.organizer.slug, event=request.event.slug)
 
-        form = ShiftForm(self.request.POST, event=self.request.event, instance=self.shift)
-        formset = ShiftRoleFormSet(self.request.POST, prefix="roles", instance=self.shift, form_kwargs={"event": self.request.event})
+        # Lock the shift like the assignment and claim views, so no volunteer is assigned between the capacity check and the save.
+        with scope(event=request.event), transaction.atomic():
+            self.shift = Shift.objects.select_for_update().get(pk=self.shift.pk, event=request.event)
+            form = ShiftForm(self.request.POST, event=self.request.event, instance=self.shift)
+            formset = ShiftRoleFormSet(self.request.POST, prefix="roles", instance=self.shift, form_kwargs={"event": self.request.event})
 
-        form_valid = form.is_valid()
-        formset_valid = formset.is_valid()
+            form_valid = form.is_valid()
+            formset_valid = formset.is_valid()
 
-        if form_valid and formset_valid:
-            with scope(event=request.event), transaction.atomic():
+            if form_valid and formset_valid:
                 form.save()
                 formset.save()
                 messages.success(request, _("Shift updated successfully."))
                 return redirect("plugins:teamshifts:shift_edit", organizer=request.event.organizer.slug, event=request.event.slug, pk=self.shift.pk)
-        else:
-            messages.error(request, _("We could not save your changes. See below for details."))
-            ctx = self.get_context_data(form=form, formset=formset, has_locations=has_locations)
-            return self.render_to_response(ctx)
+
+        messages.error(request, _("We could not save your changes. See below for details."))
+        ctx = self.get_context_data(form=form, formset=formset, has_locations=has_locations)
+        return self.render_to_response(ctx)
 
 
 class ShiftDeleteView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, DeleteView):
@@ -2492,8 +2495,9 @@ class ShiftScheduleTalkAPIView(PluginActiveMixin, TeamShiftsPermissionRequiredMi
         except (UnicodeDecodeError, json.JSONDecodeError):
             return HttpResponseBadRequest("Invalid JSON body.")
         event = request.event
-        with scope(event=event):
-            shift = get_object_or_404(Shift, pk=kwargs["pk"], event=event)
+        # Lock the shift like the assignment and claim views, so no volunteer is assigned between the capacity check and the role update.
+        with scope(event=event), transaction.atomic():
+            shift = get_object_or_404(Shift.objects.select_for_update(), pk=kwargs["pk"], event=event)
 
             if data.get("start"):
                 try:
@@ -2525,6 +2529,16 @@ class ShiftScheduleTalkAPIView(PluginActiveMixin, TeamShiftsPermissionRequiredMi
                     shift.name = title_val
             if "description" in data:
                 shift.description = data["description"]
+
+            if "roles" in data:
+                capacities = {role_data.get("id"): role_data.get("capacity", 1) for role_data in data["roles"] if role_data.get("id")}
+            elif data.get("role") and "capacity" in data:
+                capacities = {data["role"]: data["capacity"]}
+            else:
+                capacities = {}
+            capacity_errors = overfilled_role_errors(shift, capacities)
+            if capacity_errors:
+                return JsonResponse({"detail": next(iter(capacity_errors.values()))}, status=400)
 
             shift.save()
 

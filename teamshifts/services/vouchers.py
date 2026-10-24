@@ -11,6 +11,7 @@ from eventyay.base.services.mail import SendMailException, mail
 from eventyay.multidomain.urlreverse import build_absolute_uri
 from i18nfield.strings import LazyI18nString
 
+from ..mail import MAIL_CONTEXT_KEY
 from ..models import (
     CallForTeamMembers,
     EmailTemplateRoles,
@@ -154,7 +155,7 @@ def _send_voucher_email(event, user, voucher, template, locale) -> bool:
     redeem_base = build_absolute_uri(event, "presale:event.redeem")
     ticket_claim_url = f"{redeem_base}?voucher={voucher.code}"
 
-    context = get_email_context(event=event, user=user)
+    context = get_email_context(event=event, user=user, **{MAIL_CONTEXT_KEY: True})
     context["voucher_code"] = voucher.code
     context["ticket_claim_url"] = ticket_claim_url
 

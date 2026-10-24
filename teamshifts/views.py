@@ -27,6 +27,7 @@ from django.utils.translation import get_language, get_language_info, gettext_la
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.generic import DeleteView, FormView, ListView, TemplateView, View
 from django_scopes import scope, scopes_disabled
+from eventyay.base.email import shared_event_placeholders
 from eventyay.base.i18n import LazyI18nString, language
 from eventyay.base.models import Event, User
 from eventyay.base.templatetags.rich_text import compile_email_body, rich_text
@@ -107,9 +108,7 @@ logger = logging.getLogger(__name__)
 
 _TEMPLATE_PLACEHOLDERS = [
     ("{full_name}", _("The volunteer's full name")),
-    ("{event_name}", _("The event's name")),
-    ("{event_dates}", _("The event's date range")),
-    ("{event_location}", _("The event's location")),
+    *((f"{{{placeholder.identifier}}}", placeholder.explanation) for placeholder in shared_event_placeholders() if placeholder.is_visible),
     ("{shift_schedule_url}", _("Link to the shift schedule")),
     ("{shift_name}", _("The shift name (shift emails only)")),
     ("{shift_time}", _("The shift date and time range (shift emails only)")),
@@ -519,11 +518,9 @@ class EmailTemplatePreviewView(PluginActiveMixin, TeamShiftsPermissionRequiredMi
         sample_values = defaultdict(
             str,
             {
+                **{placeholder.identifier: str(placeholder.render_sample(event)) for placeholder in shared_event_placeholders()},
                 "full_name": "Jane Doe",
-                "event_name": str(event.name),
                 "role_name": "Volunteer",
-                "event_dates": event.get_date_range_display(),
-                "event_location": str(event.location) if event.location else "",
                 "shift_schedule_url": build_absolute_uri(event, "plugins:teamshifts:public_shift_schedule"),
                 "shift_name": "Morning Shift (2026-01-15 09:00 – 12:00)",
                 "shift_time": "2026-01-15 09:00 – 12:00",

@@ -10,6 +10,7 @@ from django.utils.translation import gettext_lazy as _
 from django_countries import countries
 from django_scopes import scopes_disabled
 from django_scopes.forms import SafeModelChoiceField
+from eventyay.base.email import shared_event_placeholders
 from eventyay.base.forms import I18nInlineFormSet
 from eventyay.base.forms.questions import WrappedPhoneNumberPrefixWidget, guess_country
 from eventyay.base.models import Event
@@ -50,7 +51,12 @@ def format_datetime_local(dt):
     return f"{dt:%Y-%m-%dT%H:%M}"
 
 
-EMAIL_PLACEHOLDERS = ["full_name", "event_name", "role_name", "event_dates", "event_location", "shift_schedule_url"]
+EMAIL_PLACEHOLDERS = [
+    "full_name",
+    "role_name",
+    "shift_schedule_url",
+    *(placeholder.identifier for placeholder in shared_event_placeholders() if placeholder.is_visible),
+]
 
 
 def plain_text_to_html(text: str) -> str:

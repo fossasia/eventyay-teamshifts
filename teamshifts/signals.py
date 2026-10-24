@@ -18,6 +18,7 @@ from eventyay.control.signals import event_dashboard_components, nav_event_commo
 from eventyay.multidomain.urlreverse import build_absolute_uri
 from eventyay.presale.signals import header_nav_tabs
 
+from .mail import MAIL_CONTEXT_KEY
 from .models import ApplicationStatus, CallForTeamMembers, Shift, ShiftAssignment, TeamMemberApplication, TeamRole, TeamShiftsEmailQueue
 from .permissions import has_any_teamshifts_permission
 from .services.certificates import events_awaiting_certificates, issue_event_end_certificates_task
@@ -121,82 +122,74 @@ def _format_shift_time(shift):
     return f"{start:%Y-%m-%d %H:%M} – {end:%Y-%m-%d %H:%M}"
 
 
+class TeamShiftsMailPlaceholder(SimpleFunctionalMailTextPlaceholder):
+    """A placeholder offered only where the ``teamshifts`` context key is passed, so it stays out of other editors."""
+
+    def __init__(self, identifier, args, func, sample):
+        super().__init__(identifier, [MAIL_CONTEXT_KEY, *args], func, sample)
+
+    def render(self, context):
+        return self._func(**{key: context[key] for key in self._args if key != MAIL_CONTEXT_KEY})
+
+
 @receiver(register_mail_placeholders, dispatch_uid="teamshifts_mail_placeholders")
 def teamshifts_mail_placeholders(sender, **kwargs):
     return [
-        SimpleFunctionalMailTextPlaceholder(
+        TeamShiftsMailPlaceholder(
             "full_name",
             ["user"],
             lambda user: (getattr(user, "fullname", "") or user.email) if user else "",
             lambda event: _("Volunteer"),
         ),
-        SimpleFunctionalMailTextPlaceholder(
+        TeamShiftsMailPlaceholder(
             "role_name",
             ["role"],
             lambda role: role.name if role else _("no specific role"),
             lambda event: _("Volunteer role"),
         ),
-        SimpleFunctionalMailTextPlaceholder(
-            "event_name",
-            ["event"],
-            lambda event: str(event.name),
-            lambda event: str(event.name),
-        ),
-        SimpleFunctionalMailTextPlaceholder(
-            "event_dates",
-            ["event"],
-            lambda event: event.get_date_range_display(),
-            lambda event: event.get_date_range_display(),
-        ),
-        SimpleFunctionalMailTextPlaceholder(
-            "event_location",
-            ["event"],
-            lambda event: str(event.location) if event.location else "",
-            lambda event: str(event.location) if event.location else _("(no location set)"),
-        ),
-        SimpleFunctionalMailTextPlaceholder(
+        TeamShiftsMailPlaceholder(
             "shift_schedule_url",
             ["event"],
             lambda event: build_absolute_uri(event, "plugins:teamshifts:public_shift_schedule"),
             lambda event: "https://example.com/fossasia/my-event/teamshifts/shifts/",
         ),
-        SimpleFunctionalMailTextPlaceholder(
+        TeamShiftsMailPlaceholder(
             "shift_name",
             ["shift"],
             lambda shift: str(shift),
             lambda event: _("Morning Shift (2026-01-15 09:00 – 12:00)"),
         ),
-        SimpleFunctionalMailTextPlaceholder(
+        TeamShiftsMailPlaceholder(
             "shift_time",
             ["shift"],
             _format_shift_time,
             lambda event: "2026-01-15 09:00 – 12:00",
         ),
-        SimpleFunctionalMailTextPlaceholder(
+        TeamShiftsMailPlaceholder(
             "voucher_code",
             ["voucher_code"],
             lambda voucher_code: voucher_code,
             "ABCD-1234-EFGH",
         ),
-        SimpleFunctionalMailTextPlaceholder(
+        TeamShiftsMailPlaceholder(
             "ticket_claim_url",
             ["ticket_claim_url"],
             lambda ticket_claim_url: ticket_claim_url,
             "https://example.com/my-event/?voucher=ABCD-1234-EFGH",
         ),
-        SimpleFunctionalMailTextPlaceholder(
+        TeamShiftsMailPlaceholder(
             "applicant_name",
             ["application"],
             lambda application: application.user.fullname,
             lambda event: _("Applicant"),
         ),
-        SimpleFunctionalMailTextPlaceholder(
+        TeamShiftsMailPlaceholder(
             "submitted_at",
             ["application"],
             lambda application: application.created_at.astimezone(application.event.tz).strftime("%Y-%m-%d %H:%M %Z"),
             lambda event: "",
         ),
-        SimpleFunctionalMailTextPlaceholder(
+        TeamShiftsMailPlaceholder(
             "pending_count",
             ["application"],
             lambda application: TeamMemberApplication.objects.filter(
@@ -205,7 +198,7 @@ def teamshifts_mail_placeholders(sender, **kwargs):
             ).count(),
             lambda event: "0",
         ),
-        SimpleFunctionalMailTextPlaceholder(
+        TeamShiftsMailPlaceholder(
             "application_url",
             ["application"],
             lambda application: build_absolute_uri(

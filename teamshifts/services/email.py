@@ -1,5 +1,6 @@
 import logging
 from collections.abc import Iterable
+from datetime import datetime, time, timedelta
 
 from django.db import transaction
 from django.utils.timezone import now
@@ -9,6 +10,7 @@ from eventyay.base.models import Event, User
 from ..models import (
     ApplicationStatus,
     CallForTeamMembers,
+    EmailTemplateRoles,
     Shift,
     TeamMemberApplication,
     TeamRole,
@@ -18,6 +20,8 @@ from ..models import (
 from ..tasks import render_subject, send_queued_email
 
 logger = logging.getLogger(__name__)
+
+SHIFT_SUMMARY_SEND_TIME = time(20, 0)
 
 
 class DraftNoLongerEditable(Exception):
@@ -55,6 +59,7 @@ def queue_email(
     send_after=None,
     dispatch: bool = True,
     is_draft: bool = False,
+    is_shift_summary: bool = False,
 ) -> TeamShiftsEmailQueue:
     with scope(event=event):
         queue = TeamShiftsEmailQueue.objects.create(
@@ -72,6 +77,7 @@ def queue_email(
             mail_type=mail_type,
             send_after=send_after,
             is_draft=is_draft,
+            is_shift_summary=is_shift_summary,
         )
         _set_recipients(queue, recipients)
 
@@ -228,3 +234,61 @@ def queue_shift_notification_email(
         shift_role=role,
         mail_type=template_role,
     )
+
+
+def next_shift_summary_time(event: Event, current: datetime) -> datetime:
+    local = current.astimezone(event.tz)
+    target = datetime.combine(local.date(), SHIFT_SUMMARY_SEND_TIME, tzinfo=event.tz)
+    if target <= local:
+        target = datetime.combine(local.date() + timedelta(days=1), SHIFT_SUMMARY_SEND_TIME, tzinfo=event.tz)
+    return target
+
+
+def queue_shift_summary_email(event: Event, user: User) -> TeamShiftsEmailQueue | None:
+    """One summary per volunteer per day; the shift list is rendered when it is sent."""
+    if not user.email:
+        logger.warning("[TeamShifts] Skipping shift summary email: user has no email")
+        return None
+
+    try:
+        cfm = event.call_for_team_members
+    except CallForTeamMembers.DoesNotExist:
+        logger.warning("[TeamShifts] No CFM found for event %s, skipping shift summary email", event.slug)
+        return None
+
+    if not cfm.shift_schedule_published:
+        logger.info("[TeamShifts] Skipping shift summary email: shift schedule not published for event %s", event.slug)
+        return None
+
+    current = now()
+    with scope(event=event), transaction.atomic():
+        # Serialize concurrent changes for one volunteer: there is no pending summary row to lock yet, so lock the
+        # volunteer's application, which exists for anyone who holds a shift. If it is gone, a race can at worst
+        # queue a duplicate summary.
+        # An unsent summary is reused even when overdue, as long as the sender has not claimed the recipient: the
+        # list is built after the claim, so it already includes this change.
+        TeamMemberApplication.objects.select_for_update().filter(event=event, user=user).first()
+        pending = (
+            TeamShiftsEmailQueue.objects.select_for_update()
+            .filter(
+                event=event,
+                is_shift_summary=True,
+                sent_at__isnull=True,
+                recipients__user=user,
+                recipients__sent_at__isnull=True,
+            )
+            .first()
+        )
+        if pending is not None:
+            return pending
+        template = cfm.get_mail_template(EmailTemplateRoles.SHIFT_SUMMARY)
+        return queue_email(
+            event=event,
+            subject=template.subject,
+            message=template.body,
+            recipients=[user],
+            send_after=next_shift_summary_time(event, current),
+            dispatch=False,
+            is_shift_summary=True,
+            mail_type=EmailTemplateRoles.SHIFT_SUMMARY,
+        )

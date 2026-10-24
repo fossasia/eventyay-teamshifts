@@ -98,9 +98,11 @@ from .services.email import (
     queue_email,
     queue_lifecycle_email,
     queue_shift_notification_email,
+    queue_shift_summary_email,
     update_queued_email,
 )
 from .services.members import AlreadyMemberError, accept_manager_as_member, add_member_from_organizer
+from .services.shift_summary import build_shift_summary_sample, my_shifts_url
 from .tasks import send_queued_email
 
 logger = logging.getLogger(__name__)
@@ -111,6 +113,8 @@ _TEMPLATE_PLACEHOLDERS = [
     ("{event_dates}", _("The event's date range")),
     ("{event_location}", _("The event's location")),
     ("{shift_schedule_url}", _("Link to the shift schedule")),
+    ("{my_shifts_url}", _("Link to the volunteer's My Shifts page, where they can view their shifts")),
+    ("{shift_summary}", _("The volunteer's current shifts (daily shift summary only)")),
     ("{shift_name}", _("The shift name (shift emails only)")),
     ("{shift_time}", _("The shift date and time range (shift emails only)")),
     ("{role_name}", _("The assigned role name (shift emails only)")),
@@ -525,6 +529,8 @@ class EmailTemplatePreviewView(PluginActiveMixin, TeamShiftsPermissionRequiredMi
                 "event_dates": event.get_date_range_display(),
                 "event_location": str(event.location) if event.location else "",
                 "shift_schedule_url": build_absolute_uri(event, "plugins:teamshifts:public_shift_schedule"),
+                "my_shifts_url": my_shifts_url(),
+                "shift_summary": build_shift_summary_sample(event),
                 "shift_name": "Morning Shift (2026-01-15 09:00 – 12:00)",
                 "shift_time": "2026-01-15 09:00 – 12:00",
                 "voucher_code": "ABCD-1234-EFGH",
@@ -2609,6 +2615,13 @@ def _queue_lifecycle_email_safely(application, template_role):
         )
 
 
+def _queue_shift_summary_safely(event, user):
+    try:
+        queue_shift_summary_email(event=event, user=user)
+    except Exception:
+        logger.exception("[TeamShifts] Failed to queue shift summary for user %s", user.pk)
+
+
 def _notify_shift_change_safely(event, user, shift, role, template_role):
     try:
         queue_shift_notification_email(
@@ -2736,6 +2749,7 @@ class ShiftScheduleAssignmentsAPIView(PluginActiveMixin, TeamShiftsPermissionReq
                             event, user, shift, role, EmailTemplateRoles.SHIFT_ASSIGNED_BY_ORGANIZER
                         )
                     )
+                    transaction.on_commit(lambda event=event, user=user: _queue_shift_summary_safely(event, user))
             shift = Shift.objects.prefetch_related(
                 "role_assignments__role",
                 "assignments__team_member",
@@ -2773,9 +2787,11 @@ class ShiftScheduleAssignmentsAPIView(PluginActiveMixin, TeamShiftsPermissionReq
                     {"detail": "You cannot unassign members from this role."},
                     status=400,
                 )
-            assignment = ShiftAssignment.objects.filter(shift=shift, team_member_id=user_id, role_id=role_id).first()
+            assignment = ShiftAssignment.objects.select_related("team_member").filter(shift=shift, team_member_id=user_id, role_id=role_id).first()
             if assignment:
+                member = assignment.team_member
                 assignment.delete()
+                transaction.on_commit(lambda event=event, user=member: _queue_shift_summary_safely(event, user))
             shift = Shift.objects.prefetch_related(
                 "role_assignments__role",
                 "assignments__team_member",
@@ -3232,6 +3248,8 @@ class ShiftClaimView(PublicShiftScheduleMixin, View):
                     defaults={"role_id": sra.role_id, "assigned_by": None},
                 )
             send_email = _resolve_shift_action_emails(self.member_application, requested_send_email)
+            if created or previous_role_id != sra.role_id:
+                transaction.on_commit(lambda event=event, user=request.user: _queue_shift_summary_safely(event, user))
             if send_email and (created or previous_role_id != sra.role_id):
                 transaction.on_commit(
                     lambda event=event, user=request.user, shift=shift, role=sra.role: _notify_shift_change_safely(
@@ -3327,6 +3345,7 @@ class ShiftWithdrawView(PublicShiftScheduleMixin, View):
             if not deleted:
                 return fail(_("You are not signed up for this shift."))
             send_email = _resolve_shift_action_emails(self._email_choice_application(), requested_send_email)
+            transaction.on_commit(lambda event=event, user=request.user: _queue_shift_summary_safely(event, user))
             if send_email:
                 transaction.on_commit(
                     lambda event=event, user=request.user, shift=shift, role=role: _notify_shift_change_safely(

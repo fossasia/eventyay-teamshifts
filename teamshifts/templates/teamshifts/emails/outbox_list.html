@@ -4,8 +4,8 @@
 {% block title %}{% trans "Outbox" %} :: {{ request.event.name }}{% endblock %}
 
 {% block teamshifts_header %}
-        <h1>
-          {% blocktrans count mail_count=mails|length trimmed %}
+        <h1 data-ajax-sync="mail-count">
+          {% blocktrans count mail_count=paginator.count trimmed %}
             {{ mail_count }} pending email
           {% plural %}
             {{ mail_count }} pending emails
@@ -21,72 +21,83 @@
     </a>
   </p>
 
-  <table class='table'>
-    <thead>
-      <tr>
-        <th>{% trans "Subject" %}</th>
-        <th>{% trans "Filters" %}</th>
-        <th>{% trans "Recipients" %}</th>
-        <th>{% trans "Scheduled for" %}</th>
-        <th>{% trans "Actions" %}</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for mail in mails %}
+  {% include "teamshifts/_filter_form.html" %}
+
+  <div data-ajax-results-region data-filter-count="{{ advanced_filter_count }}">
+    <table class='table'>
+      <thead>
         <tr>
-          <td>
-            <a href='{% url "plugins:teamshifts:email_edit" organizer=request.organizer.slug event=request.event.slug pk=mail.pk %}'>
-              {{ mail.subject }}
-            </a>
-          </td>
-          <td>
-            {% if mail.role_filter %}
-              <span class='label label-default'>{{ mail.role_filter.name }}</span>
-            {% else %}
-              <span class='text-muted'>{% trans "All roles" %}</span>
-            {% endif %}
-            {% if mail.status_filter %}
-              <span class='label label-default'>{{ mail.get_status_filter_display }}</span>
-            {% endif %}
-          </td>
-          <td>{{ mail.recipient_count }}</td>
-          <td>
-            {% if mail.send_after %}
-              {{ mail.send_after|date:"SHORT_DATETIME_FORMAT" }}
-            {% else %}
-              <span class='text-muted'>{% trans "Immediately" %}</span>
-            {% endif %}
-          </td>
-          <td>
-            <div class='btn-toolbar' role='toolbar'>
-              <form method='post'
-                    action='{% url "plugins:teamshifts:email_send_now" organizer=request.organizer.slug event=request.event.slug pk=mail.pk %}'
-                    class='btn-group' role='group'>
-                {% csrf_token %}
-                <button type='submit' class='btn btn-sm btn-primary' title='{% trans "Send now" %}'>
-                  <i class='fa fa-paper-plane'></i>
-                </button>
-              </form>
-              <div class='btn-group' role='group'>
-                <a class='btn btn-sm btn-default' title='{% trans "Edit" %}'
-                   href='{% url "plugins:teamshifts:email_edit" organizer=request.organizer.slug event=request.event.slug pk=mail.pk %}'>
-                  <i class='fa fa-edit'></i>
-                </a>
-              </div>
-              <div class='btn-group' role='group'>
-                <a class='btn btn-sm btn-danger' title='{% trans "Delete" %}'
-                   href='{% url "plugins:teamshifts:email_delete" organizer=request.organizer.slug event=request.event.slug pk=mail.pk %}'>
-                  <i class='fa fa-trash'></i>
-                </a>
-              </div>
-            </div>
-          </td>
+          <th>{% trans "Subject" %}</th>
+          <th>{% trans "Filters" %}</th>
+          <th>{% trans "Recipients" %}</th>
+          <th>{% trans "Scheduled for" %}</th>
+          <th>{% trans "Actions" %}</th>
         </tr>
-      {% empty %}
-        <tr>
-          <td colspan='5' class='text-muted'>{% trans "No pending emails." %}</td>
-        </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+      </thead>
+      <tbody>
+        {% for mail in mails %}
+          <tr>
+            <td>
+              <a href='{% url "plugins:teamshifts:email_edit" organizer=request.organizer.slug event=request.event.slug pk=mail.pk %}'>
+                {{ mail.subject }}
+              </a>
+            </td>
+            <td>
+              {% if mail.role_filter %}
+                <span class='label label-default'>{{ mail.role_filter.name }}</span>
+              {% else %}
+                <span class='text-muted'>{% trans "All roles" %}</span>
+              {% endif %}
+              {% if mail.status_filter %}
+                <span class='label label-default'>{{ mail.get_status_filter_display }}</span>
+              {% endif %}
+            </td>
+            <td>{{ mail.recipient_count }}</td>
+            <td>
+              {% if mail.send_after %}
+                {{ mail.send_after|date:"SHORT_DATETIME_FORMAT" }}
+              {% else %}
+                <span class='text-muted'>{% trans "Immediately" %}</span>
+              {% endif %}
+            </td>
+            <td>
+              <div class='btn-toolbar' role='toolbar'>
+                <form method='post'
+                      action='{% url "plugins:teamshifts:email_send_now" organizer=request.organizer.slug event=request.event.slug pk=mail.pk %}'
+                      class='btn-group' role='group'>
+                  {% csrf_token %}
+                  <button type='submit' class='btn btn-sm btn-primary' title='{% trans "Send now" %}'>
+                    <i class='fa fa-paper-plane'></i>
+                  </button>
+                </form>
+                <div class='btn-group' role='group'>
+                  <a class='btn btn-sm btn-default' title='{% trans "Edit" %}'
+                     href='{% url "plugins:teamshifts:email_edit" organizer=request.organizer.slug event=request.event.slug pk=mail.pk %}'>
+                    <i class='fa fa-edit'></i>
+                  </a>
+                </div>
+                <div class='btn-group' role='group'>
+                  <a class='btn btn-sm btn-danger' title='{% trans "Delete" %}'
+                     href='{% url "plugins:teamshifts:email_delete" organizer=request.organizer.slug event=request.event.slug pk=mail.pk %}'>
+                    <i class='fa fa-trash'></i>
+                  </a>
+                </div>
+              </div>
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan='5' class='text-muted'>
+              {% if filter_form.filtered %}
+                {% trans "No pending emails match your filters." %}
+              {% else %}
+                {% trans "No pending emails." %}
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% include "pretixcontrol/pagination.html" %}
+  </div>
 {% endblock %}

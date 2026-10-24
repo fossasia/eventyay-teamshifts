@@ -11,6 +11,8 @@ function getConfirmMessage(newStatus, emailStatuses) {
 
 function setupStatusDropdowns() {
     document.querySelectorAll(".teamshifts-status-dropdown").forEach((select) => {
+        if (select.dataset.bound === "1") return;
+        select.dataset.bound = "1";
         const currentStatus = select.dataset.currentStatus;
         const emailStatuses = (select.dataset.emailStatuses || "").split(",").filter(Boolean);
 
@@ -36,9 +38,10 @@ function setupStatusDropdowns() {
 
 function setupSelectAll() {
     const selectAll = document.getElementById("select-all");
-    if (!selectAll) {
+    if (!selectAll || selectAll.dataset.bound === "1") {
         return;
     }
+    selectAll.dataset.bound = "1";
 
     selectAll.addEventListener("change", () => {
         document.querySelectorAll(".app-checkbox").forEach((checkbox) => {
@@ -56,6 +59,8 @@ function getBulkActionConfirmMessage(action) {
 
 function setupBulkActions() {
     document.querySelectorAll(".teamshifts-bulk-action-btn").forEach((button) => {
+        if (button.dataset.bound === "1") return;
+        button.dataset.bound = "1";
         button.addEventListener("click", (event) => {
             event.preventDefault();
 
@@ -76,8 +81,11 @@ function setupBulkActions() {
     });
 }
 
-document.addEventListener("DOMContentLoaded", () => {
+function initApplications() {
     setupStatusDropdowns();
     setupSelectAll();
     setupBulkActions();
-});
+}
+
+document.addEventListener("DOMContentLoaded", initApplications);
+document.addEventListener("eventyay:ajax-results-replaced", initApplications);

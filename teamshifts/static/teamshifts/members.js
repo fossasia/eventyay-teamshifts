@@ -63,8 +63,10 @@ function submitBulkForm(formId, button) {
     form.requestSubmit();
 }
 
-document.addEventListener("DOMContentLoaded", () => {
+function initMembers() {
     document.querySelectorAll(".toggle-arrived-form").forEach((form) => {
+        if (form.dataset.bound === "1") return;
+        form.dataset.bound = "1";
         form.addEventListener("submit", async (event) => {
             event.preventDefault();
             const button = form.querySelector("button");
@@ -93,7 +95,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const selectAll = document.getElementById("select-all");
     const checkboxes = document.querySelectorAll(".member-checkbox");
 
-    if (selectAll && checkboxes.length > 0) {
+    if (selectAll && checkboxes.length > 0 && selectAll.dataset.bound !== "1") {
+        selectAll.dataset.bound = "1";
         selectAll.addEventListener("change", () => {
             checkboxes.forEach((cb) => {
                 cb.checked = selectAll.checked;
@@ -109,20 +112,27 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Bulk send button
     const sendBtn = document.getElementById("bulk-send-btn");
-    if (sendBtn) {
+    if (sendBtn && sendBtn.dataset.bound !== "1") {
+        sendBtn.dataset.bound = "1";
         sendBtn.addEventListener("click", () => submitBulkForm("bulk-voucher-form", sendBtn));
     }
 
     const sendCertificatesBtn = document.getElementById("bulk-send-certificates-btn");
-    if (sendCertificatesBtn) {
+    if (sendCertificatesBtn && sendCertificatesBtn.dataset.bound !== "1") {
+        sendCertificatesBtn.dataset.bound = "1";
         sendCertificatesBtn.addEventListener("click", () => submitBulkForm("bulk-certificate-form", sendCertificatesBtn));
     }
+}
 
-    window.addEventListener("pageshow", (event) => {
-        if (event.persisted) {
-            [sendBtn, sendCertificatesBtn].forEach((button) => {
-                if (button) button.disabled = false;
-            });
-        }
-    });
+window.addEventListener("pageshow", (event) => {
+    if (event.persisted) {
+        const sendBtn = document.getElementById("bulk-send-btn");
+        const sendCertificatesBtn = document.getElementById("bulk-send-certificates-btn");
+        [sendBtn, sendCertificatesBtn].forEach((button) => {
+            if (button) button.disabled = false;
+        });
+    }
 });
+
+document.addEventListener("DOMContentLoaded", initMembers);
+document.addEventListener("eventyay:ajax-results-replaced", initMembers);

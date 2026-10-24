@@ -18,6 +18,7 @@ from teamshifts.models import (
     ShiftAssignment,
     TeamApplicationAnswer,
     TeamApplicationQuestion,
+    TeamApplicationQuestionOption,
     TeamMemberApplication,
     TeamRole,
 )
@@ -116,7 +117,9 @@ def test_exporter_filename_uses_event_slug_and_date(event):
 def test_download_xlsx_contains_members_and_answers(client, event, cfm, orga_user, django_user_model):
     with scope(event=event):
         role = TeamRole.objects.create(event=event, name="Volunteer")
-        tshirt = TeamApplicationQuestion.objects.create(event=event, question="T-shirt", variant=QuestionVariant.MULTIPLE, options="S\nM")
+        tshirt = TeamApplicationQuestion.objects.create(event=event, question="T-shirt", variant=QuestionVariant.MULTIPLE)
+        TeamApplicationQuestionOption.objects.create(question=tshirt, answer="S", position=0)
+        TeamApplicationQuestionOption.objects.create(question=tshirt, answer="M", position=1)
         agree = TeamApplicationQuestion.objects.create(event=event, question="Agree", variant=QuestionVariant.BOOLEAN)
         member = _member(event, django_user_model, "a@example.com", "Alice", phone="123", arrived=True, added_by_organizer=True)
         _member(event, django_user_model, "b@example.com", "Bob")

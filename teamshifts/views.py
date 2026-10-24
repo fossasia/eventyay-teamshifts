@@ -1837,6 +1837,38 @@ class ImportTalksRoomsView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin,
         return redirect("plugins:teamshifts:locations", organizer=request.organizer.slug, event=request.event.slug)
 
 
+def _shift_role_form_kwargs(request):
+    return {"event": request.event, "allowed_role_ids": get_allowed_role_ids(request.user, request.organizer, request.event, request=request)}
+
+
+def _normalize_shift_role_number(value):
+    # Django accepts integer strings, but IDs must not be truncated from floats.
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            pass
+    return value
+
+
+def _check_shift_role_changes(request, roles, shift=None):
+    allowed = get_allowed_role_ids(request.user, request.organizer, request.event, request=request)
+    if allowed is not None:
+        allowed = {_normalize_shift_role_number(role_id) for role_id in allowed}
+        existing = dict(shift.role_assignments.values_list("role_id", "capacity")) if shift else {}
+        for role in roles:
+            role_id = _normalize_shift_role_number(role.get("id"))
+            if role_id and role_id not in allowed and (role_id not in existing or existing[role_id] != _normalize_shift_role_number(role.get("capacity", 1))):
+                raise PermissionDenied(_("You do not have permission to manage this role."))
+    return allowed
+
+
+def _check_shift_delete_permission(request, shifts):
+    allowed = get_allowed_role_ids(request.user, request.organizer, request.event, request=request)
+    if allowed is not None and ShiftRoleAssignment.objects.filter(shift__in=shifts).exclude(role_id__in=allowed).exists():
+        raise PermissionDenied(_("You cannot delete a shift containing roles you do not have permission to manage."))
+
+
 class ShiftListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, PaginationMixin, ListView):
     permission = "can_teamshifts_create_shifts"
     template_name = "teamshifts/shifts.html"
@@ -1884,6 +1916,7 @@ class BulkShiftDeleteView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, 
                             kwargs={"organizer": event.organizer.slug, "event": event.slug},
                         )
                     )
+                _check_shift_delete_permission(request, shifts)
                 shifts.delete()
 
             messages.success(
@@ -1916,9 +1949,9 @@ class ShiftCreateView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Temp
             ShiftForm(self.request.POST, event=self.request.event) if self.request.method == "POST" else ShiftForm(event=self.request.event)
         )
         ctx["formset"] = kwargs.get("formset") or (
-            ShiftRoleFormSet(self.request.POST, prefix="roles", form_kwargs={"event": self.request.event})
+            ShiftRoleFormSet(self.request.POST, prefix="roles", form_kwargs=_shift_role_form_kwargs(self.request))
             if self.request.method == "POST"
-            else ShiftRoleFormSet(prefix="roles", form_kwargs={"event": self.request.event})
+            else ShiftRoleFormSet(prefix="roles", form_kwargs=_shift_role_form_kwargs(self.request))
         )
         ctx["max_shifts_per_action"] = MAX_SHIFTS_PER_ACTION
         ctx["min_final_shift_minutes"] = MIN_FINAL_SHIFT_MINUTES
@@ -1933,7 +1966,7 @@ class ShiftCreateView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Temp
             return redirect("plugins:teamshifts:location_create", organizer=request.event.organizer.slug, event=request.event.slug)
 
         form = ShiftForm(self.request.POST, event=self.request.event)
-        formset = ShiftRoleFormSet(self.request.POST, prefix="roles", form_kwargs={"event": self.request.event})
+        formset = ShiftRoleFormSet(self.request.POST, prefix="roles", form_kwargs=_shift_role_form_kwargs(self.request))
 
         if form.is_valid() and formset.is_valid():
             with scope(event=request.event), transaction.atomic():
@@ -2001,10 +2034,15 @@ class ShiftDuplicateView(ShiftCreateView):
     def get_context_data(self, **kwargs):
         if self.request.method == "GET":
             source = self.get_source_shift()
-            role_initial = [{"role": assignment.role_id, "capacity": assignment.capacity} for assignment in source.role_assignments.all()]
+            allowed = get_allowed_role_ids(self.request.user, self.request.organizer, self.request.event, request=self.request)
+            role_initial = [
+                {"role": assignment.role_id, "capacity": assignment.capacity}
+                for assignment in source.role_assignments.all()
+                if allowed is None or assignment.role_id in allowed
+            ]
             formset_class = build_shift_role_formset(extra=max(len(role_initial), 1))
             kwargs["form"] = ShiftForm(event=self.request.event, initial=model_to_dict(source, fields=ShiftForm._meta.fields))
-            kwargs["formset"] = formset_class(prefix="roles", initial=role_initial, form_kwargs={"event": self.request.event})
+            kwargs["formset"] = formset_class(prefix="roles", initial=role_initial, form_kwargs=_shift_role_form_kwargs(self.request))
         ctx = super().get_context_data(**kwargs)
         ctx["is_duplicate"] = True
         return ctx
@@ -2013,6 +2051,17 @@ class ShiftDuplicateView(ShiftCreateView):
 class ShiftUpdateView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, TemplateView):
     permission = "can_teamshifts_create_shifts"
     template_name = "teamshifts/shift_edit.html"
+
+    def _role_formset_kwargs(self):
+        allowed = get_allowed_role_ids(self.request.user, self.request.organizer, self.request.event, request=self.request)
+        queryset = self.shift.role_assignments.all()
+        if allowed is not None:
+            if self.request.method == "POST":
+                posted_ids = [value for key, value in self.request.POST.items() if key.startswith("roles-") and key.endswith("-id") and value.isdigit()]
+                if queryset.filter(pk__in=posted_ids).exclude(role_id__in=allowed).exists():
+                    raise PermissionDenied(_("You do not have permission to manage this role."))
+            queryset = queryset.filter(role_id__in=allowed)
+        return {"instance": self.shift, "queryset": queryset, "form_kwargs": {"event": self.request.event, "allowed_role_ids": allowed}}
 
     def dispatch(self, request, *args, **kwargs):
         self.shift = get_object_or_404(Shift, pk=kwargs.get("pk"), event=request.event)
@@ -2029,9 +2078,9 @@ class ShiftUpdateView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Temp
             else ShiftForm(event=self.request.event, instance=self.shift)
         )
         ctx["formset"] = kwargs.get("formset") or (
-            ShiftRoleFormSet(self.request.POST, prefix="roles", instance=self.shift, form_kwargs={"event": self.request.event})
+            ShiftRoleFormSet(self.request.POST, prefix="roles", **self._role_formset_kwargs())
             if self.request.method == "POST"
-            else ShiftRoleFormSet(prefix="roles", instance=self.shift, form_kwargs={"event": self.request.event})
+            else ShiftRoleFormSet(prefix="roles", **self._role_formset_kwargs())
         )
         return ctx
 
@@ -2044,7 +2093,7 @@ class ShiftUpdateView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Temp
             return redirect("plugins:teamshifts:location_create", organizer=request.event.organizer.slug, event=request.event.slug)
 
         form = ShiftForm(self.request.POST, event=self.request.event, instance=self.shift)
-        formset = ShiftRoleFormSet(self.request.POST, prefix="roles", instance=self.shift, form_kwargs={"event": self.request.event})
+        formset = ShiftRoleFormSet(self.request.POST, prefix="roles", **self._role_formset_kwargs())
 
         form_valid = form.is_valid()
         formset_valid = formset.is_valid()
@@ -2068,7 +2117,9 @@ class ShiftDeleteView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Dele
     context_object_name = "shift"
 
     def get_object(self, queryset=None):
-        return get_object_or_404(Shift, pk=self.kwargs.get("pk"), event=self.request.event)
+        shift = get_object_or_404(Shift, pk=self.kwargs.get("pk"), event=self.request.event)
+        _check_shift_delete_permission(self.request, [shift])
+        return shift
 
     def get_success_url(self):
         return reverse(
@@ -2378,6 +2429,9 @@ class ShiftScheduleTalksAPIView(PluginActiveMixin, TeamShiftsPermissionRequiredM
             }
 
             roles = event.team_roles.all()
+            allowed = get_allowed_role_ids(request.user, request.organizer, event, request=request)
+            if allowed is not None:
+                roles = roles.filter(pk__in=allowed)
             for role in roles:
                 data["roles"].append({"id": role.id, "name": {"en": role.name}, "is_restricted": role.is_restricted})
 
@@ -2438,7 +2492,7 @@ class ShiftScheduleTalksAPIView(PluginActiveMixin, TeamShiftsPermissionRequiredM
         except (UnicodeDecodeError, json.JSONDecodeError):
             return HttpResponseBadRequest("Invalid JSON body.")
         event = request.event
-        with scope(event=event):
+        with scope(event=event), transaction.atomic():
             if not data.get("start") or not data.get("end"):
                 return HttpResponseBadRequest("Both 'start' and 'end' are required.")
             try:
@@ -2462,6 +2516,16 @@ class ShiftScheduleTalksAPIView(PluginActiveMixin, TeamShiftsPermissionRequiredM
             else:
                 shift_name = "Shift"
 
+            _check_shift_role_changes(request, data.get("roles", []))
+            roles = []
+            for role_data in data.get("roles", []):
+                role_id = _normalize_shift_role_number(role_data.get("id"))
+                if role_id:
+                    role = TeamRole.objects.filter(pk=role_id, event=event).first()
+                    if not role:
+                        return HttpResponseBadRequest("Role ID does not belong to this event.")
+                    roles.append((role, role_data.get("capacity", 1)))
+
             shift = Shift.objects.create(
                 event=event,
                 name=shift_name,
@@ -2471,14 +2535,8 @@ class ShiftScheduleTalksAPIView(PluginActiveMixin, TeamShiftsPermissionRequiredM
                 end_time=end,
             )
 
-            for role_data in data.get("roles", []):
-                role_id = role_data.get("id")
-                capacity = role_data.get("capacity", 1)
-                if role_id:
-                    role = TeamRole.objects.filter(pk=role_id, event=event).first()
-                    if not role:
-                        return HttpResponseBadRequest("Role ID does not belong to this event.")
-                    ShiftRoleAssignment.objects.create(shift=shift, role=role, capacity=capacity)
+            for role, capacity in roles:
+                ShiftRoleAssignment.objects.create(shift=shift, role=role, capacity=capacity)
 
             return JsonResponse({"id": shift.id})
 
@@ -2492,8 +2550,28 @@ class ShiftScheduleTalkAPIView(PluginActiveMixin, TeamShiftsPermissionRequiredMi
         except (UnicodeDecodeError, json.JSONDecodeError):
             return HttpResponseBadRequest("Invalid JSON body.")
         event = request.event
-        with scope(event=event):
+        with scope(event=event), transaction.atomic():
             shift = get_object_or_404(Shift, pk=kwargs["pk"], event=event)
+            if "roles" in data:
+                allowed = _check_shift_role_changes(request, data["roles"], shift)
+                incoming_role_ids = set()
+                for role_data in data["roles"]:
+                    role_id = _normalize_shift_role_number(role_data.get("id"))
+                    if role_id:
+                        incoming_role_ids.add(role_id)
+                valid_roles = TeamRole.objects.filter(pk__in=incoming_role_ids, event=event)
+                valid_role_ids = set(valid_roles.values_list("pk", flat=True))
+                invalid_ids = incoming_role_ids - valid_role_ids
+                if invalid_ids:
+                    return HttpResponseBadRequest("One or more role IDs do not belong to this event.")
+            elif "role" in data and "capacity" in data:
+                allowed = _check_shift_role_changes(request, [{"id": data["role"], "capacity": data["capacity"]}], shift)
+                role_id = _normalize_shift_role_number(data["role"])
+                if role_id:
+                    if not TeamRole.objects.filter(pk=role_id, event=event).exists():
+                        return HttpResponseBadRequest("Role ID does not belong to this event.")
+            else:
+                allowed = None
 
             if data.get("start"):
                 try:
@@ -2529,34 +2607,27 @@ class ShiftScheduleTalkAPIView(PluginActiveMixin, TeamShiftsPermissionRequiredMi
             shift.save()
 
             if "roles" in data:
-                incoming_role_ids = set()
+                assignments = shift.assignments.exclude(role_id__in=incoming_role_ids)
+                role_assignments = shift.role_assignments.all()
+                if allowed is not None:
+                    assignments = assignments.filter(role_id__in=allowed)
+                    role_assignments = role_assignments.filter(role_id__in=allowed)
+                assignments.delete()
+                role_assignments.delete()
                 for role_data in data["roles"]:
-                    role_id = role_data.get("id")
-                    if role_id:
-                        incoming_role_ids.add(role_id)
-                valid_roles = TeamRole.objects.filter(pk__in=incoming_role_ids, event=event)
-                valid_role_ids = set(valid_roles.values_list("pk", flat=True))
-                invalid_ids = incoming_role_ids - valid_role_ids
-                if invalid_ids:
-                    return HttpResponseBadRequest("One or more role IDs do not belong to this event.")
-                shift.assignments.exclude(role_id__in=incoming_role_ids).delete()
-                shift.role_assignments.all().delete()
-                for role_data in data["roles"]:
-                    role_id = role_data.get("id")
+                    role_id = _normalize_shift_role_number(role_data.get("id"))
                     capacity = role_data.get("capacity", 1)
-                    if role_id:
+                    if role_id and (allowed is None or role_id in allowed):
                         ShiftRoleAssignment.objects.create(shift=shift, role_id=role_id, capacity=capacity)
             elif "role" in data and "capacity" in data:
-                role_id = data["role"]
-                if role_id:
-                    if not TeamRole.objects.filter(pk=role_id, event=event).exists():
-                        return HttpResponseBadRequest("Role ID does not belong to this event.")
-                if role_id:
-                    shift.assignments.exclude(role_id=role_id).delete()
-                else:
-                    shift.assignments.all().delete()
-                shift.role_assignments.all().delete()
-                if role_id:
+                assignments = shift.assignments.exclude(role_id=role_id) if role_id else shift.assignments.all()
+                role_assignments = shift.role_assignments.all()
+                if allowed is not None:
+                    assignments = assignments.filter(role_id__in=allowed)
+                    role_assignments = role_assignments.filter(role_id__in=allowed)
+                assignments.delete()
+                role_assignments.delete()
+                if role_id and (allowed is None or role_id in allowed):
                     ShiftRoleAssignment.objects.create(shift=shift, role_id=role_id, capacity=data.get("capacity", 1))
 
             shift = Shift.objects.prefetch_related(
@@ -2571,6 +2642,7 @@ class ShiftScheduleTalkAPIView(PluginActiveMixin, TeamShiftsPermissionRequiredMi
         event = request.event
         with scope(event=event):
             shift = get_object_or_404(Shift, pk=kwargs["pk"], event=event)
+            _check_shift_delete_permission(request, [shift])
             shift.delete()
             return JsonResponse({"status": "ok"})
 
@@ -3098,7 +3170,11 @@ class PublicShiftScheduleAPIView(PublicShiftScheduleMixin, View):
                 "roles": [],
             }
 
-            for role in event.team_roles.all():
+            roles = event.team_roles.all()
+            allowed = get_allowed_role_ids(request.user, request.organizer, event, request=request) if data["can_manage_shifts"] else None
+            if allowed is not None:
+                roles = roles.filter(pk__in=allowed)
+            for role in roles:
                 data["roles"].append({"id": role.id, "name": {"en": role.name}, "is_restricted": role.is_restricted})
 
             for loc in event.shift_locations.select_related("linked_room").all():
@@ -3128,8 +3204,12 @@ class PublicShiftScheduleView(PublicShiftScheduleMixin, TemplateView):
         with scope(event=event):
             locations = list(event.shift_locations.select_related("linked_room").all())
             shifts = list(_public_shifts_queryset(event))
-            roles = [{"id": role.id, "name": {"en": role.name}, "is_restricted": role.is_restricted} for role in event.team_roles.all()]
+            roles_queryset = event.team_roles.all()
             can_manage_shifts = has_teamshifts_permission(self.request.user, self.organizer, event, "can_teamshifts_create_shifts", request=self.request)
+            allowed = get_allowed_role_ids(self.request.user, self.organizer, event, request=self.request) if can_manage_shifts else None
+            if allowed is not None:
+                roles_queryset = roles_queryset.filter(pk__in=allowed)
+            roles = [{"id": role.id, "name": {"en": role.name}, "is_restricted": role.is_restricted} for role in roles_queryset]
 
         rooms = [_serialize_location_room(loc) for loc in locations if _location_is_available(loc)]
 

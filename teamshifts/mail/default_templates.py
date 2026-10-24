@@ -1,22 +1,22 @@
 from django.utils.translation import gettext_noop as _
 from i18nfield.strings import LazyI18nString
 
-RECEIVED_SUBJECT = LazyI18nString.from_gettext(_("We received your application — {event_name}"))
+RECEIVED_SUBJECT = LazyI18nString.from_gettext(_("Team shifts: We received your application — {event_name}"))
 RECEIVED_TEXT = LazyI18nString.from_gettext(
     _(
         "Hi {full_name},\n\n"
-        "Thanks for applying to join the team for {event_name}. "
+        "Thanks for applying to join the event team through Team Shifts for {event_name}. "
         "We have received your application and will get back to you soon.\n\n"
         "Best regards,\n"
         "The {event_name} team"
     )
 )
 
-ACCEPTED_SUBJECT = LazyI18nString.from_gettext(_("Your application was accepted — {event_name}"))
+ACCEPTED_SUBJECT = LazyI18nString.from_gettext(_("Team shifts: Your application was accepted — {event_name}"))
 ACCEPTED_TEXT = LazyI18nString.from_gettext(
     _(
         "Hi {full_name},\n\n"
-        "Great news — your application to volunteer at {event_name} has "
+        "Great news — your application to join the event team through Team Shifts for {event_name} has "
         "been accepted. Welcome to the team!\n\n"
         "You can now browse the shift schedule and claim your shifts here:\n"
         "{shift_schedule_url}\n\n"
@@ -25,11 +25,11 @@ ACCEPTED_TEXT = LazyI18nString.from_gettext(
     )
 )
 
-REJECTED_SUBJECT = LazyI18nString.from_gettext(_("Update on your application — {event_name}"))
+REJECTED_SUBJECT = LazyI18nString.from_gettext(_("Team shifts: Update on your application — {event_name}"))
 REJECTED_TEXT = LazyI18nString.from_gettext(
     _(
         "Hi {full_name},\n\n"
-        "Thank you for your interest in joining the {event_name} team. "
+        "Thank you for your interest in joining the event team through Team Shifts for {event_name}. "
         "Unfortunately, we are unable to accept your application at this "
         "time.\n\n"
         "We appreciate your enthusiasm and hope you enjoy the event.\n\n"
@@ -38,10 +38,10 @@ REJECTED_TEXT = LazyI18nString.from_gettext(
     )
 )
 
-NEW_APPLICATION_ORGANIZER_SUBJECT = LazyI18nString.from_gettext(_("New team member application — {event_name}"))
+NEW_APPLICATION_ORGANIZER_SUBJECT = LazyI18nString.from_gettext(_("Team shifts: New team member application — {event_name}"))
 NEW_APPLICATION_ORGANIZER_TEXT = LazyI18nString.from_gettext(
     _(
-        "A new team member application has been submitted for {event_name}.\n\n"
+        "A new application has been submitted to join the event team through Team Shifts for {event_name}.\n\n"
         "Applicant: {applicant_name}\n\n"
         "Submitted: {submitted_at}\n\n"
         "Pending applications: {pending_count}\n\n"
@@ -51,11 +51,11 @@ NEW_APPLICATION_ORGANIZER_TEXT = LazyI18nString.from_gettext(
     )
 )
 
-MEMBER_ADDED_BY_ORGANIZER_SUBJECT = LazyI18nString.from_gettext(_("You have been added as a volunteer — {event_name}"))
+MEMBER_ADDED_BY_ORGANIZER_SUBJECT = LazyI18nString.from_gettext(_("Team shifts: You have been added as a volunteer — {event_name}"))
 MEMBER_ADDED_BY_ORGANIZER_TEXT = LazyI18nString.from_gettext(
     _(
         "Hi {full_name},\n\n"
-        "You have been added as a volunteer for {event_name} by the event organiser.\n\n"
+        "You have been added to the event team through Team Shifts for {event_name} by the event organiser.\n\n"
         "Event dates: {event_dates}\n"
         "Event location: {event_location}\n\n"
         "You can now claim your shifts here:\n"
@@ -66,7 +66,7 @@ MEMBER_ADDED_BY_ORGANIZER_TEXT = LazyI18nString.from_gettext(
     )
 )
 
-VOUCHER_SENT_SUBJECT = LazyI18nString.from_gettext(_("Your ticket voucher — {event_name}"))
+VOUCHER_SENT_SUBJECT = LazyI18nString.from_gettext(_("Team shifts: Your ticket voucher — {event_name}"))
 VOUCHER_SENT_TEXT = LazyI18nString.from_gettext(
     _(
         "Hi {full_name},\n\n"
@@ -83,7 +83,7 @@ VOUCHER_SENT_TEXT = LazyI18nString.from_gettext(
 )
 
 
-CERTIFICATE_GENERATED_SUBJECT = LazyI18nString.from_gettext(_("Your certificate of participation — {event_name}"))
+CERTIFICATE_GENERATED_SUBJECT = LazyI18nString.from_gettext(_("Team shifts: Your certificate of participation — {event_name}"))
 CERTIFICATE_GENERATED_TEXT = LazyI18nString.from_gettext(
     _(
         "Hi {full_name},\n\n"
@@ -95,7 +95,7 @@ CERTIFICATE_GENERATED_TEXT = LazyI18nString.from_gettext(
     )
 )
 
-SHIFT_ASSIGNED_BY_ORGANIZER_SUBJECT = LazyI18nString.from_gettext(_("You have been assigned to a shift — {event_name}"))
+SHIFT_ASSIGNED_BY_ORGANIZER_SUBJECT = LazyI18nString.from_gettext(_("Team shifts: You have been assigned to a shift — {event_name}"))
 SHIFT_ASSIGNED_BY_ORGANIZER_TEXT = LazyI18nString.from_gettext(
     _(
         "Hi {full_name},\n\n"
@@ -111,7 +111,7 @@ SHIFT_ASSIGNED_BY_ORGANIZER_TEXT = LazyI18nString.from_gettext(
     )
 )
 
-SHIFT_CLAIMED_BY_VOLUNTEER_SUBJECT = LazyI18nString.from_gettext(_("Shift sign-up confirmation — {event_name}"))
+SHIFT_CLAIMED_BY_VOLUNTEER_SUBJECT = LazyI18nString.from_gettext(_("Team shifts: Shift sign-up confirmation — {event_name}"))
 SHIFT_CLAIMED_BY_VOLUNTEER_TEXT = LazyI18nString.from_gettext(
     _(
         "Hi {full_name},\n\n"
@@ -126,7 +126,7 @@ SHIFT_CLAIMED_BY_VOLUNTEER_TEXT = LazyI18nString.from_gettext(
     )
 )
 
-SHIFT_DROPPED_BY_VOLUNTEER_SUBJECT = LazyI18nString.from_gettext(_("Shift drop confirmation — {event_name}"))
+SHIFT_DROPPED_BY_VOLUNTEER_SUBJECT = LazyI18nString.from_gettext(_("Team shifts: Shift drop confirmation — {event_name}"))
 SHIFT_DROPPED_BY_VOLUNTEER_TEXT = LazyI18nString.from_gettext(
     _(
         "Hi {full_name},\n\n"
@@ -141,11 +141,11 @@ SHIFT_DROPPED_BY_VOLUNTEER_TEXT = LazyI18nString.from_gettext(
     )
 )
 
-SHIFT_DROPPED_ORGANIZER_SUBJECT = LazyI18nString.from_gettext(_("A team member dropped a shift — {event_name}"))
+SHIFT_DROPPED_ORGANIZER_SUBJECT = LazyI18nString.from_gettext(_("Team shifts: A team member dropped a shift — {event_name}"))
 SHIFT_DROPPED_ORGANIZER_TEXT = LazyI18nString.from_gettext(
     _(
-        "A team member has dropped a shift at {event_name}.\n\n"
-        "Team member: {applicant_name}\n"
+        "A Team Shifts team member has dropped a shift at {event_name}.\n\n"
+        "Team member: {applicant_name}\n\n"
         "Shift: {shift_name}\n"
         "Time: {shift_time}\n"
         "Role: {role_name}\n\n"

@@ -12,8 +12,21 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
-from django.db.models import Count, DurationField, ExpressionWrapper, F, Max, Prefetch, Q, Sum
-from django.db.models.functions import Coalesce
+from django.db.models import (
+    CharField,
+    Count,
+    DurationField,
+    ExpressionWrapper,
+    F,
+    JSONField,
+    Max,
+    Prefetch,
+    Q,
+    Sum,
+    Value,
+)
+from django.db.models.fields.json import KeyTextTransform
+from django.db.models.functions import Cast, Coalesce, NullIf
 from django.forms import inlineformset_factory
 from django.forms.models import model_to_dict
 from django.http import FileResponse, Http404, HttpResponse, HttpResponseBadRequest, JsonResponse
@@ -1366,6 +1379,29 @@ class EmailSentView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Pagina
     context_object_name = "mails"
     default_sort_field = "-sent_at"
     sortable_fields = ("subject", "sent_at")
+
+    def sort_queryset(self, qs):
+        sort = self.request.GET.get("sort", "")
+        if sort.lstrip("-") == "subject":
+            qs = qs.annotate(
+                sort_subject=Coalesce(
+                    NullIf("subject", Value("")),
+                    Cast(
+                        KeyTextTransform(
+                            get_language(),
+                            Cast("queue__subject", JSONField()),
+                        ),
+                        CharField(),
+                    ),
+                    output_field=CharField(),
+                )
+            )
+            qs = qs.order_by(
+                ("-" if sort.startswith("-") else "") + "sort_subject",
+                "pk",
+            )
+            return qs
+        return super().sort_queryset(qs)
 
     def get_queryset(self):
         event = self.request.event

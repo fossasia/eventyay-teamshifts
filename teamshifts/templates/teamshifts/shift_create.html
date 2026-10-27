@@ -134,7 +134,7 @@
       <button type='submit' class='btn btn-primary btn-save' {% if not has_locations %}disabled{% endif %}>
         {% trans "Save" %}
       </button>
-      <a href='{% if is_duplicate %}{% url "plugins:teamshifts:shifts" request.organizer.slug request.event.slug %}{% else %}{% url "plugins:teamshifts:dashboard" request.organizer.slug request.event.slug %}{% endif %}' class='btn btn-default'>
+      <a href='{% url "plugins:teamshifts:shifts" request.organizer.slug request.event.slug %}' class='btn btn-default'>
         {% trans "Cancel" %}
       </a>
     </div>

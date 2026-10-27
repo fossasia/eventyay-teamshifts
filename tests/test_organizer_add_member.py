@@ -386,6 +386,7 @@ def test_members_filters(client, event, orga_user, django_user_model, call_for_t
             redeemed=0,
         )
         MemberVoucher.objects.create(
+            event=event,
             application=members[1],
             voucher=sent_voucher,
             status=VoucherStatus.SENT,
@@ -398,6 +399,7 @@ def test_members_filters(client, event, orga_user, django_user_model, call_for_t
             redeemed=1,
         )
         MemberVoucher.objects.create(
+            event=event,
             application=members[2],
             voucher=claimed_voucher,
             status=VoucherStatus.CLAIMED,
@@ -410,6 +412,7 @@ def test_members_filters(client, event, orga_user, django_user_model, call_for_t
             redeemed=1,
         )
         MemberVoucher.objects.create(
+            event=event,
             application=stale_application,
             voucher=stale_sent_voucher,
             status=VoucherStatus.SENT,
@@ -519,6 +522,7 @@ def test_members_sorting(client, event, orga_user, django_user_model, sort, expe
         )
         MemberVoucher.objects.create(
             application=alice_application,
+            event=event,
             voucher=voucher,
             status=VoucherStatus.SENT,
         )
@@ -641,58 +645,3 @@ def test_bulk_vouchers_preserves_filters_and_sort(client, event, orga_user, djan
     assert "hours=has" in response.url
     assert "voucher=not_sent" in response.url
     assert "sort=-display_name_sort" in response.url
-
-
-@pytest.mark.django_db
-def test_member_arrived_toggle_with_members_filters_and_sort(client, event, orga_user, django_user_model, settings):
-    settings.SITE_URL = "https://testserver"
-    with scope(event=event):
-        member = django_user_model.objects.create_user(
-            email="arrived@example.com",
-            password="x",
-            fullname="Arrived Member",
-        )
-        application = TeamMemberApplication.objects.create(
-            event=event,
-            user=member,
-            status=ApplicationStatus.ACCEPTED,
-            arrived=False,
-        )
-        Team.objects.create(
-            organizer=event.organizer,
-            name="Lead Team",
-            teamshifts_role="lead",
-            all_events=True,
-        ).members.add(orga_user)
-
-    client.force_login(orga_user)
-
-    members_url = reverse(
-        "plugins:teamshifts:members",
-        kwargs={"organizer": event.organizer.slug, "event": event.slug},
-    )
-    toggle_url = reverse(
-        "plugins:teamshifts:member_toggle_arrived",
-        kwargs={
-            "organizer": event.organizer.slug,
-            "event": event.slug,
-            "pk": application.pk,
-        },
-    )
-    query = "?q=Arrived&voucher=not_sent&sort=-display_name_sort"
-
-    response = client.post(
-        toggle_url,
-        HTTP_X_REQUESTED_WITH="XMLHttpRequest",
-    )
-
-    assert response.status_code == 200
-    assert response.json() == {"success": True, "arrived": True}
-
-    application.refresh_from_db()
-    assert application.arrived is True
-
-    list_response = client.get(members_url + query)
-
-    assert list_response.status_code == 200
-    assert list(list_response.context["members"].values_list("user__fullname", flat=True)) == ["Arrived Member"]

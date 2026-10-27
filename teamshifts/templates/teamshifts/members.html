@@ -212,9 +212,11 @@
         <tbody>
           {% for member in members %}
             <tr>
+              {% if vouchers_enabled or vouchers_not_configured %}
               <td class='checkbox-column'>
                 <input type='checkbox' data-member-id='{{ member.pk }}' class='member-checkbox'>
               </td>
+              {% endif %}
               <td>
                 <strong>
                   <a href='{% url "plugins:teamshifts:application_detail" organizer=request.organizer.slug event=request.event.slug pk=member.pk %}'>

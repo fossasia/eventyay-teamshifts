@@ -11,7 +11,7 @@ import dateutil.parser
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied
-from django.db import transaction
+from django.db import connection, transaction
 from django.db.models import (
     Case,
     CharField,
@@ -2113,13 +2113,19 @@ class MembersQuerysetMixin:
             qs = TeamMemberApplication.objects.filter(event=event, status=ApplicationStatus.ACCEPTED).select_related("user", "certificate")
 
             role = self.request.GET.get("role", "").strip()
-            if role:
-                matching_assignments = ShiftAssignment.objects.filter(
-                    team_member_id=OuterRef("user_id"),
-                    shift__event=event,
-                    role_id=role,
-                )
-                qs = qs.filter(Exists(matching_assignments))
+
+            if role.isascii() and role.isdigit():
+                role_id = int(role)
+                role_field = ShiftAssignment._meta.get_field("role").target_field
+                min_value, max_value = connection.ops.integer_field_range(role_field.get_internal_type())
+
+                if (min_value is None or role_id >= min_value) and (max_value is None or role_id <= max_value):
+                    matching_assignments = ShiftAssignment.objects.filter(
+                        team_member_id=OuterRef("user_id"),
+                        shift__event=event,
+                        role_id=role_id,
+                    )
+                    qs = qs.filter(Exists(matching_assignments))
 
             search = self.request.GET.get("q", "").strip()
             if search:
@@ -2329,13 +2335,13 @@ class MembersListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Memb
         return ctx
 
 
-class MembersExportView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, MembersQuerysetMixin, View):
+class MembersExportView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, MembersQuerysetMixin, Sortable, View):
     permission = "can_teamshifts_manage_applicants"
 
     def get(self, request, *args, **kwargs):
         event = request.event
         with scope(event=event):
-            exporter = MembersExporter(event, list(self.get_queryset()))
+            exporter = MembersExporter(event, list(self.sort_queryset(self.get_queryset())))
         form = ExporterForm(data={"_format": request.GET.get("_format", EXPORT_FORMAT_XLSX)})
         form.fields = exporter.export_form_fields
         if not form.is_valid():

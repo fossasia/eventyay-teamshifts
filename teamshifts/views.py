@@ -1223,6 +1223,16 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
             initial["status"] = draft.status_filter or ""
             initial["send_after"] = draft.send_after
             return initial
+        template_pk = self.request.GET.get("template")
+        if template_pk and template_pk.isdigit():
+            template = TeamShiftsCustomEmailTemplate.objects.filter(
+                event=self.request.event,
+                pk=int(template_pk),
+            ).first()
+            if template:
+                initial["subject"] = template.subject
+                initial["message"] = template.body
+                return initial
         copy_pk = self.request.GET.get("copy")
         if copy_pk and copy_pk.isdigit():
             with scope(event=self.request.event):
@@ -1240,6 +1250,7 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
         ctx["preview_recipients"] = getattr(self, "_preview_recipients", None)
         ctx["can_view_email"] = can_view_email_addresses(self.request.user, self.request.organizer, self.request.event, request=self.request)
         ctx["draft"] = self.get_draft()
+        ctx["custom_templates"] = TeamShiftsCustomEmailTemplate.objects.filter(event=self.request.event)
         return ctx
 
     def form_invalid(self, form):

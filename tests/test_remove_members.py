@@ -22,6 +22,7 @@ from teamshifts.models import (
     VolunteerVoucherSettings,
     VoucherStatus,
 )
+from teamshifts.services.calendar import get_member_assignments
 from teamshifts.services.vouchers import allocate_and_send_vouchers
 
 
@@ -294,7 +295,7 @@ def test_status_dropdown_cannot_skip_the_removal_flow(client, event, member, upc
 def test_invalid_member_ids_are_ignored(client, event, member):
     _login_with_team(client, event, teamshifts_role="coordinator")
 
-    response = _remove(client, event, [], member_ids=["²", "99999999999", "abc"])
+    response = _remove(client, event, [], member_ids=["²", "99999999999", "9" * 5000, "abc"])
 
     assert response.status_code == 302
     assert [str(m) for m in response.wsgi_request._messages] == ["No members selected."]
@@ -314,6 +315,33 @@ def test_no_email_is_counted_without_a_call_for_team_members(mock_queue, client,
 
     mock_queue.assert_not_called()
     assert [str(m) for m in response.wsgi_request._messages] == ["1 member removed from the team. 1 shift spot freed up."]
+
+
+@pytest.mark.django_db
+def test_failing_removal_email_does_not_break_the_request_or_other_emails(client, event, member, django_user_model):
+    second_user = django_user_model.objects.create_user(email="second@example.com", password="x")
+    with scopes_disabled():
+        second = TeamMemberApplication.objects.create(event=event, user=second_user, status=ApplicationStatus.ACCEPTED)
+    _login_with_team(client, event, teamshifts_role="coordinator")
+
+    with patch("teamshifts.services.members.queue_lifecycle_email", side_effect=[RuntimeError("smtp down"), None]) as mock_queue:
+        response = _remove(client, event, [member, second], notify="on")
+
+    assert response.status_code == 302
+    assert mock_queue.call_count == 2
+    with scopes_disabled():
+        assert set(TeamMemberApplication.objects.filter(pk__in=[member.pk, second.pk]).values_list("status", flat=True)) == {ApplicationStatus.REMOVED}
+
+
+@pytest.mark.django_db
+@patch("teamshifts.services.members.queue_lifecycle_email")
+def test_calendar_feed_leaves_out_events_the_member_was_removed_from(mock_queue, client, event, member):
+    _login_with_team(client, event, teamshifts_role="coordinator")
+    _remove(client, event, [member])
+
+    with scopes_disabled():
+        assert ShiftAssignment.objects.filter(team_member=member.user).exists()
+    assert not get_member_assignments(member.user).exists()
 
 
 @pytest.mark.django_db

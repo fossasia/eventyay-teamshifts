@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("teamshifts", "0030_teamapplicationquestionoption"),
+        ("teamshifts", "0031_shiftcalendartoken"),
     ]
 
     operations = [

@@ -11,6 +11,7 @@
   {{ block.super }}
   <link rel="stylesheet" type="text/css" href="{% static 'teamshifts/teamshifts.css' %}">
   <script type="module" src="{% static 'teamshifts/shift_checkout.js' %}"></script>
+  <script defer src="{% static 'teamshifts/my_shifts_calendar.js' %}"></script>
 {% endblock %}
 
 {% block content %}
@@ -49,6 +50,63 @@
   </form>
 </div>
 
+<p>
+  <button type="button" class="btn btn-default" data-toggle="collapse" data-target="#my-shifts-calendar-panel"
+          aria-expanded="false" aria-controls="my-shifts-calendar-panel">
+    <i class="fa fa-calendar-plus-o"></i>
+    {% translate "Add to calendar" %}
+  </button>
+</p>
+
+<div id="my-shifts-calendar-panel" class="collapse my-shifts-calendar-collapse">
+  <div class="panel panel-default call-secret-panel">
+    <div class="panel-heading">
+      <h3 class="panel-title"><i class="fa fa-calendar"></i> {% translate "Add to calendar" %}</h3>
+    </div>
+    <div class="panel-body">
+      <p class="text-muted">
+        {% blocktranslate trimmed %}
+          Subscribe once and your calendar stays up to date when you sign up for or drop shifts, or when an organizer changes a shift.
+          Anyone with this link can see your shifts, so keep it private.
+        {% endblocktranslate %}
+      </p>
+      {% if not shifts_by_event %}
+        <p class="text-muted">{% translate "You have no shifts yet. Your shifts will appear in your calendar once you sign up." %}</p>
+      {% endif %}
+      <div class="input-group call-secret-input">
+        <input type="text" class="form-control" readonly value="{{ calendar_links.feed }}" id="my-shifts-calendar-link"
+               aria-label="{% translate 'Subscription link' %}">
+        <span class="input-group-btn">
+          <button type="button" class="btn btn-primary" data-copy-target="#my-shifts-calendar-link"
+                  data-copied-label="{% translate 'Copied' %}" data-copy-failed-label="{% translate 'Copy failed' %}"
+                  title="{% translate 'Copy to clipboard' %}">
+            <i class="fa fa-copy"></i> {% translate "Copy" %}
+          </button>
+        </span>
+      </div>
+      <div class="my-shifts-calendar-options">
+        <a href="{{ calendar_links.google }}" class="btn btn-default btn-sm" target="_blank" rel="noopener noreferrer">
+          <i class="fa fa-google"></i> {% translate "Google Calendar" %}
+        </a>
+        <a href="{{ calendar_links.webcal }}" class="btn btn-default btn-sm">
+          <i class="fa fa-apple"></i> {% translate "Apple / Outlook" %}
+        </a>
+        <a href="{{ calendar_links.download }}" class="btn btn-default btn-sm">
+          <i class="fa fa-download"></i> {% translate "Download .ics file" %}
+        </a>
+      </div>
+      {% translate "Reset your calendar link? The current link will stop working immediately." as reset_confirm_msg %}
+      <form action="{% url 'plugins:teamshifts:my_shifts_calendar_reset' %}" method="post" class="call-secret-regenerate">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-default btn-sm" data-confirm="{{ reset_confirm_msg }}">
+          <i class="fa fa-refresh"></i> {% translate "Reset link" %}
+        </button>
+        <span class="text-muted call-secret-hint">{% translate "Resetting immediately invalidates the current link." %}</span>
+      </form>
+    </div>
+  </div>
+</div>
+
 {% if not shifts_by_event %}
   <div class="alert alert-info">
     <i class="fa fa-info-circle"></i>
@@ -69,6 +127,29 @@
             <span class="badge">{{ assignments|length }}</span>
           </h3>
           <div class="my-shifts-event-actions">
+            {% with links=event_calendar_links|dict_get:event.pk %}
+              <div class="btn-group">
+                <button type="button" class="btn btn-xs btn-default dropdown-toggle" data-toggle="dropdown"
+                        aria-haspopup="true" aria-expanded="false">
+                  <i class="fa fa-calendar-plus-o"></i>
+                  {% translate "Add these shifts to calendar" %}
+                  <span class="caret"></span>
+                </button>
+                <ul class="dropdown-menu dropdown-menu-right">
+                  <li>
+                    <a href="{{ links.google }}" target="_blank" rel="noopener noreferrer">
+                      <i class="fa fa-google"></i> {% translate "Google Calendar" %}
+                    </a>
+                  </li>
+                  <li>
+                    <a href="{{ links.webcal }}"><i class="fa fa-apple"></i> {% translate "Apple / Outlook" %}</a>
+                  </li>
+                  <li>
+                    <a href="{{ links.download }}"><i class="fa fa-download"></i> {% translate "Download .ics file" %}</a>
+                  </li>
+                </ul>
+              </div>
+            {% endwith %}
             {% if event.pk|in_set:cert_event_ids %}
               <a href="{% url 'plugins:teamshifts:my_shifts_certificate_download' event_id=event.pk %}"
                  class="btn btn-xs btn-primary my-shifts-cert-btn">

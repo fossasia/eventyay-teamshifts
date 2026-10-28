@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Sequence
 from typing import TypedDict
 
@@ -18,6 +19,8 @@ from ..models import (
     TeamMemberApplication,
 )
 from .email import queue_lifecycle_email
+
+logger = logging.getLogger(__name__)
 
 
 class AlreadyMemberError(Exception):
@@ -111,6 +114,11 @@ def upcoming_assignment_filter(when=None) -> Q:
     return Q(shift__start_time__gt=when or now(), started_at__isnull=True)
 
 
+def removed_event_ids(user):
+    """Events the user was removed from. Their shifts there are no longer listed for them."""
+    return TeamMemberApplication.objects.filter(user=user, status=ApplicationStatus.REMOVED).values("event_id")
+
+
 def remove_members_from_team(
     *,
     event: Event,
@@ -156,9 +164,18 @@ def remove_members_from_team(
         for app in applications:
             app.status = ApplicationStatus.REMOVED
             if notify and app.user.email:
-                transaction.on_commit(lambda app=app: queue_lifecycle_email(app, EmailTemplateRoles.MEMBER_REMOVED))
+                transaction.on_commit(lambda app=app: _queue_removal_email_safely(app))
                 result["emails_queued"] += 1
     return result
+
+
+def _queue_removal_email_safely(application: TeamMemberApplication) -> None:
+    # Runs after the removal has committed: one failing email must not abort the others
+    # or turn the request into an error, since a retry can no longer select these members.
+    try:
+        queue_lifecycle_email(application, EmailTemplateRoles.MEMBER_REMOVED)
+    except Exception:
+        logger.exception("[TeamShifts] Failed to queue removal email for application %s", application.pk)
 
 
 def _cancel_unused_vouchers(event: Event, applications: Sequence[TeamMemberApplication], user: User | None) -> int:

@@ -16,4 +16,9 @@ class Migration(migrations.Migration):
                 blank=True, choices=[("without_shifts", "Without shifts"), ("voucher_not_used", "Voucher not used")], default="", max_length=20
             ),
         ),
+        migrations.AddField(
+            model_name="teamshiftsemailqueue",
+            name="individual_recipients",
+            field=models.BooleanField(default=False),
+        ),
     ]

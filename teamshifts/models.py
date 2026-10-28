@@ -746,6 +746,7 @@ class TeamShiftsEmailQueue(models.Model):
         blank=True,
         default="",
     )
+    individual_recipients = models.BooleanField(default=False)
     mail_type = models.CharField(max_length=40, blank=True, default="")
     send_after = models.DateTimeField(null=True, blank=True)
     sent_at = models.DateTimeField(null=True, blank=True)

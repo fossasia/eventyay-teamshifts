@@ -312,3 +312,58 @@ def test_outbox_drafts_and_sent_lists_show_the_group_as_label(orga_client, event
     assert "Without shifts" in outbox_page
     assert "Voucher not used" in drafts_page
     assert "Without shifts" in sent_page
+
+
+@pytest.mark.django_db
+def test_specific_people_override_the_send_to_dropdown(orga_client, event, django_user_model):
+    _member(event, django_user_model, "free@example.com")
+    busy = _member(event, django_user_model, "busy@example.com")
+    _assign_shift(event, busy.user)
+
+    with patch("teamshifts.services.email._dispatch"):
+        response = orga_client.post(
+            _url(event, "email_compose"),
+            {
+                "action": "outbox",
+                "status": RecipientGroup.WITHOUT_SHIFTS,
+                "individual_volunteers": [busy.user.pk],
+                "subject_0": "s",
+                "message_0": "m",
+                "send_after": "",
+            },
+        )
+
+    assert response.status_code == 302
+    with scope(event=event):
+        queue = TeamShiftsEmailQueue.objects.get(event=event)
+        emails = set(queue.recipients.values_list("email", flat=True))
+    assert emails == {busy.user.email}
+    assert (queue.individual_recipients, queue.status_filter, queue.recipient_group) == (True, "", "")
+    assert "Specific people" in orga_client.get(_url(event, "email_outbox")).content.decode()
+
+
+@pytest.mark.django_db
+def test_preview_with_specific_people_ignores_the_send_to_dropdown(orga_client, event, django_user_model):
+    _member(event, django_user_model, "free@example.com")
+    busy = _member(event, django_user_model, "busy@example.com")
+    _assign_shift(event, busy.user)
+    url = _url(event, "email_compose")
+
+    picked = orga_client.post(url, {"action": "preview", "status": RecipientGroup.WITHOUT_SHIFTS, "individual_volunteers": [busy.user.pk]})
+    unusable = orga_client.post(url, {"action": "preview", "status": RecipientGroup.WITHOUT_SHIFTS, "individual_volunteers": ["x"]})
+
+    assert _emails(picked.context["preview_recipients"]) == {busy.user.email}
+    assert unusable.context["preview_recipients"] == []
+
+
+@pytest.mark.django_db
+def test_reopening_a_specific_people_draft_restores_them(orga_client, event, user, django_user_model):
+    picked = _member(event, django_user_model, "picked@example.com")
+    _member(event, django_user_model, "other@example.com")
+    with scope(event=event):
+        draft = queue_email(event, "s", "m", [picked.user], user=user, individual_recipients=True, is_draft=True)
+
+    content = orga_client.get(_url(event, "email_compose") + f"?draft={draft.pk}").content.decode()
+
+    assert f'<option value="{picked.user.pk}" selected>' in content
+    assert f'value="{ApplicationStatus.ACCEPTED}" selected' in content

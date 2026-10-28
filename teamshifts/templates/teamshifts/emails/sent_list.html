@@ -56,8 +56,7 @@
           </td>
           <td>
             <span class='label label-default'>{{ mail.queue.mail_type_label }}</span>
-            {% if mail.queue.individual_recipients %}<span class='label label-default'>{% trans "Specific people" %}</span>{% endif %}
-            {% if mail.queue.recipient_group %}<span class='label label-info'>{{ mail.queue.get_recipient_group_display }}</span>{% endif %}
+            {% if mail.queue.individual_recipients %}<span class='label label-info'>{% trans "Specific people" %}</span>{% elif mail.queue.recipient_group %}<span class='label label-info'>{{ mail.queue.get_recipient_group_display }}</span>{% endif %}
           </td>
           <td>
             {% timezone request.event.timezone %}

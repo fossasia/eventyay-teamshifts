@@ -136,9 +136,10 @@ def handle_volunteer_checkin(checkin):
 
 def handle_volunteer_checkout(checkin):
     """Wire an eventyay exit scan to teamshifts shift completion tracking."""
-    # A member removed mid-shift still gets the shift they had started closed on exit,
-    # but no new certificate.
-    application = resolve_volunteer_application(checkin, statuses=(ApplicationStatus.ACCEPTED, ApplicationStatus.REMOVED))
+    # Resolve exactly like the entry scan first, so both scans find the same member. Only when
+    # no current member matches, fall back to someone removed mid-shift: their started shift
+    # still gets closed, but they get no new certificate.
+    application = resolve_volunteer_application(checkin) or resolve_volunteer_application(checkin, statuses=(ApplicationStatus.REMOVED,))
     if application is None:
         return
 

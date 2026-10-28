@@ -409,6 +409,38 @@ def test_exit_scan_closes_the_running_shift_of_a_removed_member(mock_queue, mock
 
 
 @pytest.mark.django_db
+@patch("teamshifts.services.checkin.maybe_auto_issue_certificate")
+@patch("teamshifts.services.members.queue_lifecycle_email")
+def test_exit_scan_prefers_the_accepted_member_like_the_entry_scan(
+    mock_queue, mock_certificate, client, event, member, in_progress_assignment, location, role, django_user_model
+):
+    # The ticket was bought with the removed member's voucher but is worn by an accepted member.
+    accepted_user = django_user_model.objects.create_user(email="wearer@example.com", password="x")
+    running = _make_shift(event, location, "Wearer shift", timedelta(hours=-1))
+    with scopes_disabled():
+        accepted = TeamMemberApplication.objects.create(event=event, user=accepted_user, status=ApplicationStatus.ACCEPTED)
+        wearer_assignment = ShiftAssignment.objects.create(shift=running, team_member=accepted_user, role=role, started_at=running.start_time)
+        voucher = Voucher.objects.create(event=event, tag="volunteers", max_usages=1, redeemed=1)
+        MemberVoucher.objects.create(event=event, application=member, voucher=voucher, status=VoucherStatus.CLAIMED)
+    _login_with_team(client, event, teamshifts_role="coordinator")
+    _remove(client, event, [member])
+    exit_scan = SimpleNamespace(
+        list=SimpleNamespace(event=event),
+        position=SimpleNamespace(voucher_id=voucher.pk, attendee_email=accepted_user.email),
+        datetime=now(),
+    )
+
+    handle_volunteer_checkout(exit_scan)
+
+    with scopes_disabled():
+        wearer_assignment.refresh_from_db()
+        in_progress_assignment.refresh_from_db()
+    assert wearer_assignment.ended_at is not None
+    assert in_progress_assignment.ended_at is None
+    mock_certificate.assert_called_once_with(accepted)
+
+
+@pytest.mark.django_db
 def test_claim_is_refused_when_member_was_removed_after_the_access_check(client, event, member, role, location):
     later_shift = _make_shift(event, location, "Later shift", timedelta(days=2))
     with scopes_disabled():

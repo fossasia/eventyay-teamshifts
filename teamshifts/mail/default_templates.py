@@ -66,6 +66,18 @@ MEMBER_ADDED_BY_ORGANIZER_TEXT = LazyI18nString.from_gettext(
     )
 )
 
+MEMBER_REMOVED_SUBJECT = LazyI18nString.from_gettext(_("Update on your participation — {event_name}"))
+MEMBER_REMOVED_TEXT = LazyI18nString.from_gettext(
+    _(
+        "Hi {full_name},\n\n"
+        "We wanted to let you know that you are no longer part of the {event_name} team, "
+        "and you have been removed from any upcoming shifts.\n\n"
+        "If you think this is a mistake or have any questions, please reply to this email.\n\n"
+        "Best regards,\n"
+        "The {event_name} team"
+    )
+)
+
 VOUCHER_SENT_SUBJECT = LazyI18nString.from_gettext(_("Your ticket voucher — {event_name}"))
 VOUCHER_SENT_TEXT = LazyI18nString.from_gettext(
     _(
@@ -165,6 +177,7 @@ def get_default_template(role: str) -> tuple[LazyI18nString, LazyI18nString]:
         EmailTemplateRoles.APPLICATION_ACCEPTED: (ACCEPTED_SUBJECT, ACCEPTED_TEXT),
         EmailTemplateRoles.APPLICATION_REJECTED: (REJECTED_SUBJECT, REJECTED_TEXT),
         EmailTemplateRoles.MEMBER_ADDED_BY_ORGANIZER: (MEMBER_ADDED_BY_ORGANIZER_SUBJECT, MEMBER_ADDED_BY_ORGANIZER_TEXT),
+        EmailTemplateRoles.MEMBER_REMOVED: (MEMBER_REMOVED_SUBJECT, MEMBER_REMOVED_TEXT),
         EmailTemplateRoles.SHIFT_ASSIGNED_BY_ORGANIZER: (SHIFT_ASSIGNED_BY_ORGANIZER_SUBJECT, SHIFT_ASSIGNED_BY_ORGANIZER_TEXT),
         EmailTemplateRoles.SHIFT_CLAIMED_BY_VOLUNTEER: (SHIFT_CLAIMED_BY_VOLUNTEER_SUBJECT, SHIFT_CLAIMED_BY_VOLUNTEER_TEXT),
         EmailTemplateRoles.SHIFT_DROPPED_BY_VOLUNTEER: (SHIFT_DROPPED_BY_VOLUNTEER_SUBJECT, SHIFT_DROPPED_BY_VOLUNTEER_TEXT),

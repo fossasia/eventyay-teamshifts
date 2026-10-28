@@ -594,3 +594,12 @@ label .optional {
         margin-left: 0;
     }
 }
+
+.ts-remove-members-dialog {
+    width: 560px;
+}
+
+.ts-remove-members-dialog .help-block {
+    margin-top: 0;
+    padding-left: 20px;
+}

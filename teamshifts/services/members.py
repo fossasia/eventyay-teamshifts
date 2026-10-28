@@ -1,9 +1,22 @@
+from collections.abc import Sequence
+from typing import TypedDict
+
 from django.db import transaction
+from django.db.models import Q
+from django.utils.timezone import now
 from django_scopes import scope
-from eventyay.base.models import User
+from eventyay.base.models import CartPosition, Event, User
 from eventyay.person.services import create_user
 
-from ..models import ApplicationStatus, TeamApplicationAnswer, TeamMemberApplication
+from ..models import (
+    ApplicationStatus,
+    EmailTemplateRoles,
+    MemberVoucher,
+    ShiftAssignment,
+    TeamApplicationAnswer,
+    TeamMemberApplication,
+)
+from .email import queue_lifecycle_email
 
 
 class AlreadyMemberError(Exception):
@@ -79,3 +92,81 @@ def accept_manager_as_member(*, event, user) -> tuple[TeamMemberApplication, boo
             application.added_by_organizer = True
             application.save(update_fields=["status", "added_by_organizer", "updated_at"])
     return application, promoted
+
+
+class RemovalResult(TypedDict):
+    removed: int
+    freed_spots: int
+    emails_queued: int
+    vouchers_cancelled: int
+
+
+def upcoming_assignment_filter(when=None) -> Q:
+    """Shift assignments that are still ahead of the member, so removing them frees the spot.
+
+    An early check-in (within the grace window before the shift starts) already counts as
+    shift history, so that assignment is kept like a started one.
+    """
+    return Q(shift__start_time__gt=when or now(), started_at__isnull=True)
+
+
+def remove_members_from_team(
+    *,
+    event: Event,
+    application_ids: Sequence[int],
+    user: User | None,
+    notify: bool,
+    cancel_vouchers: bool,
+) -> RemovalResult:
+    """Take accepted members off the team and off their upcoming shifts.
+
+    Assignments for shifts that have started or ended stay, with their check-in data.
+    Certificates are left alone. The rejection email is never sent here.
+    """
+    result: RemovalResult = {"removed": 0, "freed_spots": 0, "emails_queued": 0, "vouchers_cancelled": 0}
+    with scope(event=event), transaction.atomic():
+        applications = list(
+            TeamMemberApplication.objects.select_for_update(of=("self",))
+            .filter(event=event, pk__in=application_ids, status=ApplicationStatus.ACCEPTED)
+            .select_related("user")
+        )
+        if not applications:
+            return result
+
+        upcoming = ShiftAssignment.objects.filter(
+            upcoming_assignment_filter(),
+            shift__event=event,
+            team_member_id__in=[app.user_id for app in applications],
+        )
+        result["freed_spots"] = upcoming.count()
+        upcoming.delete()
+
+        TeamMemberApplication.objects.filter(pk__in=[app.pk for app in applications]).update(status=ApplicationStatus.REMOVED, updated_at=now())
+        result["removed"] = len(applications)
+
+        if cancel_vouchers:
+            result["vouchers_cancelled"] = _cancel_unused_vouchers(event, applications, user)
+
+        for app in applications:
+            app.status = ApplicationStatus.REMOVED
+            if notify and app.user.email:
+                transaction.on_commit(lambda app=app: queue_lifecycle_email(app, EmailTemplateRoles.MEMBER_REMOVED))
+                result["emails_queued"] += 1
+    return result
+
+
+def _cancel_unused_vouchers(event: Event, applications: Sequence[TeamMemberApplication], user: User | None) -> int:
+    """Delete the members' vouchers that were never used, the same way Tickets → Vouchers deletes one."""
+    member_vouchers = list(MemberVoucher.objects.filter(event=event, application__in=applications).select_related("voucher"))
+    cancelled = 0
+    with scope(organizer=event.organizer):
+        for member_voucher in member_vouchers:
+            voucher = member_voucher.voucher
+            if not voucher.allow_delete():
+                continue
+            voucher.log_action("eventyay.voucher.deleted", user=user)
+            CartPosition.objects.filter(addon_to__voucher=voucher).delete()
+            voucher.cartposition_set.all().delete()
+            voucher.delete()
+            cancelled += 1
+    return cancelled

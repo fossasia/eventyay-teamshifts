@@ -100,7 +100,13 @@ from .services.email import (
     queue_shift_notification_email,
     update_queued_email,
 )
-from .services.members import AlreadyMemberError, accept_manager_as_member, add_member_from_organizer
+from .services.members import (
+    AlreadyMemberError,
+    accept_manager_as_member,
+    add_member_from_organizer,
+    remove_members_from_team,
+    upcoming_assignment_filter,
+)
 from .tasks import send_queued_email
 
 logger = logging.getLogger(__name__)
@@ -838,7 +844,7 @@ class ApplicationListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, 
         event = self.request.event
         with scope(event=event):
             qs = (
-                TeamMemberApplication.objects.filter(event=event, added_by_organizer=False)
+                TeamMemberApplication.objects.filter(Q(added_by_organizer=False) | Q(status=ApplicationStatus.REMOVED), event=event)
                 .select_related("user")
                 .prefetch_related("answers__question")
                 .order_by("-created_at")
@@ -949,6 +955,8 @@ class ApplicationStatusView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin
             if new_status not in ApplicationStatus.values:
                 return HttpResponseBadRequest("Invalid status")
             old_status = application.status
+            if new_status == ApplicationStatus.REMOVED and old_status != ApplicationStatus.REMOVED:
+                return HttpResponseBadRequest("Use Remove from team on the Members page")
             if new_status != old_status:
                 application.status = new_status
                 application.save(update_fields=["status", "updated_at"])
@@ -2236,6 +2244,21 @@ class MembersListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Memb
             request=self.request,
         )
         ctx["can_download_members"] = ctx["can_add_member"]
+        ctx["can_remove_members"] = ctx["can_add_member"]
+        if ctx["can_remove_members"]:
+            members_on_page = list(ctx.get("members", []))
+            with scope(event=event):
+                upcoming_counts = dict(
+                    ShiftAssignment.objects.filter(
+                        upcoming_assignment_filter(),
+                        shift__event=event,
+                        team_member_id__in=[member.user_id for member in members_on_page],
+                    )
+                    .values_list("team_member_id")
+                    .annotate(count=Count("pk"))
+                )
+            for member in members_on_page:
+                member.upcoming_shifts = upcoming_counts.get(member.user_id, 0)
         if ctx["can_download_members"]:
             download_url = reverse(
                 "plugins:teamshifts:members_download",
@@ -2328,6 +2351,64 @@ class MemberArrivedToggleView(PluginActiveMixin, TeamShiftsPermissionRequiredMix
             application.save(update_fields=["arrived"])
             maybe_auto_issue_certificate(application)
             return JsonResponse({"success": True, "arrived": application.arrived})
+
+
+class BulkRemoveMembersView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):
+    permission = "can_teamshifts_manage_applicants"
+
+    def post(self, request, *args, **kwargs):
+        event = request.event
+        members_url = reverse("plugins:teamshifts:members", kwargs={"organizer": request.organizer.slug, "event": event.slug})
+        member_ids = [int(pk) for pk in request.POST.getlist("member_ids") if pk.isdigit()]
+        if not member_ids:
+            messages.warning(request, _("No members selected."))
+            return redirect(members_url)
+
+        result = remove_members_from_team(
+            event=event,
+            application_ids=member_ids,
+            user=request.user,
+            notify=request.POST.get("notify") == "on",
+            cancel_vouchers=request.POST.get("cancel_vouchers") == "on",
+        )
+        if not result["removed"]:
+            messages.warning(request, _("None of the selected people are team members any more."))
+            return redirect(members_url)
+
+        parts = [
+            ngettext(
+                "%(count)d member removed from the team.",
+                "%(count)d members removed from the team.",
+                result["removed"],
+            )
+            % {"count": result["removed"]},
+            ngettext(
+                "%(count)d shift spot freed up.",
+                "%(count)d shift spots freed up.",
+                result["freed_spots"],
+            )
+            % {"count": result["freed_spots"]},
+        ]
+        if result["emails_queued"]:
+            parts.append(
+                ngettext(
+                    "%(count)d notification email sent.",
+                    "%(count)d notification emails sent.",
+                    result["emails_queued"],
+                )
+                % {"count": result["emails_queued"]}
+            )
+        if result["vouchers_cancelled"]:
+            parts.append(
+                ngettext(
+                    "%(count)d unused voucher cancelled.",
+                    "%(count)d unused vouchers cancelled.",
+                    result["vouchers_cancelled"],
+                )
+                % {"count": result["vouchers_cancelled"]}
+            )
+        messages.success(request, " ".join(str(part) for part in parts))
+        return redirect(members_url)
 
 
 class CustomEmailTemplateCreateView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):
@@ -3547,6 +3628,11 @@ class ShiftCheckOutView(PublicShiftScheduleMixin, View):
         return JsonResponse({"status": "ok", "ended_at": assignment.ended_at.isoformat()})
 
 
+def _removed_event_ids(user):
+    """Events the user was removed from. Their shifts there are no longer listed for them."""
+    return TeamMemberApplication.objects.filter(user=user, status=ApplicationStatus.REMOVED).values("event_id")
+
+
 class MyShiftsGlobalView(LoginRequiredMixin, TemplateView):
     template_name = "teamshifts/my_shifts_global.html"
 
@@ -3554,7 +3640,11 @@ class MyShiftsGlobalView(LoginRequiredMixin, TemplateView):
         if not request.user.is_authenticated:
             return super().dispatch(request, *args, **kwargs)
         with scopes_disabled():
-            has_active = ShiftAssignment.objects.filter(team_member=request.user, shift__event__plugins__contains="teamshifts").exists()
+            has_active = (
+                ShiftAssignment.objects.filter(team_member=request.user, shift__event__plugins__contains="teamshifts")
+                .exclude(shift__event_id__in=_removed_event_ids(request.user))
+                .exists()
+            )
         if not has_active:
             raise Http404
         return super().dispatch(request, *args, **kwargs)
@@ -3570,6 +3660,7 @@ class MyShiftsGlobalView(LoginRequiredMixin, TemplateView):
                     team_member=self.request.user,
                     shift__event__plugins__contains="teamshifts",
                 )
+                .exclude(shift__event_id__in=_removed_event_ids(self.request.user))
                 .select_related(
                     "shift",
                     "shift__event",

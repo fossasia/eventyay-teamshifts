@@ -200,6 +200,17 @@ label .optional {
 }
 
 
+.my-shifts-calendar-collapse {
+  overflow: hidden;
+}
+
+.my-shifts-calendar-options {
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .my-shifts-event-panel {
   margin-bottom: 24px;
 }

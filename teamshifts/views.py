@@ -1,3 +1,4 @@
+import hashlib
 import html as html_mod
 import json
 import logging
@@ -5,13 +6,14 @@ import re
 import secrets
 from collections import defaultdict
 from datetime import timedelta
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urljoin, urlparse, urlunparse
 
 import dateutil.parser
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import (
     CharField,
     Count,
@@ -29,9 +31,10 @@ from django.db.models.fields.json import KeyTextTransform
 from django.db.models.functions import Cast, Coalesce, NullIf
 from django.forms import inlineformset_factory
 from django.forms.models import model_to_dict
-from django.http import FileResponse, Http404, HttpResponse, HttpResponseBadRequest, JsonResponse
+from django.http import FileResponse, Http404, HttpResponse, HttpResponseBadRequest, HttpResponseRedirect, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils.cache import get_conditional_response, quote_etag
 from django.utils.decorators import method_decorator
 from django.utils.formats import date_format
 from django.utils.html import escape, format_html, strip_tags
@@ -45,13 +48,14 @@ from eventyay.base.i18n import LazyI18nString, language
 from eventyay.base.models import Event, User
 from eventyay.base.templatetags.rich_text import compile_email_body, rich_text
 from eventyay.base.views.tasks import AsyncAction
+from eventyay.common.text.path import safe_filename
 from eventyay.common.text.phrases import phrases
 from eventyay.common.views.mixins import Sortable
 from eventyay.control.forms.orders import ExporterForm
 from eventyay.control.views import PaginationMixin
 from eventyay.multidomain.urlreverse import build_absolute_uri
 
-from .exporters import EXPORT_FORMAT_CSV, EXPORT_FORMAT_XLSX, MembersExporter
+from .exporters import EXPORT_FORMAT_CSV, EXPORT_FORMAT_XLSX, MembersExporter, MyShiftsICalExporter, build_shift_schedule_exporters
 from .forms import (
     MAX_SHIFTS_PER_ACTION,
     MIN_FINAL_SHIFT_MINUTES,
@@ -66,6 +70,7 @@ from .forms import (
     ShiftLocationForm,
     ShiftRoleAssignmentForm,
     TeamApplicationQuestionForm,
+    TeamApplicationQuestionOptionFormSet,
     TeamMemberApplicationForm,
     TeamRoleForm,
     VoucherSettingsForm,
@@ -82,10 +87,12 @@ from .models import (
     MemberVoucher,
     Shift,
     ShiftAssignment,
+    ShiftCalendarToken,
     ShiftLocation,
     ShiftRoleAssignment,
     TeamApplicationAnswer,
     TeamApplicationQuestion,
+    TeamApplicationQuestionOption,
     TeamMemberApplication,
     TeamRole,
     TeamShiftsCustomEmailTemplate,
@@ -103,6 +110,7 @@ from .permissions import (
     has_any_teamshifts_permission,
     has_teamshifts_permission,
 )
+from .services.calendar import get_calendar_token_user, get_member_assignments, get_or_create_calendar_token
 from .services.certificates import maybe_auto_issue_certificate, send_selected_certificates_task
 from .services.checkin import evaluate_shift_certificate, stamp_shift_end
 from .services.email import (
@@ -648,15 +656,73 @@ class QuestionEditView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Vie
 
     def get(self, request, *args, **kwargs):
         instance = self._get_instance(request, kwargs.get("pk"))
-        form = TeamApplicationQuestionForm(instance=instance, event=request.event, locales=request.event.settings.locales)
-        return render(request, self.template_name, {"form": form, "question": instance})
+        form = TeamApplicationQuestionForm(
+            instance=instance,
+            event=request.event,
+            locales=request.event.settings.locales,
+        )
+        option_formset = TeamApplicationQuestionOptionFormSet(
+            instance=instance,
+            event=request.event,
+        )
+        return render(
+            request,
+            self.template_name,
+            {
+                "form": form,
+                "option_formset": option_formset,
+                "question": instance,
+            },
+        )
 
     def post(self, request, *args, **kwargs):
         instance = self._get_instance(request, kwargs.get("pk"))
-        form = TeamApplicationQuestionForm(request.POST, instance=instance, event=request.event, locales=request.event.settings.locales)
-        if form.is_valid():
-            with scope(event=request.event):
-                saved = form.save()
+        form = TeamApplicationQuestionForm(
+            request.POST,
+            instance=instance,
+            event=request.event,
+            locales=request.event.settings.locales,
+        )
+        option_formset = TeamApplicationQuestionOptionFormSet(
+            request.POST,
+            instance=instance,
+            event=request.event,
+            variant=request.POST.get("variant"),
+        )
+        if form.is_valid() and (
+            option_formset.variant
+            not in (
+                "choices",
+                "choices_dropdown",
+                "multiple_choice",
+            )
+            or option_formset.is_valid()
+        ):
+            with transaction.atomic():
+                with scope(event=request.event):
+                    saved = form.save()
+
+                    if saved.variant not in ("choices", "choices_dropdown", "multiple_choice"):
+                        TeamApplicationQuestionOption.objects.filter(question=saved).delete()
+
+                    if saved.variant in ("choices", "choices_dropdown", "multiple_choice"):
+                        option_formset.instance = saved
+                        options = option_formset.save(commit=False)
+
+                        for option in options:
+                            option.question = saved
+
+                        deleted_options = option_formset.deleted_objects
+                        for option in deleted_options:
+                            option.delete()
+
+                        ordered_forms = option_formset.ordered_forms
+                        for position, option_form in enumerate(ordered_forms):
+                            option = option_form.instance
+                            option.question = saved
+                            option.position = position
+                            option.save()
+
             if instance is None:
                 with scope(event=request.event):
                     try:
@@ -671,8 +737,22 @@ class QuestionEditView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Vie
                 messages.success(request, _("Question '%s' added.") % saved.question)
             else:
                 messages.success(request, _("Question saved."))
-            return redirect("plugins:teamshifts:cfm_application_form", organizer=request.organizer.slug, event=request.event.slug)
-        return render(request, self.template_name, {"form": form, "question": instance})
+
+            return redirect(
+                "plugins:teamshifts:cfm_application_form",
+                organizer=request.organizer.slug,
+                event=request.event.slug,
+            )
+
+        return render(
+            request,
+            self.template_name,
+            {
+                "form": form,
+                "option_formset": option_formset,
+                "question": instance,
+            },
+        )
 
 
 class QuestionDeleteView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):
@@ -2094,19 +2174,40 @@ class ShiftUpdateView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Temp
         form = ShiftForm(self.request.POST, event=self.request.event, instance=self.shift)
         formset = ShiftRoleFormSet(self.request.POST, prefix="roles", instance=self.shift, form_kwargs={"event": self.request.event})
 
-        form_valid = form.is_valid()
-        formset_valid = formset.is_valid()
-
-        if form_valid and formset_valid:
+        try:
             with scope(event=request.event), transaction.atomic():
-                form.save()
-                formset.save()
-                messages.success(request, _("Shift updated successfully."))
-                return redirect("plugins:teamshifts:shift_edit", organizer=request.event.organizer.slug, event=request.event.slug, pk=self.shift.pk)
-        else:
-            messages.error(request, _("We could not save your changes. See below for details."))
-            ctx = self.get_context_data(form=form, formset=formset, has_locations=has_locations)
-            return self.render_to_response(ctx)
+                try:
+                    self.shift = Shift.objects.select_for_update().get(pk=self.shift.pk)
+                except Shift.DoesNotExist:
+                    messages.error(request, _("This shift no longer exists."))
+                    return redirect(
+                        "plugins:teamshifts:shifts",
+                        organizer=request.event.organizer.slug,
+                        event=request.event.slug,
+                    )
+                form.instance = self.shift
+                formset.instance = self.shift
+
+                form_valid = form.is_valid()
+                formset_valid = formset.is_valid()
+
+                if form_valid and formset_valid:
+                    form.save()
+                    formset.save()
+                    messages.success(request, _("Shift updated successfully."))
+                    return redirect("plugins:teamshifts:shift_edit", organizer=request.event.organizer.slug, event=request.event.slug, pk=self.shift.pk)
+                else:
+                    messages.error(request, _("We could not save your changes. See below for details."))
+                    ctx = self.get_context_data(form=form, formset=formset, has_locations=has_locations)
+                    return self.render_to_response(ctx)
+        except IntegrityError:
+            messages.error(request, _("We could not save your changes. Please try again."))
+            return redirect(
+                "plugins:teamshifts:shift_edit",
+                organizer=request.event.organizer.slug,
+                event=request.event.slug,
+                pk=self.shift.pk,
+            )
 
 
 class ShiftDeleteView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, DeleteView):
@@ -3159,6 +3260,10 @@ class PublicShiftScheduleAPIView(PublicShiftScheduleMixin, View):
         return JsonResponse(data)
 
 
+def _schedule_json(data):
+    return json.dumps(data, default=str).translate({ord(">"): "\\u003E", ord("<"): "\\u003C", ord("&"): "\\u0026"})
+
+
 @method_decorator(ensure_csrf_cookie, name="dispatch")
 class PublicShiftScheduleView(PublicShiftScheduleMixin, TemplateView):
     template_name = "teamshifts/shift_schedule.html"
@@ -3200,14 +3305,12 @@ class PublicShiftScheduleView(PublicShiftScheduleMixin, TemplateView):
             "feature_flags": {},
         }
 
-        json_str = json.dumps(schedule_data, default=str)
-        json_escaped = json_str.translate({ord(">"): "\\u003E", ord("<"): "\\u003C", ord("&"): "\\u0026"})
-
         ctx.update(
             {
                 "event": event,
                 "event_tz": str(event.timezone),
-                "schedule_data_json": json_escaped,
+                "schedule_data_json": _schedule_json(schedule_data),
+                "schedule_meta_json": _schedule_json({"exporters": build_shift_schedule_exporters(event)}),
                 "shift_schedule_published": True,
             }
         )
@@ -3582,7 +3685,8 @@ class MyShiftsGlobalView(LoginRequiredMixin, TemplateView):
             return super().dispatch(request, *args, **kwargs)
         with scopes_disabled():
             has_active = ShiftAssignment.objects.filter(team_member=request.user, shift__event__plugins__contains="teamshifts").exists()
-        if not has_active:
+            has_calendar_token = ShiftCalendarToken.objects.filter(user=request.user).exists()
+        if not has_active and not has_calendar_token:
             raise Http404
         return super().dispatch(request, *args, **kwargs)
 
@@ -3637,7 +3741,96 @@ class MyShiftsGlobalView(LoginRequiredMixin, TemplateView):
                 .values_list("application__event_id", flat=True)
             )
         ctx["cert_event_ids"] = cert_event_ids
+
+        token = get_or_create_calendar_token(self.request.user)
+        ctx["calendar_links"] = _my_shifts_calendar_links(token.token)
+        ctx["event_calendar_links"] = {event.pk: _my_shifts_calendar_links(token.token, event.pk) for event in shifts_by_event}
         return ctx
+
+
+def _my_shifts_calendar_query(event_id):
+    return f"?{urlencode({'event': event_id})}" if event_id is not None else ""
+
+
+def _my_shifts_ics_url(token, event_id=None):
+    path = reverse("plugins:teamshifts:my_shifts_calendar_feed", kwargs={"token": token})
+    return urljoin(settings.SITE_URL, path) + _my_shifts_calendar_query(event_id)
+
+
+def _to_webcal_url(url):
+    return urlunparse(("webcal",) + urlparse(url)[1:])
+
+
+def _my_shifts_calendar_links(token, event_id=None):
+    query = _my_shifts_calendar_query(event_id)
+    return {
+        "feed": _to_webcal_url(_my_shifts_ics_url(token, event_id)),
+        "google": reverse("plugins:teamshifts:my_shifts_calendar_google") + query,
+        "webcal": reverse("plugins:teamshifts:my_shifts_calendar_webcal") + query,
+        "download": reverse("plugins:teamshifts:my_shifts_calendar_download") + query,
+    }
+
+
+def _get_calendar_event_id(request):
+    raw = request.GET.get("event")
+    if raw is None:
+        return None
+    if not (raw.isascii() and raw.isdigit()):
+        raise Http404
+    with scopes_disabled():
+        if not Event.objects.filter(pk=raw, plugins__contains="teamshifts").exists():
+            raise Http404
+    return int(raw)
+
+
+def _my_shifts_calendar_response(request, user, event_id):
+    with scopes_disabled():
+        event = Event.objects.filter(pk=event_id).first() if event_id is not None else None
+    exporter = MyShiftsICalExporter(event, get_member_assignments(user, event_id))
+    file_name, file_type, data = exporter.render(request=request)
+    etag = quote_etag(hashlib.sha1(str(data).encode()).hexdigest())
+    headers = {
+        "ETag": etag,
+        "Content-Disposition": f'attachment; filename="{safe_filename(file_name)}"',
+    }
+    response = HttpResponse(data, content_type=file_type, headers=headers)
+    return get_conditional_response(request, etag=etag, response=response)
+
+
+class MyShiftsCalendarDownloadView(LoginRequiredMixin, View):
+    def get(self, request):
+        return _my_shifts_calendar_response(request, request.user, _get_calendar_event_id(request))
+
+
+class MyShiftsCalendarFeedView(View):
+    def get(self, request, token):
+        user = get_calendar_token_user(token)
+        if user is None:
+            raise Http404
+        return _my_shifts_calendar_response(request, user, _get_calendar_event_id(request))
+
+
+class MyShiftsCalendarRedirectView(LoginRequiredMixin, View):
+    def get(self, request):
+        url_name = request.resolver_match.url_name if request.resolver_match else ""
+        is_google = url_name == "my_shifts_calendar_google"
+        token = get_or_create_calendar_token(request.user)
+        ics_url = _my_shifts_ics_url(token.token, _get_calendar_event_id(request))
+
+        if is_google:
+            google_url = f"https://calendar.google.com/calendar/r?{urlencode({'cid': ics_url})}"
+            return HttpResponseRedirect(google_url)
+
+        response = HttpResponse(status=302)
+        response["Location"] = _to_webcal_url(ics_url)
+        return response
+
+
+class MyShiftsCalendarResetView(LoginRequiredMixin, View):
+    def post(self, request):
+        get_or_create_calendar_token(request.user).regenerate()
+        messages.success(request, _("Your calendar link has been reset. The old link no longer works."))
+        return redirect("plugins:teamshifts:my_shifts_global")
 
 
 class MyShiftsCertificateDownloadView(LoginRequiredMixin, View):

@@ -945,9 +945,10 @@ class ApplicationStatusView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin
 
     def post(self, request, *args, **kwargs):
         event = request.event
-        with scope(event=event):
+        with scope(event=event), transaction.atomic():
+            # Locked so a concurrent "Remove from team" can't be overwritten with a stale status.
             application = get_object_or_404(
-                TeamMemberApplication.objects.select_related("user"),
+                TeamMemberApplication.objects.select_for_update(of=("self",)).select_related("user"),
                 pk=kwargs["pk"],
                 event=event,
             )
@@ -981,7 +982,7 @@ class BulkApplicationStatusView(PluginActiveMixin, TeamShiftsPermissionRequiredM
 
     def post(self, request, *args, **kwargs):
         event = request.event
-        with scope(event=event):
+        with scope(event=event), transaction.atomic():
             action = request.POST.get("action")
             if action not in ("accept", "reject"):
                 return HttpResponseBadRequest("Invalid action")
@@ -994,7 +995,8 @@ class BulkApplicationStatusView(PluginActiveMixin, TeamShiftsPermissionRequiredM
             new_status = ApplicationStatus.ACCEPTED if action == "accept" else ApplicationStatus.REJECTED
 
             apps = list(
-                TeamMemberApplication.objects.filter(
+                TeamMemberApplication.objects.select_for_update(of=("self",))
+                .filter(
                     event=event,
                     pk__in=app_ids,
                 )
@@ -2359,7 +2361,8 @@ class BulkRemoveMembersView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin
     def post(self, request, *args, **kwargs):
         event = request.event
         members_url = reverse("plugins:teamshifts:members", kwargs={"organizer": request.organizer.slug, "event": event.slug})
-        member_ids = [int(pk) for pk in request.POST.getlist("member_ids") if pk.isdigit()]
+        parsed_ids = (MembersQuerysetMixin._parse_role_id(raw) for raw in request.POST.getlist("member_ids"))
+        member_ids = [pk for pk in parsed_ids if pk is not None]
         if not member_ids:
             messages.warning(request, _("No members selected."))
             return redirect(members_url)
@@ -2806,6 +2809,12 @@ class ShiftScheduleAssignmentsAPIView(PluginActiveMixin, TeamShiftsPermissionReq
                             )
 
                 _lock_member_for_overlap_check(user)
+                # Recheck under the lock "Remove from team" also takes, so a removal can't slip in between.
+                if not TeamMemberApplication.objects.filter(event=event, status=ApplicationStatus.ACCEPTED, user_id=user.pk).exists():
+                    return JsonResponse(
+                        {"detail": "User is not an accepted team member for this event."},
+                        status=400,
+                    )
                 if shift.start_time and shift.end_time:
                     conflicting = (
                         ShiftAssignment.objects.filter(
@@ -3308,6 +3317,12 @@ class ShiftClaimView(PublicShiftScheduleMixin, View):
                 if current_count >= sra_locked.capacity:
                     return fail(_("Sorry, this role is now full."))
                 _lock_member_for_overlap_check(request.user)
+                # Recheck under the lock "Remove from team" also takes, so a removal can't slip in between.
+                if (
+                    self.member_application is not None
+                    and not TeamMemberApplication.objects.filter(pk=self.member_application.pk, status=ApplicationStatus.ACCEPTED).exists()
+                ):
+                    return fail(_("You need to be an accepted team member to view the shift schedule."))
                 if shift.start_time and shift.end_time:
                     conflicting = (
                         ShiftAssignment.objects.filter(

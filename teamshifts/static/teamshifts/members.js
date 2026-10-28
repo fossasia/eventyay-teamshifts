@@ -16,13 +16,16 @@ function setupRemoveMembers(checkboxes) {
     const form = document.getElementById("remove-members-form");
     if (!button || !dialog || !form) return;
 
-    const countLabel = document.getElementById("bulk-remove-count");
+    const countLabel = document.getElementById("members-selected-count");
     const selected = () => Array.from(checkboxes).filter((cb) => cb.checked);
 
     const refreshButton = () => {
         const count = selected().length;
-        countLabel.textContent = String(count);
         button.disabled = count === 0;
+        if (countLabel) {
+            countLabel.textContent = count > 0 ? `${count} ${gettext("selected")}` : "";
+            countLabel.hidden = count === 0;
+        }
     };
     checkboxes.forEach((cb) => cb.addEventListener("change", refreshButton));
     document.getElementById("select-all")?.addEventListener("change", refreshButton);

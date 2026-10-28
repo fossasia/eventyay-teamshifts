@@ -10,6 +10,7 @@ from eventyay.person.services import create_user
 
 from ..models import (
     ApplicationStatus,
+    CallForTeamMembers,
     EmailTemplateRoles,
     MemberVoucher,
     ShiftAssignment,
@@ -132,6 +133,9 @@ def remove_members_from_team(
         )
         if not applications:
             return result
+        # Shift claims and organizer assignments lock the member's user row before writing,
+        # so taking the same locks here keeps either side from seeing a half-done removal.
+        list(User.objects.select_for_update().filter(pk__in=[app.user_id for app in applications]).order_by("pk"))
 
         upcoming = ShiftAssignment.objects.filter(
             upcoming_assignment_filter(),
@@ -147,6 +151,8 @@ def remove_members_from_team(
         if cancel_vouchers:
             result["vouchers_cancelled"] = _cancel_unused_vouchers(event, applications, user)
 
+        # queue_lifecycle_email skips events without a Call for Team Members, so don't count those.
+        notify = notify and CallForTeamMembers.objects.filter(event=event).exists()
         for app in applications:
             app.status = ApplicationStatus.REMOVED
             if notify and app.user.email:

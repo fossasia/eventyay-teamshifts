@@ -125,12 +125,15 @@
     {% endif %}
     {% if can_remove_members %}
       <button type='button' class='btn btn-danger' id='bulk-remove-btn' disabled>
-        <i class='fa fa-user-times'></i> {% trans 'Remove from team' %} (<span id='bulk-remove-count'>0</span>)
+        <i class='fa fa-user-times'></i> {% trans 'Remove from team' %}
       </button>
     {% endif %}
   </div>
 
   {% if members %}
+    {% if can_remove_members %}
+      <p class='teamshifts-selected-count text-muted' id='members-selected-count' hidden></p>
+    {% endif %}
     <div class='table-responsive'>
       <table class='table table-hover table-quotas'>
         <thead>

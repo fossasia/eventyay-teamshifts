@@ -16,10 +16,13 @@ from teamshifts.models import (
     Shift,
     ShiftAssignment,
     ShiftLocation,
+    ShiftRoleAssignment,
     TeamMemberApplication,
     TeamRole,
+    VolunteerVoucherSettings,
     VoucherStatus,
 )
+from teamshifts.services.vouchers import allocate_and_send_vouchers
 
 
 @pytest.fixture
@@ -178,6 +181,8 @@ def test_cancel_vouchers_deletes_only_unused_codes(mock_queue, client, event, me
 
     with scopes_disabled():
         assert Voucher.objects.filter(pk=voucher.pk).exists() is bool(redeemed)
+        # The link goes with the cancelled code, so a restored member can be sent a fresh one.
+        assert MemberVoucher.objects.filter(application=member).exists() is bool(redeemed)
 
 
 @pytest.mark.django_db
@@ -283,6 +288,67 @@ def test_status_dropdown_cannot_skip_the_removal_flow(client, event, member, upc
         member.refresh_from_db()
         assert member.status == ApplicationStatus.ACCEPTED
         assert ShiftAssignment.objects.filter(shift=upcoming_shift).exists()
+
+
+@pytest.mark.django_db
+def test_invalid_member_ids_are_ignored(client, event, member):
+    _login_with_team(client, event, teamshifts_role="coordinator")
+
+    response = _remove(client, event, [], member_ids=["²", "99999999999", "abc"])
+
+    assert response.status_code == 302
+    assert [str(m) for m in response.wsgi_request._messages] == ["No members selected."]
+    with scopes_disabled():
+        member.refresh_from_db()
+    assert member.status == ApplicationStatus.ACCEPTED
+
+
+@pytest.mark.django_db
+@patch("teamshifts.services.members.queue_lifecycle_email")
+def test_no_email_is_counted_without_a_call_for_team_members(mock_queue, client, event, member):
+    with scopes_disabled():
+        CallForTeamMembers.objects.filter(event=event).delete()
+    _login_with_team(client, event, teamshifts_role="coordinator")
+
+    response = _remove(client, event, [member], notify="on")
+
+    mock_queue.assert_not_called()
+    assert [str(m) for m in response.wsgi_request._messages] == ["1 member removed from the team. 1 shift spot freed up."]
+
+
+@pytest.mark.django_db
+def test_claim_is_refused_when_member_was_removed_after_the_access_check(client, event, member, role, location):
+    later_shift = _make_shift(event, location, "Later shift", timedelta(days=2))
+    with scopes_disabled():
+        ShiftRoleAssignment.objects.create(shift=later_shift, role=role, capacity=2)
+        stale_application = TeamMemberApplication.objects.get(pk=member.pk)
+        TeamMemberApplication.objects.filter(pk=member.pk).update(status=ApplicationStatus.REMOVED)
+    client.force_login(member.user)
+
+    # The schedule mixin still sees the accepted application it read before the removal.
+    with patch("teamshifts.views._get_accepted_application", return_value=stale_application):
+        response = client.post(_url("public_shift_claim", event, pk=later_shift.pk), {"role_id": role.pk}, HTTP_ACCEPT="application/json")
+
+    assert response.status_code == 400
+    with scopes_disabled():
+        assert not ShiftAssignment.objects.filter(shift=later_shift).exists()
+
+
+@pytest.mark.django_db
+def test_voucher_is_not_allocated_to_a_member_removed_meanwhile(event, member):
+    with scopes_disabled():
+        settings = VolunteerVoucherSettings.objects.create(event=event, enabled=True, voucher_tag="volunteers")
+        Voucher.objects.create(event=event, tag="volunteers", max_usages=1, redeemed=0)
+        stale_application = TeamMemberApplication.objects.select_related("user").get(pk=member.pk)
+        TeamMemberApplication.objects.filter(pk=member.pk).update(status=ApplicationStatus.REMOVED)
+
+    with patch("teamshifts.services.vouchers._send_voucher_email", return_value=True) as mock_send:
+        result = allocate_and_send_vouchers(event, settings, [stale_application])
+
+    assert result["sent"] == 0
+    mock_send.assert_not_called()
+    with scopes_disabled():
+        assert not MemberVoucher.objects.filter(application=member).exists()
 
 
 @pytest.mark.django_db

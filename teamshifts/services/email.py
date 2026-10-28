@@ -120,6 +120,7 @@ def update_queued_email(
     send_after=None,
     is_draft: bool = False,
     dispatch: bool = True,
+    mail_type: str | None = None,
 ) -> TeamShiftsEmailQueue:
     with scope(event=queue.event), transaction.atomic():
         locked = TeamShiftsEmailQueue.objects.select_for_update().filter(pk=queue.pk, is_draft=True, sent_at__isnull=True).first()
@@ -128,9 +129,21 @@ def update_queued_email(
         locked.subject = subject
         locked.message = message
         locked.status_filter = status_filter or ""
+        if mail_type is not None:
+            locked.mail_type = mail_type
         locked.send_after = send_after
         locked.is_draft = is_draft
-        locked.save(update_fields=["subject", "message", "status_filter", "send_after", "is_draft", "updated"])
+        locked.save(
+            update_fields=[
+                "subject",
+                "message",
+                "status_filter",
+                "send_after",
+                "is_draft",
+                "mail_type",
+                "updated",
+            ]
+        )
         locked.recipients.all().delete()
         _set_recipients(locked, recipients)
 

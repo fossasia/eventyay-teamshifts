@@ -31,6 +31,8 @@
     <fieldset>
       <legend>{% trans "Recipients" %}</legend>
       {% bootstrap_field form.status layout='control' %}
+      {% bootstrap_field form.specific_recipients layout='control' %}
+      {% bootstrap_field form.recipient_ids layout='control' %}
     </fieldset>
 
     <fieldset>

@@ -1228,7 +1228,14 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
             initial["message"] = draft.message
             initial["status"] = draft.status_filter or ""
             initial["send_after"] = draft.send_after
+            if draft.mail_type == "specific_people":
+                initial["specific_recipients"] = True
+                initial["recipient_ids"] = list(draft.recipients.filter(user__isnull=False).values_list("user_id", flat=True))
             return initial
+        member_ids = self.request.GET.getlist("member_ids")
+        if member_ids:
+            initial["specific_recipients"] = True
+            initial["recipient_ids"] = member_ids
         copy_pk = self.request.GET.get("copy")
         if copy_pk and copy_pk.isdigit():
             with scope(event=self.request.event):
@@ -1256,7 +1263,14 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
         if request.POST.get("action") == "preview":
             event = request.event
             status = request.POST.get("status") or ""
-            recipients = get_recipients(event, status=status)
+
+            if request.POST.get("specific_recipients"):
+                selected_ids = request.POST.getlist("recipient_ids")
+                recipient_form = EmailComposeForm(event=event)
+                recipients = list(recipient_form.fields["recipient_ids"].queryset.filter(pk__in=selected_ids))
+            else:
+                recipients = get_recipients(event, status=status)
+
             self._preview_recipients = recipients
             locales = list(event.settings.get("locales") or [event.settings.locale])
             subject_i18n = LazyI18nString({locales[i]: request.POST.get(f"subject_{i}", "") for i in range(len(locales))})
@@ -1268,6 +1282,8 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
                     "subject": subject_i18n,
                     "message": message_i18n,
                     "send_after": request.POST.get("send_after", ""),
+                    "specific_recipients": bool(request.POST.get("specific_recipients")),
+                    "recipient_ids": ([user.pk for user in recipients] if request.POST.get("specific_recipients") else []),
                 },
             )
             return self.render_to_response(self.get_context_data(form=form))
@@ -1276,9 +1292,11 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
     def form_valid(self, form):
         event = self.request.event
         status = form.cleaned_data.get("status") or ""
+        specific_recipients = form.cleaned_data["specific_recipients"]
+        recipients = list(form.cleaned_data["recipient_ids"]) if specific_recipients else get_recipients(event, status=status)
+        if specific_recipients:
+            status = ""
         send_after = form.cleaned_data.get("send_after")
-
-        recipients = get_recipients(event, status=status)
 
         action = self.request.POST.get("action")
         if action == "preview":
@@ -1302,6 +1320,7 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
             "send_after": send_after,
             "is_draft": is_draft,
             "dispatch": action not in ("draft", "outbox"),
+            "mail_type": "specific_people" if specific_recipients else "",
         }
         if draft is not None:
             try:
@@ -2234,6 +2253,13 @@ class MembersListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Memb
         ctx["certificate_status_choices"] = CertificateStatus.choices
 
         ctx["can_view_email"] = can_view_email_addresses(self.request.user, self.request.organizer, self.request.event, request=self.request)
+        ctx["can_send_emails"] = has_teamshifts_permission(
+            self.request.user,
+            self.request.organizer,
+            self.request.event,
+            "can_teamshifts_send_emails",
+            request=self.request,
+        )
         ctx["can_add_member"] = has_teamshifts_permission(
             self.request.user,
             self.request.organizer,

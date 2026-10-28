@@ -641,6 +641,7 @@ EMAIL_TYPE_LABELS = {
     EmailTemplateRoles.SHIFT_DROPPED_ORGANIZER: _("Organizer notification"),
     EmailTemplateRoles.VOUCHER_SENT: _("Voucher"),
     EmailTemplateRoles.CERTIFICATE_GENERATED: _("Certificate"),
+    "specific_people": _("Specific people"),
 }
 
 

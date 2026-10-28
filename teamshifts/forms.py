@@ -12,7 +12,7 @@ from django_scopes import scopes_disabled
 from django_scopes.forms import SafeModelChoiceField
 from eventyay.base.forms import I18nInlineFormSet
 from eventyay.base.forms.questions import WrappedPhoneNumberPrefixWidget, guess_country
-from eventyay.base.models import Event
+from eventyay.base.models import Event, User
 from eventyay.common.forms.widgets import I18nEmailEditorWidget, RichTextWidget
 from eventyay.control.forms import SplitDateTimeField, SplitDateTimePickerWidget
 from i18nfield.forms import I18nFormField, I18nModelForm, I18nTextInput
@@ -32,6 +32,7 @@ from .models import (
     ShiftLocation,
     TeamApplicationQuestion,
     TeamApplicationQuestionOption,
+    TeamMemberApplication,
     TeamRole,
     TeamShiftsEmailQueue,
     normalize_field_order,
@@ -550,6 +551,27 @@ class EmailComposeForm(forms.Form):
             initial=ApplicationStatus.ACCEPTED,
             label=_("Send to applications with status"),
             widget=forms.Select(attrs={"class": "form-control"}),
+        )
+        with scopes_disabled():
+            member_ids = list(
+                TeamMemberApplication.objects.filter(
+                    event=event,
+                    status=ApplicationStatus.ACCEPTED,
+                )
+                .values_list("user_id", flat=True)
+                .distinct()
+            )
+
+        self.fields["specific_recipients"] = forms.BooleanField(
+            required=False,
+            label=_("Send to specific people"),
+            initial=False,
+        )
+        self.fields["recipient_ids"] = forms.ModelMultipleChoiceField(
+            queryset=User.objects.filter(pk__in=member_ids),
+            required=False,
+            label=_("Recipients"),
+            widget=forms.SelectMultiple(attrs={"class": "form-control", "size": "8"}),
         )
 
         self.fields["send_after"] = forms.DateTimeField(

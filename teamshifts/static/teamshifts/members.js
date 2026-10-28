@@ -107,6 +107,35 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
+    const emailSelectedBtn = document.getElementById("email-selected-btn");
+    const emailSelectedCount = document.getElementById("email-selected-count");
+
+    if (emailSelectedBtn && emailSelectedCount) {
+        const updateEmailSelected = () => {
+            const checked = document.querySelectorAll(".member-checkbox:checked");
+            emailSelectedCount.textContent = checked.length;
+            emailSelectedBtn.disabled = checked.length === 0;
+        };
+
+        checkboxes.forEach((cb) => cb.addEventListener("change", updateEmailSelected));
+
+        if (selectAll) {
+            selectAll.addEventListener("change", updateEmailSelected);
+        }
+
+        updateEmailSelected();
+
+        emailSelectedBtn.addEventListener("click", () => {
+            const ids = Array.from(document.querySelectorAll(".member-checkbox:checked"))
+                .map((cb) => cb.dataset.memberId);
+            if (!ids.length) return;
+
+            const url = new URL(emailSelectedBtn.dataset.composeUrl, window.location.origin);
+            ids.forEach((id) => url.searchParams.append("member_ids", id));
+            window.location.href = url;
+        });
+    }
+
     // Bulk send button
     const sendBtn = document.getElementById("bulk-send-btn");
     if (sendBtn) {

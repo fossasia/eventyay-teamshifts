@@ -11,7 +11,7 @@ from django.utils import timezone
 from django.utils.html import escape as html_escape, format_html
 from django.utils.translation import gettext_lazy as _, ngettext
 from django_countries import countries
-from django_scopes import scopes_disabled
+from django_scopes import scope, scopes_disabled
 from django_scopes.forms import SafeModelChoiceField
 from eventyay.base.forms import I18nInlineFormSet
 from eventyay.base.forms.questions import WrappedPhoneNumberPrefixWidget, guess_country
@@ -34,11 +34,13 @@ from .models import (
     CertificateTrigger,
     EmailTemplateRoles,
     QuestionVariant,
+    RecipientGroup,
     ShiftLocation,
     TeamApplicationQuestion,
     TeamApplicationQuestionOption,
     TeamRole,
     TeamShiftsEmailQueue,
+    VolunteerVoucherSettings,
     normalize_field_order,
 )
 
@@ -588,11 +590,34 @@ class EmailComposeForm(forms.Form):
             },
         )
 
+        with scope(event=event):
+            vouchers_enabled = VolunteerVoucherSettings.objects.filter(event=event, enabled=True).exclude(voucher_tag="").exists()
+            # A draft or copy keeps its voucher group even if vouchers were disabled since, instead of silently showing "Everyone".
+            groups = [RecipientGroup.WITHOUT_SHIFTS]
+            if vouchers_enabled or self.initial.get("status") == RecipientGroup.VOUCHER_NOT_USED:
+                groups.append(RecipientGroup.VOUCHER_NOT_USED)
+            group_labels = {
+                RecipientGroup.WITHOUT_SHIFTS: _("Accepted – without shifts"),
+                RecipientGroup.VOUCHER_NOT_USED: _("Accepted – voucher not used"),
+            }
+            group_choices = [(group, f"{group_labels[group]} ({group.applications(event).count()})") for group in groups]
+
         self.fields["status"] = forms.ChoiceField(
-            choices=[("", _("All statuses"))] + list(ApplicationStatus.choices),
+            choices=[
+                ("", _("Everyone (all statuses)")),
+                (ApplicationStatus.ACCEPTED, ApplicationStatus.ACCEPTED.label),
+                *group_choices,
+                (ApplicationStatus.PENDING, ApplicationStatus.PENDING.label),
+                (ApplicationStatus.REJECTED, ApplicationStatus.REJECTED.label),
+            ],
             required=False,
             initial=ApplicationStatus.ACCEPTED,
-            label=_("Send to applications with status"),
+            label=_("Send to"),
+            help_text=(
+                _('The "without shifts" and "voucher not used" groups are checked again when a scheduled or outbox email is sent.')
+                if RecipientGroup.VOUCHER_NOT_USED in groups
+                else _('The "without shifts" group is checked again when a scheduled or outbox email is sent.')
+            ),
             widget=forms.Select(attrs={"class": "form-control select2-static"}),
         )
 

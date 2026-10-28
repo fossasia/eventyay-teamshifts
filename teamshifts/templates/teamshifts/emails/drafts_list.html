@@ -48,6 +48,8 @@
           <td>
             {% if mail.individual_recipients %}
               <span class='label label-default'>{% trans "Specific people" %}</span>
+            {% elif mail.recipient_group %}
+              <span class='label label-info'>{{ mail.get_recipient_group_display }}</span>
             {% elif mail.status_filter %}
               <span class='label label-default'>{{ mail.get_status_filter_display }}</span>
             {% else %}

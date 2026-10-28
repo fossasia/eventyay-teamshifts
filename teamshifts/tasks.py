@@ -14,7 +14,7 @@ from eventyay.base.services.tasks import ProfiledEventTask
 from eventyay.celery_app import app
 from i18nfield.strings import LazyI18nString
 
-from .models import TeamMemberApplication, TeamShiftsEmailQueue
+from .models import RecipientGroup, TeamMemberApplication, TeamShiftsEmailQueue
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +42,16 @@ def render_subject(subject, context, locale, event=None) -> str:
         if prefix and prefix.startswith("[") and prefix.endswith("]"):
             prefix = prefix[1:-1]
         return f"[{prefix}] {rendered}" if prefix else rendered
+
+
+def _drop_recipients_outside_group(event, queue, recipients):
+    """Remove unsent recipients who left the queue's group after it was queued, e.g. by signing up for a shift."""
+    in_group = set(RecipientGroup(queue.recipient_group).applications(event).values_list("user_id", flat=True))
+    left = {recipient.pk for recipient in recipients if not recipient.sent_at and recipient.user_id not in in_group}
+    if left:
+        queue.recipients.filter(pk__in=left, sent_at__isnull=True).delete()
+        logger.info("[TeamShifts] Queue %s: skipped %d recipients no longer in group %s", queue.pk, len(left), queue.recipient_group)
+    return [recipient for recipient in recipients if recipient.pk not in left]
 
 
 SCHEDULED_EMAIL_BATCH_SIZE = 50
@@ -105,6 +115,8 @@ def send_queued_email(self, event_id: int, queue_id: int):
                 logger.debug("[TeamShifts] Queue %s not yet due, skipping", queue_id)
                 return
             recipients = list(queue.recipients.select_related("user").all())
+            if queue.recipient_group:
+                recipients = _drop_recipients_outside_group(event, queue, recipients)
 
             if not recipients:
                 logger.warning("[TeamShifts] Queue %s has no recipients", queue_id)

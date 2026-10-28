@@ -367,3 +367,45 @@ def test_reopening_a_specific_people_draft_restores_them(orga_client, event, use
 
     assert f'<option value="{picked.user.pk}" selected>' in content
     assert f'value="{ApplicationStatus.ACCEPTED}" selected' in content
+
+
+@pytest.mark.django_db
+def test_copying_a_specific_people_email_restores_them(orga_client, event, user, django_user_model):
+    picked = _member(event, django_user_model, "picked@example.com")
+    with scope(event=event):
+        sent = queue_email(event, "s", "m", [picked.user], user=user, individual_recipients=True, dispatch=False)
+
+    content = orga_client.get(_url(event, "email_compose") + f"?copy={sent.pk}").content.decode()
+
+    assert f'<option value="{picked.user.pk}" selected>' in content
+
+
+@pytest.mark.django_db
+def test_specific_people_draft_with_nobody_left_requires_a_new_selection(orga_client, event, user, django_user_model):
+    _member(event, django_user_model, "accepted@example.com")
+    gone = _member(event, django_user_model, "gone@example.com")
+    with scope(event=event):
+        draft = queue_email(event, "s", "m", [gone.user], user=user, individual_recipients=True, is_draft=True)
+        gone.delete()
+
+    with patch("teamshifts.services.email._dispatch") as mock_dispatch:
+        response = orga_client.post(
+            _url(event, "email_compose"),
+            {"action": "send", "draft_id": draft.pk, "status": ApplicationStatus.ACCEPTED, "subject_0": "s", "message_0": "m", "send_after": ""},
+        )
+
+    assert response.status_code == 200
+    assert "individual_volunteers" in response.context["form"].errors
+    mock_dispatch.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_preview_ignores_a_voucher_group_that_is_not_offered(orga_client, event, django_user_model):
+    accepted = _member(event, django_user_model, "accepted@example.com")
+    _give_voucher(event, accepted)
+    _member(event, django_user_model, "plain@example.com")
+
+    response = orga_client.post(_url(event, "email_compose"), {"action": "preview", "status": RecipientGroup.VOUCHER_NOT_USED})
+
+    assert _emails(response.context["preview_recipients"]) == {"accepted@example.com", "plain@example.com"}
+    assert RecipientGroup.VOUCHER_NOT_USED not in _send_to_choices(response.context["form"])

@@ -568,7 +568,7 @@ class VolunteerSelect2Multiple(Select2Multiple):
 
 
 class EmailComposeForm(forms.Form):
-    def __init__(self, *args, event=None, draft_save=False, show_emails=False, **kwargs):
+    def __init__(self, *args, event=None, draft_save=False, show_emails=False, require_people=False, **kwargs):
         super().__init__(*args, **kwargs)
         self._event = event
         locales = list(event.settings.get("locales") or [event.settings.locale])
@@ -642,7 +642,7 @@ class EmailComposeForm(forms.Form):
 
         self.fields["individual_volunteers"] = forms.ModelMultipleChoiceField(
             queryset=User.objects.filter(team_member_applications__event=event).distinct().order_by("fullname", "email"),
-            required=False,
+            required=require_people,
             label=_("Send to specific people"),
             help_text=_("Optional. When people are selected here, only they receive the email and the selection above is ignored."),
             widget=forms.SelectMultiple(

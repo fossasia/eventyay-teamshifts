@@ -44,14 +44,9 @@ def render_subject(subject, context, locale, event=None) -> str:
         return f"[{prefix}] {rendered}" if prefix else rendered
 
 
-def _drop_recipients_outside_group(event, queue, recipients):
-    """Remove unsent recipients who left the queue's group after it was queued, e.g. by signing up for a shift."""
-    in_group = set(RecipientGroup(queue.recipient_group).applications(event).values_list("user_id", flat=True))
-    left = {recipient.pk for recipient in recipients if not recipient.sent_at and recipient.user_id not in in_group}
-    if left:
-        queue.recipients.filter(pk__in=left, sent_at__isnull=True).delete()
-        logger.info("[TeamShifts] Queue %s: skipped %d recipients no longer in group %s", queue.pk, len(left), queue.recipient_group)
-    return [recipient for recipient in recipients if recipient.pk not in left]
+def _left_group(event, queue, recipient) -> bool:
+    """True if the recipient left the queue's group after it was queued, e.g. by signing up for a shift."""
+    return not RecipientGroup(queue.recipient_group).applications(event).filter(user_id=recipient.user_id).exists()
 
 
 SCHEDULED_EMAIL_BATCH_SIZE = 50
@@ -115,8 +110,6 @@ def send_queued_email(self, event_id: int, queue_id: int):
                 logger.debug("[TeamShifts] Queue %s not yet due, skipping", queue_id)
                 return
             recipients = list(queue.recipients.select_related("user").all())
-            if queue.recipient_group:
-                recipients = _drop_recipients_outside_group(event, queue, recipients)
 
             if not recipients:
                 logger.warning("[TeamShifts] Queue %s has no recipients", queue_id)
@@ -131,6 +124,11 @@ def send_queued_email(self, event_id: int, queue_id: int):
             partial_send = False
             for recipient in recipients:
                 if recipient.sent_at:
+                    continue
+
+                if queue.recipient_group and _left_group(event, queue, recipient):
+                    type(recipient).objects.filter(pk=recipient.pk, sent_at__isnull=True).delete()
+                    logger.info("[TeamShifts] Queue %s: skipped %s, no longer in group %s", queue.pk, recipient.email, queue.recipient_group)
                     continue
 
                 claimed = type(recipient).objects.filter(pk=recipient.pk, sent_at__isnull=True).update(sent_at=now())

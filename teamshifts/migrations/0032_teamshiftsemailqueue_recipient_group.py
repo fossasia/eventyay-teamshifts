@@ -13,12 +13,16 @@ class Migration(migrations.Migration):
             model_name="teamshiftsemailqueue",
             name="recipient_group",
             field=models.CharField(
-                blank=True, choices=[("without_shifts", "Without shifts"), ("voucher_not_used", "Voucher not used")], default="", max_length=20
+                blank=True,
+                choices=[("without_shifts", "Without shifts"), ("voucher_not_used", "Voucher not used")],
+                db_default="",
+                default="",
+                max_length=20,
             ),
         ),
         migrations.AddField(
             model_name="teamshiftsemailqueue",
             name="individual_recipients",
-            field=models.BooleanField(default=False),
+            field=models.BooleanField(db_default=False, default=False),
         ),
     ]

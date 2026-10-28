@@ -1218,6 +1218,7 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
         kwargs["show_emails"] = can_view_email_addresses(self.request.user, self.request.organizer, self.request.event, request=self.request)
         kwargs["draft_save"] = self.request.POST.get("action") == "draft"
         kwargs["show_emails"] = can_view_email_addresses(self.request.user, self.request.organizer, self.request.event, request=self.request)
+        kwargs["require_people"] = getattr(self, "_require_people", False)
         return kwargs
 
     def get_draft(self):
@@ -1249,10 +1250,7 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
         if draft is not None:
             initial["subject"] = draft.subject
             initial["message"] = draft.message
-            initial["status"] = ApplicationStatus.ACCEPTED if draft.individual_recipients else draft.recipient_group or draft.status_filter or ""
-            if draft.individual_recipients:
-                with scope(event=self.request.event):
-                    initial["individual_volunteers"] = list(draft.recipients.filter(user__isnull=False).values_list("user_id", flat=True))
+            self._restore_send_to(draft, initial)
             initial["send_after"] = draft.send_after
             return initial
         copy_pk = self.request.GET.get("copy")
@@ -1264,8 +1262,20 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
                     return initial
             initial["subject"] = source.subject
             initial["message"] = source.message
-            initial["status"] = ApplicationStatus.ACCEPTED if source.individual_recipients else source.recipient_group or source.status_filter or ""
+            self._restore_send_to(source, initial)
         return initial
+
+    def _restore_send_to(self, source, initial):
+        if not source.individual_recipients:
+            initial["status"] = source.recipient_group or source.status_filter or ""
+            return
+        initial["status"] = ApplicationStatus.ACCEPTED
+        with scope(event=self.request.event):
+            initial["individual_volunteers"] = list(
+                source.recipients.filter(user__team_member_applications__event=self.request.event).values_list("user_id", flat=True)
+            )
+        # A specific-people email never falls back to the dropdown: with nobody left to restore, a new selection is required.
+        self._require_people = not initial["individual_volunteers"]
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -1284,6 +1294,8 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
             status = request.POST.get("status") or ""
             posted_volunteers = request.POST.getlist("individual_volunteers")
             volunteer_ids = [pk for pk in map(valid_user_pk, posted_volunteers) if pk is not None]
+            if status not in dict(EmailComposeForm(event=event, initial=self.get_initial()).fields["status"].choices):
+                status = ApplicationStatus.ACCEPTED
             status_filter, recipient_group = split_send_to(status)
             user_ids = [int(pk) for pk in volunteer_ids if str(pk).isdigit()] if posted_volunteers else None
             recipients = get_recipients(event, status=status_filter, group=recipient_group, user_ids=user_ids)

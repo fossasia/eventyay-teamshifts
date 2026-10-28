@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 EARLY_CHECKIN_GRACE_MINUTES = 30
 
 
-def resolve_volunteer_application(checkin):
+def resolve_volunteer_application(checkin, statuses=(ApplicationStatus.ACCEPTED,)):
     """Resolve a Checkin to a TeamMemberApplication via voucher chain or email match."""
     event = checkin.list.event
     position = checkin.position
@@ -26,7 +26,7 @@ def resolve_volunteer_application(checkin):
                 pass
             else:
                 app = member_voucher.application
-                if app is not None and app.event_id == event.pk and app.status == ApplicationStatus.ACCEPTED:
+                if app is not None and app.event_id == event.pk and app.status in statuses:
                     return app
 
     email = position.attendee_email
@@ -36,7 +36,7 @@ def resolve_volunteer_application(checkin):
                 return TeamMemberApplication.objects.get(
                     event=event,
                     user__email__iexact=email,
-                    status=ApplicationStatus.ACCEPTED,
+                    status__in=statuses,
                 )
             except (TeamMemberApplication.DoesNotExist, TeamMemberApplication.MultipleObjectsReturned):
                 pass
@@ -136,14 +136,16 @@ def handle_volunteer_checkin(checkin):
 
 def handle_volunteer_checkout(checkin):
     """Wire an eventyay exit scan to teamshifts shift completion tracking."""
-    application = resolve_volunteer_application(checkin)
+    # A member removed mid-shift still gets the shift they had started closed on exit,
+    # but no new certificate.
+    application = resolve_volunteer_application(checkin, statuses=(ApplicationStatus.ACCEPTED, ApplicationStatus.REMOVED))
     if application is None:
         return
 
     event = application.event
     closed = stamp_shift_exit(application.user, event, checkin.datetime) > 0
 
-    if closed:
+    if closed and application.status == ApplicationStatus.ACCEPTED:
         maybe_auto_issue_certificate(application)
         logger.info(
             "[TeamShifts] Volunteer %s shift closed via ticket check-out for event %s",

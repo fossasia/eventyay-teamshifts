@@ -119,6 +119,15 @@ def removed_event_ids(user):
     return TeamMemberApplication.objects.filter(user=user, status=ApplicationStatus.REMOVED).values("event_id")
 
 
+IN_PROGRESS_ASSIGNMENT = Q(started_at__isnull=False, ended_at__isnull=True)
+
+
+def hidden_after_removal_filter(user) -> Q:
+    """Assignments a removed member no longer sees: everything in that event except a shift
+    they had already started and not yet checked out of, which they may still close."""
+    return Q(shift__event_id__in=removed_event_ids(user)) & ~IN_PROGRESS_ASSIGNMENT
+
+
 def remove_members_from_team(
     *,
     event: Event,

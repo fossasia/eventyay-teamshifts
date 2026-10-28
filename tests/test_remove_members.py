@@ -1,4 +1,5 @@
 from datetime import timedelta
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -23,6 +24,7 @@ from teamshifts.models import (
     VoucherStatus,
 )
 from teamshifts.services.calendar import get_member_assignments
+from teamshifts.services.checkin import handle_volunteer_checkout
 from teamshifts.services.vouchers import allocate_and_send_vouchers
 
 
@@ -342,6 +344,68 @@ def test_calendar_feed_leaves_out_events_the_member_was_removed_from(mock_queue,
     with scopes_disabled():
         assert ShiftAssignment.objects.filter(team_member=member.user).exists()
     assert not get_member_assignments(member.user).exists()
+
+
+@pytest.fixture
+def in_progress_assignment(event, location, role, member):
+    running = _make_shift(event, location, "Running shift", timedelta(hours=-1))
+    with scopes_disabled():
+        return ShiftAssignment.objects.create(shift=running, team_member=member.user, role=role, started_at=running.start_time)
+
+
+@pytest.mark.django_db
+@patch("teamshifts.services.members.queue_lifecycle_email")
+def test_member_removed_mid_shift_can_still_check_out_of_it(mock_queue, client, event, member, in_progress_assignment, past_shift):
+    _login_with_team(client, event, teamshifts_role="coordinator")
+    _remove(client, event, [member])
+    client.force_login(member.user)
+
+    my_shifts = client.get(reverse("plugins:teamshifts:my_shifts_global"))
+    assert my_shifts.status_code == 200
+    assert b"Running shift" in my_shifts.content
+    assert past_shift.name.encode() not in my_shifts.content
+    assert client.get(_url("public_shift_schedule", event)).status_code == 302
+
+    response = client.post(_url("shift_checkout", event, pk=in_progress_assignment.pk), HTTP_X_REQUESTED_WITH="XMLHttpRequest")
+
+    assert response.status_code == 200
+    with scopes_disabled():
+        in_progress_assignment.refresh_from_db()
+    assert in_progress_assignment.ended_at is not None
+
+
+@pytest.mark.django_db
+@patch("teamshifts.services.members.queue_lifecycle_email")
+def test_removed_member_without_a_running_shift_cannot_use_check_out(mock_queue, client, event, member, past_shift):
+    _login_with_team(client, event, teamshifts_role="coordinator")
+    _remove(client, event, [member])
+    client.force_login(member.user)
+    with scopes_disabled():
+        past_assignment = ShiftAssignment.objects.get(shift=past_shift, team_member=member.user)
+
+    response = client.post(_url("shift_checkout", event, pk=past_assignment.pk), HTTP_X_REQUESTED_WITH="XMLHttpRequest")
+
+    assert response.status_code == 403
+
+
+@pytest.mark.django_db
+@patch("teamshifts.services.checkin.maybe_auto_issue_certificate")
+@patch("teamshifts.services.members.queue_lifecycle_email")
+def test_exit_scan_closes_the_running_shift_of_a_removed_member(mock_queue, mock_certificate, client, event, member, in_progress_assignment):
+    _login_with_team(client, event, teamshifts_role="coordinator")
+    _remove(client, event, [member])
+    exit_scan = SimpleNamespace(
+        list=SimpleNamespace(event=event),
+        position=SimpleNamespace(voucher_id=None, attendee_email=member.user.email),
+        datetime=now(),
+    )
+
+    handle_volunteer_checkout(exit_scan)
+
+    with scopes_disabled():
+        in_progress_assignment.refresh_from_db()
+    assert in_progress_assignment.ended_at is not None
+    mock_certificate.assert_not_called()
 
 
 @pytest.mark.django_db

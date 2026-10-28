@@ -107,11 +107,12 @@ from .services.email import (
     update_queued_email,
 )
 from .services.members import (
+    IN_PROGRESS_ASSIGNMENT,
     AlreadyMemberError,
     accept_manager_as_member,
     add_member_from_organizer,
+    hidden_after_removal_filter,
     remove_members_from_team,
-    removed_event_ids,
     upcoming_assignment_filter,
 )
 from .tasks import send_queued_email
@@ -3616,6 +3617,15 @@ class MyShiftsView(PublicShiftScheduleMixin, TemplateView):
 class ShiftCheckOutView(PublicShiftScheduleMixin, View):
     redirect_unpublished_to_schedule = False
 
+    def _can_access_schedule(self, request):
+        if super()._can_access_schedule(request):
+            return True
+        # Someone removed from the team mid-shift may still close the shift they had started,
+        # so its hours count. Nothing else is opened up for them.
+        with scope(event=self.event):
+            removed = TeamMemberApplication.objects.filter(event=self.event, user=request.user, status=ApplicationStatus.REMOVED).exists()
+            return removed and ShiftAssignment.objects.filter(IN_PROGRESS_ASSIGNMENT, team_member=request.user, shift__event=self.event).exists()
+
     def post(self, request, *args, **kwargs):
         event = self.event
         assignment_pk = kwargs["pk"]
@@ -3662,7 +3672,7 @@ class MyShiftsGlobalView(LoginRequiredMixin, TemplateView):
         with scopes_disabled():
             has_active = (
                 ShiftAssignment.objects.filter(team_member=request.user, shift__event__plugins__contains="teamshifts")
-                .exclude(shift__event_id__in=removed_event_ids(request.user))
+                .exclude(hidden_after_removal_filter(request.user))
                 .exists()
             )
             has_calendar_token = ShiftCalendarToken.objects.filter(user=request.user).exists()
@@ -3681,7 +3691,7 @@ class MyShiftsGlobalView(LoginRequiredMixin, TemplateView):
                     team_member=self.request.user,
                     shift__event__plugins__contains="teamshifts",
                 )
-                .exclude(shift__event_id__in=removed_event_ids(self.request.user))
+                .exclude(hidden_after_removal_filter(self.request.user))
                 .select_related(
                     "shift",
                     "shift__event",

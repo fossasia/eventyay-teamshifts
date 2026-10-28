@@ -5,6 +5,7 @@
 
 {% block custom_header %}
   {{ block.super }}
+  <script type='module' src='{% static "teamshifts/email_compose.js" %}'></script>
   <script type='module' src='{% static "teamshifts/schedule_datetime.js" %}'></script>
 {% endblock %}
 
@@ -25,6 +26,11 @@
 
   {% if custom_templates %}
     <form action='' method='get' class='form-inline custom-template-picker'>
+      {% if request.GET.draft %}
+      <input type='hidden' name='draft' value='{{ request.GET.draft }}'>
+      {% endif %}
+      <input type='hidden' name='status' id='template_picker_status'>
+      <input type='hidden' name='send_after' id='template_picker_send_after'>
       <label for='id_template_picker' class='control-label'>{% trans "Load from template" %}</label>
       <select name='template' id='id_template_picker' class='form-control'>
         <option value=''>{% trans "Select a saved template…" %}</option>

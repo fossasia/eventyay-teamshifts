@@ -1237,10 +1237,10 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
             if template:
                 initial["subject"] = template.subject
                 initial["message"] = template.body
-        if "status" in self.request.GET:
+        if self.request.GET.get("status"):
             initial["status"] = self.request.GET["status"]
 
-        if "send_after" in self.request.GET:
+        if self.request.GET.get("send_after"):
             initial["send_after"] = self.request.GET["send_after"]
         copy_pk = self.request.GET.get("copy")
         if copy_pk and copy_pk.isdigit():

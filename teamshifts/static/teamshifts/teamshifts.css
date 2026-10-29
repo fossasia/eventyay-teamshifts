@@ -605,3 +605,11 @@ label .optional {
         margin-left: 0;
     }
 }
+
+[data-compose-status].is-overridden {
+  opacity: 0.5;
+}
+
+#select2-id_individual_volunteers-results .loading-results {
+  display: none;
+}

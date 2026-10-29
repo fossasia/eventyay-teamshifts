@@ -320,6 +320,11 @@ urlpatterns = [
         name="email_compose",
     ),
     path(
+        "teamshifts/event/<orgslug:organizer>/<slug:event>/emails/compose/volunteers/select2/",
+        views.ComposeVolunteersSelect2View.as_view(),
+        name="compose_volunteers_select2",
+    ),
+    path(
         "teamshifts/event/<orgslug:organizer>/<slug:event>/emails/outbox/",
         views.EmailOutboxView.as_view(),
         name="email_outbox",

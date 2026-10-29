@@ -1232,9 +1232,7 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
             initial["send_after"] = draft.send_after
             if draft.individual_recipients:
                 with scope(event=self.request.event):
-                    initial["individual_volunteers"] = list(
-                        draft.recipients.filter(user__isnull=False).values_list("user_id", flat=True)
-                    )
+                    initial["individual_volunteers"] = list(draft.recipients.filter(user__isnull=False).values_list("user_id", flat=True))
                 initial["status"] = ApplicationStatus.ACCEPTED
             else:
                 initial["status"] = draft.status_filter or ""
@@ -1258,9 +1256,9 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
 
         if self.request.GET.get("send_after"):
             initial["send_after"] = self.request.GET["send_after"]
-        
+
         if draft is not None:
-            return initial  
+            return initial
         copy_pk = self.request.GET.get("copy")
         if copy_pk and copy_pk.isdigit():
             with scope(event=self.request.event):

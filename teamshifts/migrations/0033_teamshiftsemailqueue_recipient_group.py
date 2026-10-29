@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("teamshifts", "0031_shiftcalendartoken"),
+        ("teamshifts", "0032_teamshiftsemailqueue_individual_recipients"),
     ]
 
     operations = [
@@ -20,9 +20,14 @@ class Migration(migrations.Migration):
                 max_length=20,
             ),
         ),
-        migrations.AddField(
+        migrations.AlterField(
             model_name="teamshiftsemailqueue",
             name="individual_recipients",
-            field=models.BooleanField(db_default=False, default=False),
+            field=models.BooleanField(
+                db_default=False,
+                default=False,
+                help_text="Sent to hand-picked people instead of everyone matching the status filter.",
+                verbose_name="Specific people",
+            ),
         ),
     ]

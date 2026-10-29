@@ -735,12 +735,13 @@ class TeamShiftsEmailQueue(models.Model):
         blank=True,
         default="",
     )
+    # db_default keeps inserts from app versions without these fields working during a rolling deploy.
     individual_recipients = models.BooleanField(
         default=False,
+        db_default=False,
         verbose_name=_("Specific people"),
         help_text=_("Sent to hand-picked people instead of everyone matching the status filter."),
     )
-    # db_default keeps inserts from app versions without these fields working during a rolling deploy.
     recipient_group = models.CharField(
         max_length=20,
         choices=RecipientGroup.choices,
@@ -748,7 +749,6 @@ class TeamShiftsEmailQueue(models.Model):
         default="",
         db_default="",
     )
-    individual_recipients = models.BooleanField(default=False, db_default=False)
     mail_type = models.CharField(max_length=40, blank=True, default="")
     send_after = models.DateTimeField(null=True, blank=True)
     sent_at = models.DateTimeField(null=True, blank=True)

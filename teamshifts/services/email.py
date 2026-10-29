@@ -36,14 +36,12 @@ def get_recipients(
     event: Event,
     *,
     status: str = ApplicationStatus.ACCEPTED,
-    user_ids: Iterable[int] | None = None,
     group: str = "",
     user_ids: Iterable[int] | None = None,
 ) -> list[User]:
-    user_ids = list(user_ids or ())
     with scope(event=event):
         if user_ids is not None:
-            qs = TeamMemberApplication.objects.filter(event=event, user_id__in=user_ids)
+            qs = TeamMemberApplication.objects.filter(event=event, user_id__in=list(user_ids))
         elif group:
             qs = RecipientGroup(group).applications(event)
         else:
@@ -70,7 +68,6 @@ def queue_email(
     status_filter: str = "",
     individual_recipients: bool = False,
     recipient_group: str = "",
-    individual_recipients: bool = False,
     mail_type: str = "",
     send_after=None,
     dispatch: bool = True,
@@ -91,7 +88,6 @@ def queue_email(
             status_filter=status_filter or "",
             individual_recipients=individual_recipients,
             recipient_group=recipient_group,
-            individual_recipients=individual_recipients,
             mail_type=mail_type,
             send_after=send_after,
             is_draft=is_draft,
@@ -142,7 +138,6 @@ def update_queued_email(
     status_filter: str = "",
     individual_recipients: bool = False,
     recipient_group: str = "",
-    individual_recipients: bool = False,
     send_after=None,
     is_draft: bool = False,
     dispatch: bool = True,

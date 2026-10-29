@@ -1251,11 +1251,10 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
             if template:
                 initial["subject"] = template.subject
                 initial["message"] = template.body
-        if self.request.GET.get("status"):
-            initial["status"] = self.request.GET["status"]
-
-        if self.request.GET.get("send_after"):
-            initial["send_after"] = self.request.GET["send_after"]
+        if self.request.GET.get("template_picker") == "1":
+            initial["status"] = self.request.GET.get("status", "")
+            initial["send_after"] = self.request.GET.get("send_after", "")
+            initial["individual_volunteers"] = self.request.GET.getlist("individual_volunteers")
 
         if draft is not None:
             return initial

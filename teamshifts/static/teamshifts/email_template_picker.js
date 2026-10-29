@@ -16,5 +16,16 @@ if (picker) {
             status?.value ?? "";
         picker.querySelector("#template_picker_send_after").value =
             sendAfter?.value ?? "";
+
+        picker.querySelector("#template_picker_submitted").value = "1";
+
+        const volunteers = document.querySelector("#id_individual_volunteers");
+        for (const option of volunteers?.selectedOptions ?? []) {
+            const input = document.createElement("input");
+            input.type = "hidden";
+            input.name = "individual_volunteers";
+            input.value = option.value;
+            picker.append(input);
+        }
     });
 }

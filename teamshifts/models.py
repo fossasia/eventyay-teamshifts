@@ -1,7 +1,11 @@
 import secrets
+from urllib.parse import urljoin, urlparse
+from zoneinfo import ZoneInfo
 
+from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.db import models
+from django.urls import reverse
 from django.utils import timezone
 from django.utils.crypto import get_random_string
 from django.utils.translation import gettext_lazy as _
@@ -12,6 +16,10 @@ from i18nfield.fields import I18nCharField, I18nTextField
 
 def generate_cfm_secret():
     return secrets.token_urlsafe(24)
+
+
+def generate_calendar_token():
+    return secrets.token_urlsafe(32)
 
 
 CFM_BUILTIN_FIELD_KEYS = ("full_name", "email", "phone", "availability")
@@ -455,6 +463,54 @@ class ShiftAssignment(models.Model):
 
     def __str__(self):
         return f"{self.team_member.email} → {self.shift}"
+
+    def build_ical(self, calendar, creation_time=None, netloc=None):
+        shift = self.shift
+        event = shift.event
+        netloc = netloc or urlparse(settings.SITE_URL).netloc
+        my_shifts_url = urljoin(settings.SITE_URL, reverse("plugins:teamshifts:my_shifts_global"))
+        title = shift.name or (shift.location.name if shift.location_id else str(_("Shift")))
+        location = shift.location.name if shift.location_id else shift.location_text
+
+        vevent = calendar.add("vevent")
+        vevent.add("summary").value = f"{title} – {self.role.name}" if self.role_id else title
+        vevent.add("dtstamp").value = (creation_time or self.assigned_at).astimezone(ZoneInfo("UTC"))
+        if location:
+            vevent.add("location").value = str(location)
+        vevent.add("uid").value = f"teamshifts-{event.slug}-{shift.pk}-{self.team_member_id}@{netloc}"
+
+        vevent.add("dtstart").value = shift.start_time.astimezone(event.tz)
+        vevent.add("dtend").value = shift.end_time.astimezone(event.tz)
+        vevent.add("description").value = f"{event.name}\n{my_shifts_url}"
+        vevent.add("url").value = my_shifts_url
+
+
+class ShiftCalendarToken(models.Model):
+    user = models.OneToOneField(
+        "base.User",
+        on_delete=models.CASCADE,
+        related_name="shift_calendar_token",
+    )
+    token = models.CharField(
+        max_length=64,
+        unique=True,
+        default=generate_calendar_token,
+        verbose_name=_("Calendar token"),
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    regenerated_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = _("Shift calendar token")
+        verbose_name_plural = _("Shift calendar tokens")
+
+    def __str__(self):
+        return f"Calendar token for {self.user.email}"
+
+    def regenerate(self):
+        self.token = generate_calendar_token()
+        self.regenerated_at = timezone.now()
+        self.save(update_fields=["token", "regenerated_at"])
 
 
 class QuestionVariant(models.TextChoices):

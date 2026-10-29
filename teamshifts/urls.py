@@ -85,9 +85,34 @@ event_patterns = [
 
 urlpatterns = [
     path(
+        "my-shifts/calendar/<slug:token>.ics",
+        views.MyShiftsCalendarFeedView.as_view(),
+        name="my_shifts_calendar_feed",
+    ),
+    path(
         "common/my-shifts/",
         views.MyShiftsGlobalView.as_view(),
         name="my_shifts_global",
+    ),
+    path(
+        "common/my-shifts/calendar.ics",
+        views.MyShiftsCalendarDownloadView.as_view(),
+        name="my_shifts_calendar_download",
+    ),
+    path(
+        "common/my-shifts/calendar/export/google-calendar/",
+        views.MyShiftsCalendarRedirectView.as_view(),
+        name="my_shifts_calendar_google",
+    ),
+    path(
+        "common/my-shifts/calendar/export/webcal/",
+        views.MyShiftsCalendarRedirectView.as_view(),
+        name="my_shifts_calendar_webcal",
+    ),
+    path(
+        "common/my-shifts/calendar/reset/",
+        views.MyShiftsCalendarResetView.as_view(),
+        name="my_shifts_calendar_reset",
     ),
     path(
         "common/my-shifts/certificate/<int:event_id>/",

@@ -6,6 +6,7 @@
 {% block custom_header %}
   {{ block.super }}
   <script type='module' src='{% static "teamshifts/schedule_datetime.js" %}'></script>
+  <script type='module' src='{% static "teamshifts/compose_recipients.js" %}'></script>
 {% endblock %}
 
 {% block title %}{% trans "Compose email" %} :: {{ request.event.name }}{% endblock %}
@@ -17,9 +18,9 @@
 {% block teamshifts_content %}
     <p class='help-block'>
     {% blocktrans trimmed %}
-      Write a message to your team members. You can filter recipients by role
-      and application status. Send immediately, schedule it for later, or save
-      it as a draft to finish another time.
+      Write a message to your team members. You can filter recipients by
+      application status or choose specific people. Send immediately,
+      schedule it for later, or save it as a draft to finish another time.
     {% endblocktrans %}
   </p>
 
@@ -30,7 +31,10 @@
 
     <fieldset>
       <legend>{% trans "Recipients" %}</legend>
-      {% bootstrap_field form.status layout='control' %}
+      <div data-compose-status>
+        {% bootstrap_field form.status layout='control' %}
+      </div>
+      {% bootstrap_field form.individual_volunteers layout='control' %}
     </fieldset>
 
     <fieldset>

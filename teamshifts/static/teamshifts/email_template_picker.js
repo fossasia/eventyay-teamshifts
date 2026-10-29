@@ -20,6 +20,9 @@ if (picker) {
         picker.querySelector("#template_picker_submitted").value = "1";
 
         const volunteers = document.querySelector("#id_individual_volunteers");
+        picker.querySelectorAll('input[name="individual_volunteers"]').forEach((input) => {
+            input.remove();
+        });
         for (const option of volunteers?.selectedOptions ?? []) {
             const input = document.createElement("input");
             input.type = "hidden";

@@ -360,7 +360,8 @@ def test_members_certificate_column_and_filter(orga_client, event):
 
     soup = BeautifulSoup(orga_client.get(_url(event, "members")).content, "html.parser")
     column = [th.get_text(strip=True) for th in soup.select("thead th")].index("Certificate")
-    cells = {row.select("td")[1].get_text(strip=True): row.select("td")[column] for row in soup.select("tbody tr")}
+    name_column = [th.get_text(" ", strip=True) for th in soup.select("thead th")].index("Name")
+    cells = {row.select("td")[name_column].get_text(" ", strip=True): row.select("td")[column] for row in soup.select("tbody tr")}
 
     assert cells["pending"].get_text(" ", strip=True) == str(CertificateStatus.NOT_GENERATED.label)
     assert cells["generated"].find(class_="label")["class"] == ["label", CertificateStatus.GENERATED.label_class]

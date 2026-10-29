@@ -15,22 +15,18 @@
 {% endblock %}
 
 {% block teamshifts_content %}
-  <div class='teamshifts-filter-bar clearfix'>
-    <form method='get' class='form-inline pull-left'>
-      <div class='form-group'>
-        <input type='text' name='q' value='{{ search }}' class='form-control teamshifts-search-input' placeholder='{% trans "Search by subject or recipient" %}'>
-      </div>
-      <button type='submit' class='btn btn-default'>{% trans "Search" %}</button>
-    </form>
-    <div class='pull-right'>
-      <a href='{% url "plugins:teamshifts:email_compose" organizer=request.organizer.slug event=request.event.slug %}'
-         class='btn btn-primary'>
-        <i class='fa fa-plus'></i> {% trans "New email" %}
-      </a>
-    </div>
-  </div>
+  {% include "teamshifts/_filter_form.html" %}
 
-  <div data-ajax-results-region>
+  <div data-ajax-results-region data-filter-count="{{ advanced_filter_count }}">
+    <div class="teamshifts-list-toolbar clearfix">
+      <div class="pull-right">
+        <a href='{% url "plugins:teamshifts:email_compose" organizer=request.organizer.slug event=request.event.slug %}'
+           class='btn btn-primary'>
+          <i class='fa fa-plus'></i> {% trans "New email" %}
+        </a>
+      </div>
+    </div>
+
     <table class='table'>
       <thead>
         <tr>
@@ -55,7 +51,10 @@
                 <br><small class='text-muted'>{{ mail.email }}</small>
               {% endif %}
             </td>
-            <td><span class='label label-default'>{{ mail.queue.mail_type_label }}</span></td>
+            <td>
+              <span class='label label-default'>{{ mail.queue.mail_type_label }}</span>
+              {% if mail.queue.individual_recipients %}<span class='label label-default'>{% trans "Specific people" %}</span>{% endif %}
+            </td>
             <td>
               {% timezone request.event.timezone %}
                 {{ mail.sent_at|date:"SHORT_DATETIME_FORMAT" }} {{ request.event.timezone }}
@@ -74,7 +73,11 @@
         {% empty %}
           <tr>
             <td colspan='5' class='text-muted'>
-              {% if search %}{% trans "No sent emails match your search." %}{% else %}{% trans "No sent emails yet." %}{% endif %}
+              {% if filter_form.filtered %}
+                {% trans "No sent emails match your filters." %}
+              {% else %}
+                {% trans "No sent emails yet." %}
+              {% endif %}
             </td>
           </tr>
         {% endfor %}

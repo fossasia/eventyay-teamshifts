@@ -15,50 +15,50 @@
 {% endblock %}
 
 {% block teamshifts_content %}
-  <div class='teamshifts-list-toolbar clearfix'>
-    <div class='pull-right'>
-      {% if can_download_members %}
-        <details class='dropdown teamshifts-download-dropdown' data-ajax-sync='members-download'>
-          <summary class='btn btn-default'>
-            <i class='fa fa-download'></i> {% trans 'Download' %} <i class='fa fa-caret-down'></i>
-          </summary>
-          <div class='dropdown-content dropdown-front dropdown-content-sw'>
-            <a class='dropdown-item' href='{{ download_xlsx_url }}'>
-              <i class='fa fa-file-excel-o'></i> {% trans 'Excel (.xlsx)' %}
-            </a>
-            <a class='dropdown-item' href='{{ download_csv_url }}'>
-              <i class='fa fa-file-text-o'></i> {% trans 'CSV' %}
-            </a>
-          </div>
-        </details>
-      {% endif %}
-      {% if vouchers_enabled %}
-        <button type='button' class='btn btn-primary' id='bulk-send-btn'
-          {% if voucher_batch_empty %}title='{% trans "Voucher batch is empty — only resends are possible. Add more codes in Tickets → Vouchers." %}'{% endif %}>
-          <i class='fa fa-ticket'></i> {% trans 'Send voucher' %}
-        </button>
-      {% elif vouchers_not_configured %}
-        <button type='button' class='btn btn-primary' disabled
-          title='{% trans "Configure a voucher batch in settings first." %}'>
-          <i class='fa fa-ticket'></i> {% trans 'Send voucher' %}
-        </button>
-      {% endif %}
-      {% if can_add_member %}
-        <button type='button' class='btn btn-primary' id='bulk-send-certificates-btn'>
-          <i class='fa fa-certificate'></i> {% trans 'Send certificates' %}
-        </button>
-      {% endif %}
-      {% if can_add_member %}
-        <a href='{% url "plugins:teamshifts:member_add" organizer=request.organizer.slug event=request.event.slug %}' class='btn btn-primary'>
-          <i class='fa fa-plus'></i> {% trans 'Add member' %}
-        </a>
-      {% endif %}
-    </div>
-  </div>
-
   {% include "teamshifts/_filter_form.html" %}
 
   <div data-ajax-results-region data-filter-count="{{ advanced_filter_count }}">
+    <div class='teamshifts-list-toolbar clearfix'>
+      <div class='pull-right'>
+        {% if can_download_members %}
+          <details class='dropdown teamshifts-download-dropdown' data-ajax-sync='members-download'>
+            <summary class='btn btn-default'>
+              <i class='fa fa-download'></i> {% trans 'Download' %} <i class='fa fa-caret-down'></i>
+            </summary>
+            <div class='dropdown-content dropdown-front dropdown-content-sw'>
+              <a class='dropdown-item' href='{{ download_xlsx_url }}'>
+                <i class='fa fa-file-excel-o'></i> {% trans 'Excel (.xlsx)' %}
+              </a>
+              <a class='dropdown-item' href='{{ download_csv_url }}'>
+                <i class='fa fa-file-text-o'></i> {% trans 'CSV' %}
+              </a>
+            </div>
+          </details>
+        {% endif %}
+        {% if vouchers_enabled %}
+          <button type='button' class='btn btn-primary' id='bulk-send-btn'
+            {% if voucher_batch_empty %}title='{% trans "Voucher batch is empty — only resends are possible. Add more codes in Tickets → Vouchers." %}'{% endif %}>
+            <i class='fa fa-ticket'></i> {% trans 'Send voucher' %}
+          </button>
+        {% elif vouchers_not_configured %}
+          <button type='button' class='btn btn-primary' disabled
+            title='{% trans "Configure a voucher batch in settings first." %}'>
+            <i class='fa fa-ticket'></i> {% trans 'Send voucher' %}
+          </button>
+        {% endif %}
+        {% if can_add_member %}
+          <button type='button' class='btn btn-primary' id='bulk-send-certificates-btn'>
+            <i class='fa fa-certificate'></i> {% trans 'Send certificates' %}
+          </button>
+        {% endif %}
+        {% if can_add_member %}
+          <a href='{% url "plugins:teamshifts:member_add" organizer=request.organizer.slug event=request.event.slug %}' class='btn btn-primary'>
+            <i class='fa fa-plus'></i> {% trans 'Add member' %}
+          </a>
+        {% endif %}
+      </div>
+    </div>
+
   {% if vouchers_enabled %}
     <form method='post' action='{% url "plugins:teamshifts:bulk_send_vouchers" organizer=request.organizer.slug event=request.event.slug %}' id='bulk-voucher-form' class='ts-hidden'>
       {% csrf_token %}

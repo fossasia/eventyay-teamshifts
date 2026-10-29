@@ -150,9 +150,17 @@ def test_emails_outbox_and_sent_filter_views(orga_client, event, test_data):
 
     resp_sent = orga_client.get(sent_url, {"query": "Newsletter"})
     assert resp_sent.status_code == 200
+    assert "filter_form" in resp_sent.context
     assert "search" in resp_sent.context
     assert b"data-ajax-results-region" in resp_sent.content
     assert b"Sent Newsletter" in resp_sent.content
+    assert b"New email" in resp_sent.content
+
+    ajax_resp = orga_client.get(sent_url, {"query": "Newsletter"}, HTTP_X_REQUESTED_WITH="XMLHttpRequest")
+    assert ajax_resp.status_code == 200
+    assert b"data-ajax-results-region" in ajax_resp.content
+    assert b"Sent Newsletter" in ajax_resp.content
+    assert b"New email" in ajax_resp.content
 
 
 @pytest.mark.django_db

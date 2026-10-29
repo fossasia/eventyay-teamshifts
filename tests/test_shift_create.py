@@ -345,6 +345,40 @@ def test_shift_create_missing_role(orga_client, event, location, team_role):
 
 
 @pytest.mark.django_db
+def test_shift_create_rejects_duplicate_roles(orga_client, event, location, team_role):
+    url = reverse(
+        "plugins:teamshifts:shift_create",
+        kwargs={"organizer": event.organizer.slug, "event": event.slug},
+    )
+    start = now() + timedelta(days=1)
+
+    data = {
+        "mode": "single",
+        "name": "Duplicate Role Shift",
+        "location": location.pk,
+        "start_time": start.strftime("%Y-%m-%dT%H:%M"),
+        "end_time": (start + timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M"),
+        "shift_length_minutes": "",
+        "roles-TOTAL_FORMS": "2",
+        "roles-INITIAL_FORMS": "0",
+        "roles-MIN_NUM_FORMS": "0",
+        "roles-MAX_NUM_FORMS": "1000",
+        "roles-0-role": team_role.pk,
+        "roles-0-capacity": "2",
+        "roles-1-role": team_role.pk,
+        "roles-1-capacity": "3",
+    }
+
+    response = orga_client.post(url, data)
+
+    assert response.status_code == 200
+    assert b"The same role cannot be added twice on the same shift." in response.content
+
+    with scope(event=event):
+        assert not Shift.objects.filter(name="Duplicate Role Shift").exists()
+
+
+@pytest.mark.django_db
 def test_team_lead_cannot_assign_member_outside_scope(event, user, settings):
     settings.SITE_URL = "https://testserver"
     lead = User.objects.create_user(
@@ -577,3 +611,58 @@ def test_team_lead_cannot_assign_member_with_invalid_role_id(event, user, team_r
             team_member=member,
             role=team_role,
         ).exists()
+
+
+@pytest.mark.django_db
+def test_shift_edit_allows_readding_role_marked_for_deletion(orga_client, event, location, team_role):
+    create_url = reverse(
+        "plugins:teamshifts:shift_create",
+        kwargs={"organizer": event.organizer.slug, "event": event.slug},
+    )
+    shift_data = {
+        "mode": "single",
+        "name": "Test Shift",
+        "location": location.pk,
+        "start_time": (now() + timedelta(days=1)).strftime("%Y-%m-%dT%H:%M"),
+        "end_time": (now() + timedelta(days=1, hours=2)).strftime("%Y-%m-%dT%H:%M"),
+        "shift_length_minutes": "",
+        "roles-TOTAL_FORMS": "1",
+        "roles-INITIAL_FORMS": "0",
+        "roles-MIN_NUM_FORMS": "0",
+        "roles-MAX_NUM_FORMS": "1000",
+        "roles-0-role": team_role.pk,
+        "roles-0-capacity": "2",
+    }
+
+    response = orga_client.post(create_url, shift_data)
+    assert response.status_code == 302
+
+    with scope(event=event):
+        shift = Shift.objects.get(name="Test Shift")
+        assignment = shift.role_assignments.get()
+
+    edit_url = reverse(
+        "plugins:teamshifts:shift_edit",
+        kwargs={"organizer": event.organizer.slug, "event": event.slug, "pk": shift.pk},
+    )
+    shift_data.update(
+        {
+            "roles-TOTAL_FORMS": "2",
+            "roles-INITIAL_FORMS": "1",
+            "roles-0-id": assignment.pk,
+            "roles-0-DELETE": "on",
+            "roles-1-role": team_role.pk,
+            "roles-1-capacity": "4",
+        }
+    )
+
+    response = orga_client.post(edit_url, shift_data)
+
+    assert response.status_code == 302, (
+        response.context["formset"].errors,
+        response.context["formset"].non_form_errors(),
+    )
+    with scope(event=event):
+        new_assignment = ShiftRoleAssignment.objects.get(shift=shift, role=team_role)
+        assert new_assignment.pk != assignment.pk
+        assert new_assignment.capacity == 4

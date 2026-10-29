@@ -14,22 +14,22 @@
 {% endblock %}
 
 {% block teamshifts_content %}
-  <div class="teamshifts-list-toolbar clearfix">
-    <div class="pull-right">
-      {% if shifts and can_manage_shifts %}
-        <button type="submit" form="bulk-action-form" class="btn btn-danger teamshifts-bulk-delete-btn">
-          <span class="fa fa-trash"></span> {% trans "Delete selected" %}
-        </button>
-      {% endif %}
-      <a href="{% url 'plugins:teamshifts:shift_create' organizer=request.event.organizer.slug event=request.event.slug %}" class="btn btn-primary">
-        <i class="fa fa-plus"></i> {% trans "Create Shift" %}
-      </a>
-    </div>
-  </div>
-
   {% include "teamshifts/_filter_form.html" %}
 
   <div data-ajax-results-region data-filter-count="{{ advanced_filter_count }}">
+    <div class="teamshifts-list-toolbar clearfix">
+      <div class="pull-right">
+        {% if shifts and can_manage_shifts %}
+          <button type="submit" form="bulk-action-form" class="btn btn-danger teamshifts-bulk-delete-btn">
+            <span class="fa fa-trash"></span> {% trans "Delete selected" %}
+          </button>
+        {% endif %}
+        <a href="{% url 'plugins:teamshifts:shift_create' organizer=request.event.organizer.slug event=request.event.slug %}" class="btn btn-primary">
+          <i class="fa fa-plus"></i> {% trans "Create Shift" %}
+        </a>
+      </div>
+    </div>
+
   {% if shifts %}
     <form method="post" action="{% url 'plugins:teamshifts:shift_bulk_delete' organizer=request.organizer.slug event=request.event.slug %}" id="bulk-action-form">
       {% csrf_token %}

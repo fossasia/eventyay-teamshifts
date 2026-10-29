@@ -10,9 +10,11 @@ from teamshifts.filters import (
     MemberFilterForm,
     ShiftFilterForm,
     TeamShiftsEmailFilterForm,
+    TeamShiftsSentEmailFilterForm,
 )
 from teamshifts.models import (
     ApplicationStatus,
+    EmailTemplateRoles,
     Shift,
     ShiftAssignment,
     ShiftLocation,
@@ -253,3 +255,99 @@ def test_member_filter_role_subquery_does_not_inflate_shift_counts(event, django
         assert len(results) == 1
         assert results[0] == app
         assert results[0].shifts_assigned == 2
+
+
+@pytest.mark.django_db
+def test_sent_email_filter(event, role_a, role_b, django_user_model):
+    base_time = now()
+    with scope(event=event):
+        sender = django_user_model.objects.create_user(email="admin@test.com")
+        alice = django_user_model.objects.create_user(email="alice@test.com", fullname="Alice Wonder")
+        bob = django_user_model.objects.create_user(email="bob@test.com", fullname="Bob Builder")
+
+        q1 = TeamShiftsEmailQueue.objects.create(
+            event=event,
+            user=sender,
+            subject="Voucher Subject",
+            message="Body",
+            role_filter=role_a,
+            mail_type=EmailTemplateRoles.VOUCHER_SENT,
+            sent_at=base_time,
+        )
+        r1 = TeamShiftsEmailQueueRecipient.objects.create(
+            queue=q1,
+            user=alice,
+            email=alice.email,
+            subject="Your voucher code",
+            sent_at=base_time,
+        )
+
+        q2 = TeamShiftsEmailQueue.objects.create(
+            event=event,
+            user=sender,
+            subject="Custom Broadcast",
+            message="Body",
+            role_filter=role_b,
+            mail_type="",
+            sent_at=base_time + timedelta(days=2),
+        )
+        r2 = TeamShiftsEmailQueueRecipient.objects.create(
+            queue=q2,
+            user=bob,
+            email=bob.email,
+            subject="",
+            sent_at=base_time + timedelta(days=2),
+        )
+
+        qs = TeamShiftsEmailQueueRecipient.objects.filter(queue__event=event, sent_at__isnull=False)
+
+        # 1. Search matching recipient subject
+        form = TeamShiftsSentEmailFilterForm({"query": "voucher code"}, event=event)
+        assert form.is_valid()
+        assert list(form.filter_qs(qs)) == [r1]
+
+        # 2. Search fallback to queue subject when recipient subject is empty
+        form = TeamShiftsSentEmailFilterForm({"query": "Broadcast"}, event=event)
+        assert form.is_valid()
+        assert list(form.filter_qs(qs)) == [r2]
+
+        # 3. Search matching recipient fullname
+        form = TeamShiftsSentEmailFilterForm({"query": "Alice"}, event=event)
+        assert form.is_valid()
+        assert list(form.filter_qs(qs)) == [r1]
+
+        # 4. Search matching recipient email
+        form = TeamShiftsSentEmailFilterForm({"query": "bob@test.com"}, event=event, hide_emails=False)
+        assert form.is_valid()
+        assert list(form.filter_qs(qs)) == [r2]
+
+        # 5. Search respecting email privacy
+        form = TeamShiftsSentEmailFilterForm({"query": "bob@test.com"}, event=event, hide_emails=True)
+        assert form.is_valid()
+        assert list(form.filter_qs(qs)) == []
+
+        # 6. Legacy 'q' query parameter alias
+        form = TeamShiftsSentEmailFilterForm({"q": "Alice"}, event=event)
+        assert form.is_valid()
+        assert list(form.filter_qs(qs)) == [r1]
+
+        # 7. Role filter
+        form = TeamShiftsSentEmailFilterForm({"role": role_a.pk}, event=event)
+        assert form.is_valid()
+        assert list(form.filter_qs(qs)) == [r1]
+
+        # 8. Mail type filter: Custom
+        form = TeamShiftsSentEmailFilterForm({"mail_type": "custom"}, event=event)
+        assert form.is_valid()
+        assert list(form.filter_qs(qs)) == [r2]
+
+        # 9. Mail type filter: Specific lifecycle type
+        form = TeamShiftsSentEmailFilterForm({"mail_type": EmailTemplateRoles.VOUCHER_SENT}, event=event)
+        assert form.is_valid()
+        assert list(form.filter_qs(qs)) == [r1]
+
+        # 10. Date range filter
+        start_date = base_time.date()
+        form = TeamShiftsSentEmailFilterForm({"date_from": start_date, "date_to": start_date}, event=event)
+        assert form.is_valid()
+        assert list(form.filter_qs(qs)) == [r1]

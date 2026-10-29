@@ -10,9 +10,11 @@ from eventyay.control.forms.filter import FilterForm
 from .models import (
     ApplicationStatus,
     CertificateStatus,
+    EmailTemplateRoles,
     ShiftAssignment,
     ShiftLocation,
     TeamRole,
+    TeamShiftsEmailQueueRecipient,
     VoucherStatus,
 )
 
@@ -29,6 +31,19 @@ def search_widget(placeholder, aria_label):
 
 class TeamShiftsFilterForm(FilterForm):
     default_order = None
+
+    def __init__(self, *args, **kwargs):
+        if len(args) > 0 and args[0] is not None:
+            data = args[0].copy()
+            if "q" in data and "query" not in data:
+                data["query"] = data["q"]
+            args = (data,) + args[1:]
+        elif "data" in kwargs and kwargs["data"] is not None:
+            data = kwargs["data"].copy()
+            if "q" in data and "query" not in data:
+                data["query"] = data["q"]
+            kwargs["data"] = data
+        super().__init__(*args, **kwargs)
 
     @property
     def advanced_fields(self):
@@ -374,14 +389,22 @@ class TeamShiftsEmailFilterForm(TeamShiftsFilterForm):
         fdata = self.cleaned_data
 
         if query := (fdata.get("query") or "").strip():
-            if self.hide_emails:
+            if queryset.model == TeamShiftsEmailQueueRecipient:
+                condition = Q(subject__icontains=query) | Q(subject="", queue__subject__icontains=query) | Q(user__fullname__icontains=query)
+                if not self.hide_emails:
+                    condition |= Q(email__icontains=query)
+                queryset = queryset.filter(condition)
+            elif self.hide_emails:
                 queryset = queryset.filter(subject__icontains=query)
             else:
                 recipient_matches = queryset.model.objects.filter(recipients__email__icontains=query).values("pk")
                 queryset = queryset.filter(Q(subject__icontains=query) | Q(pk__in=recipient_matches))
 
         if role := fdata.get("role"):
-            queryset = queryset.filter(role_filter=role)
+            if queryset.model == TeamShiftsEmailQueueRecipient:
+                queryset = queryset.filter(queue__role_filter=role)
+            else:
+                queryset = queryset.filter(role_filter=role)
 
         tz = getattr(self.event, "tz", None) or timezone.get_current_timezone()
         if fdata.get("date_from"):
@@ -391,5 +414,83 @@ class TeamShiftsEmailFilterForm(TeamShiftsFilterForm):
         if fdata.get("date_to"):
             dt_to = timezone.make_aware(datetime.combine(fdata["date_to"], time.max), tz)
             queryset = queryset.filter(**{f"{self.date_field}__lte": dt_to})
+
+        return self.apply_ordering(queryset)
+
+
+class TeamShiftsSentEmailFilterForm(TeamShiftsFilterForm):
+    default_order = ("-sent_at", "-pk")
+    orders = {
+        "subject": "subject",
+        "date": "sent_at",
+    }
+
+    query = forms.CharField(
+        label=_("Search emails…"),
+        widget=search_widget(_("Search by subject or recipient…"), _("Search emails")),
+        required=False,
+    )
+    role = LenientModelChoiceField(
+        label=_("Role"),
+        queryset=TeamRole.objects.none(),
+        required=False,
+        empty_label=_("All roles"),
+    )
+    mail_type = forms.ChoiceField(
+        label=_("Email type"),
+        required=False,
+    )
+    date_from = forms.DateField(
+        label=_("Start date"),
+        required=False,
+        widget=DatePickerWidget(attrs={"placeholder": _("Start date")}),
+    )
+    date_to = forms.DateField(
+        label=_("End date"),
+        required=False,
+        widget=DatePickerWidget(attrs={"placeholder": _("End date")}),
+    )
+
+    def __init__(self, *args, event=None, hide_emails=False, **kwargs):
+        self.event = event
+        self.hide_emails = hide_emails
+        super().__init__(*args, **kwargs)
+        if event:
+            self.fields["role"].queryset = TeamRole.objects.filter(event=event)
+        self.fields["mail_type"].choices = [("", _("All types")), ("custom", _("Custom"))] + list(EmailTemplateRoles.choices)
+        if hide_emails:
+            self.fields["query"].widget.attrs.update(
+                {
+                    "placeholder": _("Search by subject or name…"),
+                    "aria-label": _("Search emails by subject or name"),
+                }
+            )
+
+    def filter_qs(self, queryset):
+        fdata = self.cleaned_data
+
+        if query := (fdata.get("query") or "").strip():
+            condition = Q(subject__icontains=query) | Q(subject="", queue__subject__icontains=query) | Q(user__fullname__icontains=query)
+            if not self.hide_emails:
+                condition |= Q(email__icontains=query)
+            queryset = queryset.filter(condition)
+
+        if role := fdata.get("role"):
+            queryset = queryset.filter(queue__role_filter=role)
+
+        if mail_type := fdata.get("mail_type"):
+            if mail_type == "custom":
+                queryset = queryset.filter(queue__mail_type="")
+            else:
+                queryset = queryset.filter(queue__mail_type=mail_type)
+
+        tz = getattr(self.event, "tz", None) or timezone.get_current_timezone()
+        if fdata.get("date_from"):
+            dt_from = timezone.make_aware(datetime.combine(fdata["date_from"], time.min), tz)
+            queryset = queryset.filter(sent_at__gte=dt_from)
+
+        if fdata.get("date_to"):
+            dt_to = timezone.make_aware(datetime.combine(fdata["date_to"], time.max), tz)
+            queryset = queryset.filter(sent_at__lte=dt_to)
 
         return self.apply_ordering(queryset)

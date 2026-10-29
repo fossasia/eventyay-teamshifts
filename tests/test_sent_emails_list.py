@@ -130,7 +130,7 @@ def test_sent_list_shows_one_row_per_recipient_with_type_and_timezone(client, ev
     assert "Otto Other" in content
     assert "Application received" in content
     assert str(event.timezone) in content
-    assert "All roles" not in content
+    assert "All roles" not in content.split("<table")[1]
 
 
 @pytest.mark.django_db

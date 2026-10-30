@@ -26,6 +26,7 @@
 
   <form action='' method='post' class='form-horizontal'>
     {% csrf_token %}
+    {{ form.submission_key }}
     {% if draft %}<input type='hidden' name='draft_id' value='{{ draft.pk }}'>{% endif %}
     {% bootstrap_form_errors form %}
 
@@ -34,6 +35,8 @@
       <div data-compose-status>
         {% bootstrap_field form.status layout='control' %}
       </div>
+      {% bootstrap_field form.specific_recipients layout='control' %}
+      {% bootstrap_field form.recipient_ids layout='control' %}
       {% bootstrap_field form.individual_volunteers layout='control' %}
     </fieldset>
 

@@ -60,30 +60,57 @@ def queue_email(
     send_after=None,
     dispatch: bool = True,
     is_draft: bool = False,
+    submission_key=None,
 ) -> TeamShiftsEmailQueue:
-    with scope(event=event):
-        queue = TeamShiftsEmailQueue.objects.create(
-            event=event,
-            user=user,
-            subject=subject,
-            message=message,
-            reply_to=reply_to,
-            bcc=bcc,
-            locale=locale or event.settings.locale,
-            role_filter=role_filter,
-            shift=shift,
-            shift_role=shift_role,
-            status_filter=status_filter or "",
-            individual_recipients=individual_recipients,
-            mail_type=mail_type,
-            send_after=send_after,
-            is_draft=is_draft,
-        )
-        _set_recipients(queue, recipients)
+    created = True
+    with scope(event=event), transaction.atomic():
+        if submission_key:
+            queue, created = TeamShiftsEmailQueue.objects.get_or_create(
+                event=event,
+                submission_key=submission_key,
+                defaults={
+                    "user": user,
+                    "subject": subject,
+                    "message": message,
+                    "reply_to": reply_to,
+                    "bcc": bcc,
+                    "locale": locale or event.settings.locale,
+                    "role_filter": role_filter,
+                    "shift": shift,
+                    "shift_role": shift_role,
+                    "status_filter": status_filter or "",
+                    "individual_recipients": individual_recipients,
+                    "mail_type": mail_type,
+                    "send_after": send_after,
+                    "is_draft": is_draft,
+                },
+            )
+        else:
+            queue = TeamShiftsEmailQueue.objects.create(
+                event=event,
+                user=user,
+                subject=subject,
+                message=message,
+                reply_to=reply_to,
+                bcc=bcc,
+                locale=locale or event.settings.locale,
+                role_filter=role_filter,
+                shift=shift,
+                shift_role=shift_role,
+                status_filter=status_filter or "",
+                individual_recipients=individual_recipients,
+                mail_type=mail_type,
+                send_after=send_after,
+                is_draft=is_draft,
+            )
 
-    if dispatch and not is_draft:
-        _dispatch(event.pk, queue.pk, eta=send_after)
-    return queue
+        if created:
+            _set_recipients(queue, recipients)
+
+        if created and dispatch and not is_draft:
+            _dispatch(event.pk, queue.pk, eta=send_after)
+
+        return queue
 
 
 def record_sent_email(
@@ -127,6 +154,7 @@ def update_queued_email(
     send_after=None,
     is_draft: bool = False,
     dispatch: bool = True,
+    mail_type: str | None = None,
 ) -> TeamShiftsEmailQueue:
     with scope(event=queue.event), transaction.atomic():
         locked = TeamShiftsEmailQueue.objects.select_for_update().filter(pk=queue.pk, is_draft=True, sent_at__isnull=True).first()
@@ -135,10 +163,26 @@ def update_queued_email(
         locked.subject = subject
         locked.message = message
         locked.status_filter = status_filter or ""
+
+        if mail_type is not None:
+            locked.mail_type = mail_type
+
         locked.individual_recipients = individual_recipients
         locked.send_after = send_after
         locked.is_draft = is_draft
-        locked.save(update_fields=["subject", "message", "status_filter", "individual_recipients", "send_after", "is_draft", "updated"])
+
+        locked.save(
+            update_fields=[
+                "subject",
+                "message",
+                "status_filter",
+                "mail_type",
+                "individual_recipients",
+                "send_after",
+                "is_draft",
+                "updated",
+            ]
+        )
         locked.recipients.all().delete()
         _set_recipients(locked, recipients)
 

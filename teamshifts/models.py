@@ -644,6 +644,7 @@ EMAIL_TYPE_LABELS = {
     EmailTemplateRoles.SHIFT_DROPPED_ORGANIZER: _("Organizer notification"),
     EmailTemplateRoles.VOUCHER_SENT: _("Voucher"),
     EmailTemplateRoles.CERTIFICATE_GENERATED: _("Certificate"),
+    "specific_people": _("Specific people"),
 }
 
 
@@ -698,6 +699,7 @@ class TeamShiftsEmailQueue(models.Model):
         help_text=_("Sent to hand-picked people instead of everyone matching the status filter."),
     )
     mail_type = models.CharField(max_length=40, blank=True, default="")
+    submission_key = models.UUIDField(null=True, blank=True)
     send_after = models.DateTimeField(null=True, blank=True)
     sent_at = models.DateTimeField(null=True, blank=True)
     is_draft = models.BooleanField(
@@ -713,6 +715,12 @@ class TeamShiftsEmailQueue(models.Model):
     class Meta:
         verbose_name = _("Queued email")
         verbose_name_plural = _("Queued emails")
+        constraints = [
+            models.UniqueConstraint(
+                fields=("event", "submission_key"),
+                name="unique_email_submission_per_event",
+            ),
+        ]
         ordering = ["-created"]
 
     def __str__(self):

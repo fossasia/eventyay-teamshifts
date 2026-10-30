@@ -1,4 +1,5 @@
 import re
+import uuid
 from datetime import timedelta
 from zoneinfo import ZoneInfo
 
@@ -36,6 +37,7 @@ from .models import (
     ShiftLocation,
     TeamApplicationQuestion,
     TeamApplicationQuestionOption,
+    TeamMemberApplication,
     TeamRole,
     TeamShiftsEmailQueue,
     normalize_field_order,
@@ -559,8 +561,20 @@ class VolunteerSelect2Multiple(Select2Multiple):
 
 
 class EmailComposeForm(forms.Form):
-    def __init__(self, *args, event=None, show_emails=False, draft_save=False, **kwargs):
+    def __init__(
+        self,
+        *args,
+        event=None,
+        show_emails=False,
+        draft_save=False,
+        can_view_email=True,
+        **kwargs,
+    ):
         super().__init__(*args, **kwargs)
+        self.fields["submission_key"] = forms.UUIDField(
+            widget=forms.HiddenInput,
+            initial=uuid.uuid4,
+        )
         self._event = event
         locales = list(event.settings.get("locales") or [event.settings.locale])
 
@@ -607,7 +621,27 @@ class EmailComposeForm(forms.Form):
                 }
             ),
         )
+        with scopes_disabled():
+            member_ids = list(
+                TeamMemberApplication.objects.filter(
+                    event=event,
+                )
+                .values_list("user_id", flat=True)
+                .distinct()
+            )
 
+        self.fields["specific_recipients"] = forms.BooleanField(
+            required=False,
+            label=_("Send to specific people"),
+            initial=False,
+        )
+        self.fields["recipient_ids"] = forms.ModelMultipleChoiceField(
+            queryset=User.objects.filter(pk__in=member_ids).exclude(email=""),
+            required=False,
+            label=_("Recipients"),
+            widget=forms.SelectMultiple(attrs={"class": "form-control", "size": "8"}),
+        )
+        self.fields["recipient_ids"].label_from_instance = lambda user: str(user) if can_view_email else user.fullname or user.wikimedia_username or _("Member")
         self.fields["send_after"] = forms.DateTimeField(
             required=False,
             label=_("Schedule for later"),

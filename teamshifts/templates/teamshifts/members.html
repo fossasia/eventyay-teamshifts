@@ -87,6 +87,12 @@
   </div>
 
   <div class='teamshifts-list-toolbar'>
+        {% if can_send_emails %}
+      <button type="button" class="btn btn-primary" id="email-selected-btn" disabled
+        data-compose-url="{% url 'plugins:teamshifts:email_compose' organizer=request.organizer.slug event=request.event.slug %}">
+        <i class="fa fa-envelope"></i> {% trans "Email selected" %} (<span id="email-selected-count">0</span>)
+      </button>
+    {% endif %}
     {% if can_add_member %}
       <a href='{% url "plugins:teamshifts:member_add" organizer=request.organizer.slug event=request.event.slug %}' class='btn btn-primary'>
         <i class='fa fa-plus'></i> {% trans 'Add member' %}

@@ -904,7 +904,7 @@ class ApplicationListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, 
                 .select_related("user")
                 .prefetch_related("answers__question")
                 .order_by("-created_at")
-            ) 
+            )
             status_filter = self.request.GET.get("status")
 
             search = self.request.GET.get("q", "").strip()

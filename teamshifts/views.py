@@ -59,8 +59,11 @@ from .forms import (
     TeamMemberApplicationForm,
     TeamRoleForm,
     VoucherSettingsForm,
+    overfilled_role_errors,
     render_answer_for_review,
     split_shift_range,
+    valid_user_pk,
+    volunteer_choice_label,
 )
 from .models import (
     CFM_BUILTIN_FIELD_KEYS,
@@ -106,7 +109,15 @@ from .services.email import (
     queue_shift_notification_email,
     update_queued_email,
 )
-from .services.members import AlreadyMemberError, accept_manager_as_member, add_member_from_organizer
+from .services.members import (
+    IN_PROGRESS_ASSIGNMENT,
+    AlreadyMemberError,
+    accept_manager_as_member,
+    add_member_from_organizer,
+    hidden_after_removal_filter,
+    remove_members_from_team,
+    upcoming_assignment_filter,
+)
 from .tasks import send_queued_email
 
 logger = logging.getLogger(__name__)
@@ -844,7 +855,7 @@ class ApplicationListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, 
         event = self.request.event
         with scope(event=event):
             qs = (
-                TeamMemberApplication.objects.filter(event=event, added_by_organizer=False)
+                TeamMemberApplication.objects.filter(Q(added_by_organizer=False) | Q(status=ApplicationStatus.REMOVED), event=event)
                 .select_related("user")
                 .prefetch_related("answers__question")
                 .order_by("-created_at")
@@ -945,9 +956,10 @@ class ApplicationStatusView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin
 
     def post(self, request, *args, **kwargs):
         event = request.event
-        with scope(event=event):
+        with scope(event=event), transaction.atomic():
+            # Locked so a concurrent "Remove from team" can't be overwritten with a stale status.
             application = get_object_or_404(
-                TeamMemberApplication.objects.select_related("user"),
+                TeamMemberApplication.objects.select_for_update(of=("self",)).select_related("user"),
                 pk=kwargs["pk"],
                 event=event,
             )
@@ -955,6 +967,8 @@ class ApplicationStatusView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin
             if new_status not in ApplicationStatus.values:
                 return HttpResponseBadRequest("Invalid status")
             old_status = application.status
+            if new_status == ApplicationStatus.REMOVED and old_status != ApplicationStatus.REMOVED:
+                return HttpResponseBadRequest("Use Remove from team on the Members page")
             if new_status != old_status:
                 application.status = new_status
                 application.save(update_fields=["status", "updated_at"])
@@ -979,7 +993,7 @@ class BulkApplicationStatusView(PluginActiveMixin, TeamShiftsPermissionRequiredM
 
     def post(self, request, *args, **kwargs):
         event = request.event
-        with scope(event=event):
+        with scope(event=event), transaction.atomic():
             action = request.POST.get("action")
             if action not in ("accept", "reject"):
                 return HttpResponseBadRequest("Invalid action")
@@ -992,7 +1006,8 @@ class BulkApplicationStatusView(PluginActiveMixin, TeamShiftsPermissionRequiredM
             new_status = ApplicationStatus.ACCEPTED if action == "accept" else ApplicationStatus.REJECTED
 
             apps = list(
-                TeamMemberApplication.objects.filter(
+                TeamMemberApplication.objects.select_for_update(of=("self",))
+                .filter(
                     event=event,
                     pk__in=app_ids,
                 )
@@ -1194,6 +1209,7 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
         kwargs["event"] = self.request.event
+        kwargs["show_emails"] = can_view_email_addresses(self.request.user, self.request.organizer, self.request.event, request=self.request)
         kwargs["draft_save"] = self.request.POST.get("action") == "draft"
         kwargs["can_view_email"] = can_view_email_addresses(
             self.request.user,
@@ -1232,12 +1248,22 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
         if draft is not None:
             initial["subject"] = draft.subject
             initial["message"] = draft.message
-            initial["status"] = draft.status_filter or ""
             initial["send_after"] = draft.send_after
             if draft.mail_type == "specific_people":
                 initial["specific_recipients"] = True
                 with scope(event=self.request.event):
-                    initial["recipient_ids"] = list(draft.recipients.filter(user__isnull=False).values_list("user_id", flat=True))
+                    initial["recipient_ids"] = list(
+                        draft.recipients.filter(user__isnull=False).values_list("user_id", flat=True)
+                    )
+
+            if draft.individual_recipients:
+                with scope(event=self.request.event):
+                    initial["individual_volunteers"] = list(
+                        draft.recipients.filter(user__isnull=False).values_list("user_id", flat=True)
+                    )
+                initial["status"] = ApplicationStatus.ACCEPTED
+            else:
+                initial["status"] = draft.status_filter or ""
             return initial
         member_ids = self.request.GET.getlist("member_ids")
         if member_ids:
@@ -1260,11 +1286,18 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
 
                 if source.mail_type == "specific_people":
                     initial["specific_recipients"] = True
-                    initial["recipient_ids"] = list(source.recipients.filter(user__isnull=False).values_list("user_id", flat=True))
+                    initial["recipient_ids"] = list(
+                        source.recipients.filter(user__isnull=False).values_list("user_id", flat=True)
+                    )
+
+                if source.individual_recipients:
+                    initial["individual_volunteers"] = list(
+                        source.recipients.filter(user__isnull=False).values_list("user_id", flat=True)
+                    )
 
             initial["subject"] = source.subject
             initial["message"] = source.message
-            initial["status"] = source.status_filter or ""
+            initial["status"] = ApplicationStatus.ACCEPTED if source.individual_recipients else source.status_filter or ""
         return initial
 
     def get_context_data(self, **kwargs):
@@ -1282,6 +1315,7 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
         if request.POST.get("action") == "preview":
             event = request.event
             status = request.POST.get("status") or ""
+<<<<<<< HEAD
 
             if request.POST.get("specific_recipients"):
                 selected_ids = request.POST.getlist("recipient_ids")
@@ -1290,14 +1324,22 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
             else:
                 recipients = get_recipients(event, status=status)
 
+=======
+            posted_volunteers = request.POST.getlist("individual_volunteers")
+            volunteer_ids = [pk for pk in map(valid_user_pk, posted_volunteers) if pk is not None]
+            # An unusable explicit selection must never fall back to the (broader) status filter.
+            recipients = get_recipients(event, status=status, user_ids=volunteer_ids) if volunteer_ids or not posted_volunteers else []
+>>>>>>> upstream/dev
             self._preview_recipients = recipients
             locales = list(event.settings.get("locales") or [event.settings.locale])
             subject_i18n = LazyI18nString({locales[i]: request.POST.get(f"subject_{i}", "") for i in range(len(locales))})
             message_i18n = LazyI18nString({locales[i]: request.POST.get(f"message_{i}", "") for i in range(len(locales))})
             form = EmailComposeForm(
                 event=event,
+                show_emails=self.get_form_kwargs()["show_emails"],
                 initial={
                     "status": status,
+                    "individual_volunteers": volunteer_ids,
                     "subject": subject_i18n,
                     "message": message_i18n,
                     "send_after": request.POST.get("send_after", ""),
@@ -1311,6 +1353,7 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
 
     def form_valid(self, form):
         event = self.request.event
+<<<<<<< HEAD
         status = form.cleaned_data.get("status") or ""
         specific_recipients = form.cleaned_data["specific_recipients"]
         recipients = list(form.cleaned_data["recipient_ids"]) if specific_recipients else get_recipients(event, status=status)
@@ -1319,6 +1362,14 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
             status = ""
         send_after = form.cleaned_data.get("send_after")
 
+=======
+        volunteer_ids = [volunteer.pk for volunteer in form.cleaned_data.get("individual_volunteers") or ()]
+        status = "" if volunteer_ids else form.cleaned_data.get("status") or ""
+        send_after = form.cleaned_data.get("send_after")
+
+        recipients = get_recipients(event, status=status, user_ids=volunteer_ids)
+
+>>>>>>> upstream/dev
         action = self.request.POST.get("action")
         if action == "preview":
             self._preview_recipients = recipients
@@ -1338,6 +1389,7 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
             "message": form.cleaned_data.get("message") or LazyI18nString(""),
             "recipients": recipients,
             "status_filter": status,
+            "individual_recipients": bool(volunteer_ids),
             "send_after": send_after,
             "is_draft": is_draft,
             "dispatch": action not in ("draft", "outbox"),
@@ -1407,6 +1459,39 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
             organizer=self.request.organizer.slug,
             event=event.slug,
         )
+
+
+class ComposeVolunteersSelect2View(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):
+    permission = "can_teamshifts_send_emails"
+    page_size = 20
+
+    def get(self, request, *args, **kwargs):
+        event = request.event
+        show_email = can_view_email_addresses(request.user, request.organizer, event, request=request)
+        query = request.GET.get("query", "").strip()
+        try:
+            page = max(int(request.GET.get("page", "1")), 1)
+        except ValueError:
+            page = 1
+
+        with scope(event=event):
+            applications = TeamMemberApplication.objects.filter(event=event).select_related("user")
+            if query:
+                match = Q(user__fullname__icontains=query)
+                if show_email:
+                    match |= Q(user__email__icontains=query)
+                applications = applications.filter(match)
+            applications = applications.order_by("user__fullname", "pk")
+
+            total = applications.count()
+            offset = (page - 1) * self.page_size
+            results = []
+            if offset < total:
+                results = [
+                    {"id": application.user_id, "text": volunteer_choice_label(application.user, show_email)}
+                    for application in applications[offset : offset + self.page_size]
+                ]
+        return JsonResponse({"results": results, "pagination": {"more": total > offset + self.page_size}})
 
 
 class EmailOutboxView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, TemplateView):
@@ -2224,7 +2309,8 @@ class MembersQuerysetMixin:
     @staticmethod
     def _parse_role_id(raw):
         raw = raw.strip()
-        if not (raw.isascii() and raw.isdigit()):
+        # The length check keeps int() away from strings past Python's digit limit, which raise.
+        if not (raw.isascii() and raw.isdigit()) or len(raw) > len(str(MAX_DB_INTEGER)):
             return None
         value = int(raw)
         return value if value <= MAX_DB_INTEGER else None
@@ -2294,6 +2380,21 @@ class MembersListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Memb
             request=self.request,
         )
         ctx["can_download_members"] = ctx["can_add_member"]
+        ctx["can_remove_members"] = ctx["can_add_member"]
+        if ctx["can_remove_members"]:
+            members_on_page = list(ctx.get("members", []))
+            with scope(event=event):
+                upcoming_counts = dict(
+                    ShiftAssignment.objects.filter(
+                        upcoming_assignment_filter(),
+                        shift__event=event,
+                        team_member_id__in=[member.user_id for member in members_on_page],
+                    )
+                    .values_list("team_member_id")
+                    .annotate(count=Count("pk"))
+                )
+            for member in members_on_page:
+                member.upcoming_shifts = upcoming_counts.get(member.user_id, 0)
         if ctx["can_download_members"]:
             download_url = reverse(
                 "plugins:teamshifts:members_download",
@@ -2386,6 +2487,65 @@ class MemberArrivedToggleView(PluginActiveMixin, TeamShiftsPermissionRequiredMix
             application.save(update_fields=["arrived"])
             maybe_auto_issue_certificate(application)
             return JsonResponse({"success": True, "arrived": application.arrived})
+
+
+class BulkRemoveMembersView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):
+    permission = "can_teamshifts_manage_applicants"
+
+    def post(self, request, *args, **kwargs):
+        event = request.event
+        members_url = reverse("plugins:teamshifts:members", kwargs={"organizer": request.organizer.slug, "event": event.slug})
+        parsed_ids = (MembersQuerysetMixin._parse_role_id(raw) for raw in request.POST.getlist("member_ids"))
+        member_ids = [pk for pk in parsed_ids if pk is not None]
+        if not member_ids:
+            messages.warning(request, _("No members selected."))
+            return redirect(members_url)
+
+        result = remove_members_from_team(
+            event=event,
+            application_ids=member_ids,
+            user=request.user,
+            notify=request.POST.get("notify") == "on",
+            cancel_vouchers=request.POST.get("cancel_vouchers") == "on",
+        )
+        if not result["removed"]:
+            messages.warning(request, _("None of the selected people are team members any more."))
+            return redirect(members_url)
+
+        parts = [
+            ngettext(
+                "%(count)d member removed from the team.",
+                "%(count)d members removed from the team.",
+                result["removed"],
+            )
+            % {"count": result["removed"]},
+            ngettext(
+                "%(count)d shift spot freed up.",
+                "%(count)d shift spots freed up.",
+                result["freed_spots"],
+            )
+            % {"count": result["freed_spots"]},
+        ]
+        if result["emails_queued"]:
+            parts.append(
+                ngettext(
+                    "%(count)d notification email sent.",
+                    "%(count)d notification emails sent.",
+                    result["emails_queued"],
+                )
+                % {"count": result["emails_queued"]}
+            )
+        if result["vouchers_cancelled"]:
+            parts.append(
+                ngettext(
+                    "%(count)d unused voucher cancelled.",
+                    "%(count)d unused vouchers cancelled.",
+                    result["vouchers_cancelled"],
+                )
+                % {"count": result["vouchers_cancelled"]}
+            )
+        messages.success(request, " ".join(str(part) for part in parts))
+        return redirect(members_url)
 
 
 class CustomEmailTemplateCreateView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):
@@ -2571,8 +2731,9 @@ class ShiftScheduleTalkAPIView(PluginActiveMixin, TeamShiftsPermissionRequiredMi
         except (UnicodeDecodeError, json.JSONDecodeError):
             return HttpResponseBadRequest("Invalid JSON body.")
         event = request.event
-        with scope(event=event):
-            shift = get_object_or_404(Shift, pk=kwargs["pk"], event=event)
+        # Lock the shift like the assignment and claim views, so no team member is assigned between the capacity check and the role update.
+        with scope(event=event), transaction.atomic():
+            shift = get_object_or_404(Shift.objects.select_for_update(), pk=kwargs["pk"], event=event)
 
             if data.get("start"):
                 try:
@@ -2604,6 +2765,16 @@ class ShiftScheduleTalkAPIView(PluginActiveMixin, TeamShiftsPermissionRequiredMi
                     shift.name = title_val
             if "description" in data:
                 shift.description = data["description"]
+
+            if "roles" in data:
+                capacities = {role_data.get("id"): role_data.get("capacity", 1) for role_data in data["roles"] if role_data.get("id")}
+            elif data.get("role") and "capacity" in data:
+                capacities = {data["role"]: data["capacity"]}
+            else:
+                capacities = {}
+            capacity_errors = overfilled_role_errors(shift, capacities)
+            if capacity_errors:
+                return JsonResponse({"detail": next(iter(capacity_errors.values()))}, status=400)
 
             shift.save()
 
@@ -2783,6 +2954,12 @@ class ShiftScheduleAssignmentsAPIView(PluginActiveMixin, TeamShiftsPermissionReq
                             )
 
                 _lock_member_for_overlap_check(user)
+                # Recheck under the lock "Remove from team" also takes, so a removal can't slip in between.
+                if not TeamMemberApplication.objects.filter(event=event, status=ApplicationStatus.ACCEPTED, user_id=user.pk).exists():
+                    return JsonResponse(
+                        {"detail": "User is not an accepted team member for this event."},
+                        status=400,
+                    )
                 if shift.start_time and shift.end_time:
                     conflicting = (
                         ShiftAssignment.objects.filter(
@@ -3287,6 +3464,12 @@ class ShiftClaimView(PublicShiftScheduleMixin, View):
                 if current_count >= sra_locked.capacity:
                     return fail(_("Sorry, this role is now full."))
                 _lock_member_for_overlap_check(request.user)
+                # Recheck under the lock "Remove from team" also takes, so a removal can't slip in between.
+                if (
+                    self.member_application is not None
+                    and not TeamMemberApplication.objects.filter(pk=self.member_application.pk, status=ApplicationStatus.ACCEPTED).exists()
+                ):
+                    return fail(_("You need to be an accepted team member to view the shift schedule."))
                 if shift.start_time and shift.end_time:
                     conflicting = (
                         ShiftAssignment.objects.filter(
@@ -3570,6 +3753,15 @@ class MyShiftsView(PublicShiftScheduleMixin, TemplateView):
 class ShiftCheckOutView(PublicShiftScheduleMixin, View):
     redirect_unpublished_to_schedule = False
 
+    def _can_access_schedule(self, request):
+        if super()._can_access_schedule(request):
+            return True
+        # Someone removed from the team mid-shift may still close the shift they had started,
+        # so its hours count. Nothing else is opened up for them.
+        with scope(event=self.event):
+            removed = TeamMemberApplication.objects.filter(event=self.event, user=request.user, status=ApplicationStatus.REMOVED).exists()
+            return removed and ShiftAssignment.objects.filter(IN_PROGRESS_ASSIGNMENT, team_member=request.user, shift__event=self.event).exists()
+
     def post(self, request, *args, **kwargs):
         event = self.event
         assignment_pk = kwargs["pk"]
@@ -3614,7 +3806,11 @@ class MyShiftsGlobalView(LoginRequiredMixin, TemplateView):
         if not request.user.is_authenticated:
             return super().dispatch(request, *args, **kwargs)
         with scopes_disabled():
-            has_active = ShiftAssignment.objects.filter(team_member=request.user, shift__event__plugins__contains="teamshifts").exists()
+            has_active = (
+                ShiftAssignment.objects.filter(team_member=request.user, shift__event__plugins__contains="teamshifts")
+                .exclude(hidden_after_removal_filter(request.user))
+                .exists()
+            )
             has_calendar_token = ShiftCalendarToken.objects.filter(user=request.user).exists()
         if not has_active and not has_calendar_token:
             raise Http404
@@ -3631,6 +3827,7 @@ class MyShiftsGlobalView(LoginRequiredMixin, TemplateView):
                     team_member=self.request.user,
                     shift__event__plugins__contains="teamshifts",
                 )
+                .exclude(hidden_after_removal_filter(self.request.user))
                 .select_related(
                     "shift",
                     "shift__event",

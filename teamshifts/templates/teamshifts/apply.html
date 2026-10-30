@@ -49,6 +49,8 @@
                   <span class="label label-warning">{% trans "Pending review" %}</span>
                 {% elif existing_application.status == 'accepted' %}
                   <span class="label label-success">{% trans "Accepted" %}</span>
+                {% elif existing_application.status == 'removed' %}
+                  <span class="label label-default">{% trans "Removed from the team" %}</span>
                 {% else %}
                   <span class="label label-danger">{% trans "Rejected" %}</span>
                 {% endif %}
@@ -56,6 +58,8 @@
               <p class="text-muted">{% blocktrans with date=existing_application.created_at|date:"SHORT_DATETIME_FORMAT" %}Applied on {{ date }}.{% endblocktrans %}</p>
               {% if existing_application.status == 'accepted' %}
                 <p>{% trans "You have been approved! Browse the shift schedule to claim your shifts." %}</p>
+              {% elif existing_application.status == 'removed' %}
+                <p>{% trans "You are no longer part of the team for this event. If you think this is a mistake, please contact the organizers." %}</p>
               {% endif %}
             </div>
           </div>

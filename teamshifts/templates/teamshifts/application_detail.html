@@ -28,15 +28,17 @@
             <h2 class="teamshifts-detail-title">
                 {% trans "Application:" %} {{ application.user.get_full_name }}
             </h2>
-            {% if application.added_by_organizer %}
+            {% if application.added_by_organizer and application.status != 'removed' %}
             <span class="label label-info">{% trans "Added by organizer" %}</span>
             {% elif can_manage_applicants %}
             <form action="{% url 'plugins:teamshifts:application_status' organizer=request.organizer.slug event=request.event.slug pk=application.pk %}?next={{ request.path|urlencode }}"
                   method="post" class="teamshifts-inline-form" id="detail-status-form">
                 {% csrf_token %}
-                <select name="status" aria-label="{% trans 'Change application status' %}" class="form-control teamshifts-status-dropdown {% if application.status == 'pending' %}label-warning{% elif application.status == 'accepted' %}label-success{% else %}label-danger{% endif %}" data-current-status="{{ application.status }}" data-email-statuses="accepted,rejected">
+                <select name="status" aria-label="{% trans 'Change application status' %}" class="form-control teamshifts-status-dropdown {% if application.status == 'pending' %}label-warning{% elif application.status == 'accepted' %}label-success{% elif application.status == 'removed' %}label-default{% else %}label-danger{% endif %}" data-current-status="{{ application.status }}" data-email-statuses="accepted,rejected">
                     {% for value, label in status_choices %}
+                        {% if value != 'removed' or application.status == 'removed' %}
                         <option value="{{ value }}" {% if value == application.status %}selected{% endif %}>{{ label }}</option>
+                        {% endif %}
                     {% endfor %}
                 </select>
             </form>
@@ -45,6 +47,8 @@
                 <span class="label label-warning">{% trans "Pending" %}</span>
             {% elif application.status == 'accepted' %}
                 <span class="label label-success">{% trans "Accepted" %}</span>
+            {% elif application.status == 'removed' %}
+                <span class="label label-default">{% trans "Removed" %}</span>
             {% else %}
                 <span class="label label-danger">{% trans "Rejected" %}</span>
             {% endif %}
@@ -88,7 +92,7 @@
                         {% endif %}
                     </td>
                 </tr>
-                {% if application.added_by_organizer %}
+                {% if application.added_by_organizer and application.status != 'removed' %}
                 <tr>
                     <th>{% trans "Added on" %}</th>
                     <td>{{ application.created_at|date:"SHORT_DATETIME_FORMAT" }}</td>
@@ -101,6 +105,8 @@
                             <span class="label label-warning">{% trans "Pending" %}</span>
                         {% elif application.status == 'accepted' %}
                             <span class="label label-success">{% trans "Accepted" %}</span>
+                        {% elif application.status == 'removed' %}
+                            <span class="label label-default">{% trans "Removed" %}</span>
                         {% else %}
                             <span class="label label-danger">{% trans "Rejected" %}</span>
                         {% endif %}

@@ -2790,13 +2790,15 @@ def _queue_lifecycle_email_safely(application, template_role):
 
 def _notify_shift_change_safely(event, user, shift, role, template_role):
     try:
-        queue_shift_notification_email(
-            event=event,
-            user=user,
-            shift=shift,
-            role=role,
-            template_role=template_role,
-        )
+        # Savepoint, so a failed queue write inside the caller's transaction doesn't roll back the shift change.
+        with transaction.atomic():
+            queue_shift_notification_email(
+                event=event,
+                user=user,
+                shift=shift,
+                role=role,
+                template_role=template_role,
+            )
     except Exception:
         logger.exception(
             "[TeamShifts] Failed to queue %s notification for user %s, shift %s",
@@ -2916,11 +2918,8 @@ class ShiftScheduleAssignmentsAPIView(PluginActiveMixin, TeamShiftsPermissionReq
                 if created or previous_role_id != role_id:
                     shift_role_assignment = shift.role_assignments.select_related("role").filter(role_id=role_id).first() if role_id else None
                     role = shift_role_assignment.role if shift_role_assignment else None
-                    transaction.on_commit(
-                        lambda event=event, user=user, shift=shift, role=role: _notify_shift_change_safely(
-                            event, user, shift, role, EmailTemplateRoles.SHIFT_ASSIGNED_BY_ORGANIZER
-                        )
-                    )
+                    # Queued inside the transaction so the email commits with the change, in commit order.
+                    _notify_shift_change_safely(event, user, shift, role, EmailTemplateRoles.SHIFT_ASSIGNED_BY_ORGANIZER)
             shift = Shift.objects.prefetch_related(
                 "role_assignments__role",
                 "assignments__team_member",
@@ -2969,11 +2968,7 @@ class ShiftScheduleAssignmentsAPIView(PluginActiveMixin, TeamShiftsPermissionReq
                 if assignment:
                     user, role = assignment.team_member, assignment.role
                     assignment.delete()
-                    transaction.on_commit(
-                        lambda event=event, user=user, shift=shift, role=role: _notify_shift_change_safely(
-                            event, user, shift, role, EmailTemplateRoles.SHIFT_UNASSIGNED_BY_ORGANIZER
-                        )
-                    )
+                    _notify_shift_change_safely(event, user, shift, role, EmailTemplateRoles.SHIFT_UNASSIGNED_BY_ORGANIZER)
             shift = Shift.objects.prefetch_related(
                 "role_assignments__role",
                 "assignments__team_member",

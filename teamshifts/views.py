@@ -1284,9 +1284,6 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
                     initial["specific_recipients"] = True
                     initial["recipient_ids"] = list(source.recipients.filter(user__isnull=False).values_list("user_id", flat=True))
 
-                if source.individual_recipients:
-                    initial["individual_volunteers"] = list(source.recipients.filter(user__isnull=False).values_list("user_id", flat=True))
-
             initial["subject"] = source.subject
             initial["message"] = source.message
             initial["status"] = ApplicationStatus.ACCEPTED if source.individual_recipients else source.status_filter or ""

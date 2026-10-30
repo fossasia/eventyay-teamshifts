@@ -1,3 +1,4 @@
+import uuid
 from unittest.mock import patch
 
 import pytest
@@ -61,7 +62,13 @@ def _select2_url(event):
 
 
 def _compose_data(**extra):
-    return {"subject_0": "Hello", "message_0": "<p>Body</p>", "send_after": "", **extra}
+    return {
+        "subject_0": "Hello",
+        "message_0": "<p>Body</p>",
+        "send_after": "",
+        "submission_key": str(uuid.uuid4()),
+        **extra,
+    }
 
 
 def _queued(event):

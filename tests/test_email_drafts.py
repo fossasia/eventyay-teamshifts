@@ -1,4 +1,5 @@
 import datetime
+import uuid
 from unittest.mock import patch
 
 import pytest
@@ -56,6 +57,7 @@ def _compose_data(action, subject="Hello team", message="See you there", **extra
         "subject_0": subject,
         "message_0": message,
         "send_after": "",
+        "submission_key": str(uuid.uuid4()),
         **extra,
     }
 

@@ -1,4 +1,5 @@
 import re
+import uuid
 from datetime import timedelta
 from zoneinfo import ZoneInfo
 
@@ -523,8 +524,12 @@ class CustomEmailTemplateForm(forms.ModelForm):
 
 
 class EmailComposeForm(forms.Form):
-    def __init__(self, *args, event=None, draft_save=False, **kwargs):
+    def __init__(self, *args, event=None, draft_save=False, can_view_email=True, **kwargs):
         super().__init__(*args, **kwargs)
+        self.fields["submission_key"] = forms.UUIDField(
+            widget=forms.HiddenInput,
+            initial=uuid.uuid4,
+        )
         self._event = event
         locales = list(event.settings.get("locales") or [event.settings.locale])
 
@@ -568,12 +573,12 @@ class EmailComposeForm(forms.Form):
             initial=False,
         )
         self.fields["recipient_ids"] = forms.ModelMultipleChoiceField(
-            queryset=User.objects.filter(pk__in=member_ids),
+            queryset=User.objects.filter(pk__in=member_ids).exclude(email=""),
             required=False,
             label=_("Recipients"),
             widget=forms.SelectMultiple(attrs={"class": "form-control", "size": "8"}),
         )
-
+        self.fields["recipient_ids"].label_from_instance = lambda user: str(user) if can_view_email else user.get_full_name() or _("Member")
         self.fields["send_after"] = forms.DateTimeField(
             required=False,
             label=_("Schedule for later"),

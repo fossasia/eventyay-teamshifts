@@ -25,6 +25,7 @@
 
   <form action='' method='post' class='form-horizontal'>
     {% csrf_token %}
+    {{ form.submission_key }}
     {% if draft %}<input type='hidden' name='draft_id' value='{{ draft.pk }}'>{% endif %}
     {% bootstrap_form_errors form %}
 

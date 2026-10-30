@@ -691,6 +691,7 @@ class TeamShiftsEmailQueue(models.Model):
         default="",
     )
     mail_type = models.CharField(max_length=40, blank=True, default="")
+    submission_key = models.UUIDField(null=True, blank=True)
     send_after = models.DateTimeField(null=True, blank=True)
     sent_at = models.DateTimeField(null=True, blank=True)
     is_draft = models.BooleanField(
@@ -706,6 +707,12 @@ class TeamShiftsEmailQueue(models.Model):
     class Meta:
         verbose_name = _("Queued email")
         verbose_name_plural = _("Queued emails")
+        constraints = [
+            models.UniqueConstraint(
+                fields=("event", "submission_key"),
+                name="unique_email_submission_per_event",
+            ),
+        ]
         ordering = ["-created"]
 
     def __str__(self):

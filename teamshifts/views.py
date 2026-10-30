@@ -1195,6 +1195,12 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
         kwargs = super().get_form_kwargs()
         kwargs["event"] = self.request.event
         kwargs["draft_save"] = self.request.POST.get("action") == "draft"
+        kwargs["can_view_email"] = can_view_email_addresses(
+            self.request.user,
+            self.request.organizer,
+            self.request.event,
+            request=self.request,
+        )
         return kwargs
 
     def get_draft(self):
@@ -1230,7 +1236,8 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
             initial["send_after"] = draft.send_after
             if draft.mail_type == "specific_people":
                 initial["specific_recipients"] = True
-                initial["recipient_ids"] = list(draft.recipients.filter(user__isnull=False).values_list("user_id", flat=True))
+                with scope(event=self.request.event):
+                    initial["recipient_ids"] = list(draft.recipients.filter(user__isnull=False).values_list("user_id", flat=True))
             return initial
         member_ids = self.request.GET.getlist("member_ids")
         if member_ids:
@@ -1240,7 +1247,11 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
         if copy_pk and copy_pk.isdigit():
             with scope(event=self.request.event):
                 try:
-                    source = TeamShiftsEmailQueue.objects.get(pk=int(copy_pk), event=self.request.event, mail_type="")
+                    source = TeamShiftsEmailQueue.objects.get(
+                        pk=int(copy_pk),
+                        event=self.request.event,
+                        mail_type__in=["", "specific_people"],
+                    )
                 except TeamShiftsEmailQueue.DoesNotExist:
                     return initial
             initial["subject"] = source.subject
@@ -1284,6 +1295,7 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
                     "send_after": request.POST.get("send_after", ""),
                     "specific_recipients": bool(request.POST.get("specific_recipients")),
                     "recipient_ids": ([user.pk for user in recipients] if request.POST.get("specific_recipients") else []),
+                    "submission_key": request.POST.get("submission_key"),
                 },
             )
             return self.render_to_response(self.get_context_data(form=form))
@@ -1294,6 +1306,7 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
         status = form.cleaned_data.get("status") or ""
         specific_recipients = form.cleaned_data["specific_recipients"]
         recipients = list(form.cleaned_data["recipient_ids"]) if specific_recipients else get_recipients(event, status=status)
+        recipients = [user for user in recipients if user.email and user.email.strip()]
         if specific_recipients:
             status = ""
         send_after = form.cleaned_data.get("send_after")
@@ -1328,7 +1341,12 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
             except DraftNoLongerEditable:
                 return self._stale_draft_response()
         else:
-            queue_email(event=event, user=self.request.user, **fields)
+            queue_email(
+                event=event,
+                user=self.request.user,
+                submission_key=form.cleaned_data["submission_key"],
+                **fields,
+            )
 
         if is_draft:
             messages.success(self.request, _("Draft saved. It will not be sent until you move it to the outbox."))

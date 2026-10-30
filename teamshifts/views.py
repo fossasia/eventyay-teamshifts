@@ -1241,8 +1241,11 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
             return initial
         member_ids = self.request.GET.getlist("member_ids")
         if member_ids:
+            with scope(event=self.request.event):
+                user_ids = TeamMemberApplication.objects.filter(pk__in=member_ids).values_list("user_id", flat=True)
+
             initial["specific_recipients"] = True
-            initial["recipient_ids"] = member_ids
+            initial["recipient_ids"] = list(user_ids)
         copy_pk = self.request.GET.get("copy")
         if copy_pk and copy_pk.isdigit():
             with scope(event=self.request.event):
@@ -1254,6 +1257,11 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
                     )
                 except TeamShiftsEmailQueue.DoesNotExist:
                     return initial
+
+                if source.mail_type == "specific_people":
+                    initial["specific_recipients"] = True
+                    initial["recipient_ids"] = list(source.recipients.filter(user__isnull=False).values_list("user_id", flat=True))
+
             initial["subject"] = source.subject
             initial["message"] = source.message
             initial["status"] = source.status_filter or ""

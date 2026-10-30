@@ -58,7 +58,7 @@ def queue_email(
     submission_key=None,
 ) -> TeamShiftsEmailQueue:
     created = True
-    with scope(event=event):
+    with scope(event=event), transaction.atomic():
         if submission_key:
             queue, created = TeamShiftsEmailQueue.objects.get_or_create(
                 event=event,

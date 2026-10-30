@@ -561,7 +561,6 @@ class EmailComposeForm(forms.Form):
             member_ids = list(
                 TeamMemberApplication.objects.filter(
                     event=event,
-                    status=ApplicationStatus.ACCEPTED,
                 )
                 .values_list("user_id", flat=True)
                 .distinct()
@@ -578,7 +577,7 @@ class EmailComposeForm(forms.Form):
             label=_("Recipients"),
             widget=forms.SelectMultiple(attrs={"class": "form-control", "size": "8"}),
         )
-        self.fields["recipient_ids"].label_from_instance = lambda user: str(user) if can_view_email else user.get_full_name() or _("Member")
+        self.fields["recipient_ids"].label_from_instance = lambda user: str(user) if can_view_email else user.fullname or user.wikimedia_username or _("Member")
         self.fields["send_after"] = forms.DateTimeField(
             required=False,
             label=_("Schedule for later"),

@@ -2958,9 +2958,22 @@ class ShiftScheduleAssignmentsAPIView(PluginActiveMixin, TeamShiftsPermissionReq
                     {"detail": "You cannot unassign members from this role."},
                     status=400,
                 )
-            assignment = ShiftAssignment.objects.filter(shift=shift, team_member_id=user_id, role_id=role_id).first()
-            if assignment:
-                assignment.delete()
+            with transaction.atomic():
+                # Lock the row so a repeated request waits, then finds nothing and sends no second email.
+                assignment = (
+                    ShiftAssignment.objects.select_for_update(of=("self",))
+                    .select_related("team_member", "role")
+                    .filter(shift=shift, team_member_id=user_id, role_id=role_id)
+                    .first()
+                )
+                if assignment:
+                    user, role = assignment.team_member, assignment.role
+                    assignment.delete()
+                    transaction.on_commit(
+                        lambda event=event, user=user, shift=shift, role=role: _notify_shift_change_safely(
+                            event, user, shift, role, EmailTemplateRoles.SHIFT_UNASSIGNED_BY_ORGANIZER
+                        )
+                    )
             shift = Shift.objects.prefetch_related(
                 "role_assignments__role",
                 "assignments__team_member",

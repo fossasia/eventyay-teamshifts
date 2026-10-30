@@ -651,6 +651,7 @@ class EmailTemplateRoles(models.TextChoices):
     MEMBER_ADDED_BY_ORGANIZER = "teamshifts.member.added_by_organizer", _("Added as volunteer by organizer")
     MEMBER_REMOVED = "teamshifts.member.removed", _("Removed from team")
     SHIFT_ASSIGNED_BY_ORGANIZER = "teamshifts.shift.assigned_by_organizer", _("Shift assigned by organizer")
+    SHIFT_UNASSIGNED_BY_ORGANIZER = "teamshifts.shift.unassigned_by_organizer", _("Shift unassigned by organizer")
     SHIFT_CLAIMED_BY_VOLUNTEER = "teamshifts.shift.claimed_by_volunteer", _("Shift sign-up confirmation")
     SHIFT_DROPPED_BY_VOLUNTEER = "teamshifts.shift.dropped_by_volunteer", _("Shift drop confirmation")
     SHIFT_DROPPED_ORGANIZER = "teamshifts.shift.dropped_organizer", _("Shift dropped (organizer notification)")
@@ -667,6 +668,7 @@ EMAIL_TYPE_LABELS = {
     EmailTemplateRoles.MEMBER_ADDED_BY_ORGANIZER: _("Added by organizer"),
     EmailTemplateRoles.MEMBER_REMOVED: _("Removed from team"),
     EmailTemplateRoles.SHIFT_ASSIGNED_BY_ORGANIZER: _("Shift assigned"),
+    EmailTemplateRoles.SHIFT_UNASSIGNED_BY_ORGANIZER: _("Shift unassigned"),
     EmailTemplateRoles.SHIFT_CLAIMED_BY_VOLUNTEER: _("Shift sign-up"),
     EmailTemplateRoles.SHIFT_DROPPED_BY_VOLUNTEER: _("Shift dropped"),
     EmailTemplateRoles.SHIFT_DROPPED_ORGANIZER: _("Organizer notification"),

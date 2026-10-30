@@ -1315,21 +1315,26 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
         if request.POST.get("action") == "preview":
             event = request.event
             status = request.POST.get("status") or ""
-<<<<<<< HEAD
-
+            volunteer_ids = []
             if request.POST.get("specific_recipients"):
                 selected_ids = request.POST.getlist("recipient_ids")
                 recipient_form = EmailComposeForm(event=event)
-                recipients = list(recipient_form.fields["recipient_ids"].queryset.filter(pk__in=selected_ids))
+                recipients = list(
+                    recipient_form.fields["recipient_ids"].queryset.filter(
+                        pk__in=selected_ids
+                    )
+                )
             else:
-                recipients = get_recipients(event, status=status)
-
-=======
-            posted_volunteers = request.POST.getlist("individual_volunteers")
-            volunteer_ids = [pk for pk in map(valid_user_pk, posted_volunteers) if pk is not None]
-            # An unusable explicit selection must never fall back to the (broader) status filter.
-            recipients = get_recipients(event, status=status, user_ids=volunteer_ids) if volunteer_ids or not posted_volunteers else []
->>>>>>> upstream/dev
+                posted_volunteers = request.POST.getlist("individual_volunteers")
+                volunteer_ids = [
+                    pk for pk in map(valid_user_pk, posted_volunteers) if pk is not None
+                ]
+                # An unusable explicit selection must never fall back to the broader status filter.
+                recipients = (
+                    get_recipients(event, status=status, user_ids=volunteer_ids)
+                    if volunteer_ids or not posted_volunteers
+                    else []
+                )
             self._preview_recipients = recipients
             locales = list(event.settings.get("locales") or [event.settings.locale])
             subject_i18n = LazyI18nString({locales[i]: request.POST.get(f"subject_{i}", "") for i in range(len(locales))})
@@ -1353,23 +1358,22 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
 
     def form_valid(self, form):
         event = self.request.event
-<<<<<<< HEAD
         status = form.cleaned_data.get("status") or ""
         specific_recipients = form.cleaned_data["specific_recipients"]
-        recipients = list(form.cleaned_data["recipient_ids"]) if specific_recipients else get_recipients(event, status=status)
-        recipients = [user for user in recipients if user.email and user.email.strip()]
+        volunteer_ids = [
+            volunteer.pk
+            for volunteer in form.cleaned_data.get("individual_volunteers") or ()
+        ]
+
         if specific_recipients:
+            recipients = list(form.cleaned_data["recipient_ids"])
             status = ""
+        else:
+            status = "" if volunteer_ids else status
+            recipients = get_recipients(event, status=status, user_ids=volunteer_ids)
+
+        recipients = [user for user in recipients if user.email and user.email.strip()]
         send_after = form.cleaned_data.get("send_after")
-
-=======
-        volunteer_ids = [volunteer.pk for volunteer in form.cleaned_data.get("individual_volunteers") or ()]
-        status = "" if volunteer_ids else form.cleaned_data.get("status") or ""
-        send_after = form.cleaned_data.get("send_after")
-
-        recipients = get_recipients(event, status=status, user_ids=volunteer_ids)
-
->>>>>>> upstream/dev
         action = self.request.POST.get("action")
         if action == "preview":
             self._preview_recipients = recipients

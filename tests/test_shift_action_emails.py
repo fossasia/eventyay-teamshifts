@@ -329,6 +329,72 @@ def test_organizer_assignment_still_emails_after_opt_out(mock_queue, client, eve
     assert _sent_roles(mock_queue) == [EmailTemplateRoles.SHIFT_ASSIGNED_BY_ORGANIZER]
 
 
+def _unassign(client, event, shift, role, user):
+    url = reverse("plugins:teamshifts:api_assignments", kwargs={"organizer": event.organizer.slug, "event": event.slug})
+    with TestCase.captureOnCommitCallbacks(execute=True):
+        return client.delete(f"{url}?shift_id={shift.pk}&role_id={role.pk}&user_id={user.pk}")
+
+
+@pytest.mark.django_db
+@patch("teamshifts.views.queue_shift_notification_email")
+def test_organizer_unassign_emails_volunteer_once(mock_queue, client, event, application, volunteer, organizer_user, shift, team_role):
+    with scope(event=event):
+        ShiftAssignment.objects.create(shift=shift, team_member=volunteer, role=team_role)
+    client.force_login(organizer_user)
+
+    response = _unassign(client, event, shift, team_role, volunteer)
+
+    assert response.status_code == 200
+    assert _sent_roles(mock_queue) == [EmailTemplateRoles.SHIFT_UNASSIGNED_BY_ORGANIZER]
+    kwargs = mock_queue.call_args.kwargs
+    assert (kwargs["user"], kwargs["shift"], kwargs["role"]) == (volunteer, shift, team_role)
+    with scope(event=event):
+        assert not ShiftAssignment.objects.filter(shift=shift, team_member=volunteer).exists()
+
+    response = _unassign(client, event, shift, team_role, volunteer)
+
+    assert response.status_code == 200
+    assert mock_queue.call_count == 1
+
+
+@pytest.mark.django_db
+@patch("teamshifts.views.queue_shift_notification_email", side_effect=RuntimeError("mail queue down"))
+def test_organizer_unassign_succeeds_when_email_fails(_mock_queue, client, event, application, volunteer, organizer_user, shift, team_role):
+    with scope(event=event):
+        ShiftAssignment.objects.create(shift=shift, team_member=volunteer, role=team_role)
+    client.force_login(organizer_user)
+
+    response = _unassign(client, event, shift, team_role, volunteer)
+
+    assert response.status_code == 200
+    with scope(event=event):
+        assert not ShiftAssignment.objects.filter(shift=shift, team_member=volunteer).exists()
+
+
+@pytest.mark.django_db
+def test_organizer_unassign_queues_default_email(client, event, application, volunteer, organizer_user, shift, team_role):
+    with scope(event=event):
+        ShiftAssignment.objects.create(shift=shift, team_member=volunteer, role=team_role)
+    client.force_login(organizer_user)
+
+    _unassign(client, event, shift, team_role, volunteer)
+
+    with scope(event=event):
+        queued = TeamShiftsEmailQueue.objects.get(event=event, mail_type=EmailTemplateRoles.SHIFT_UNASSIGNED_BY_ORGANIZER)
+    assert str(queued.subject).startswith("You have been removed from a shift")
+    assert queued.mail_type_label == "Shift unassigned"
+    assert (queued.shift, queued.shift_role) == (shift, team_role)
+
+
+def test_unassign_template_uses_assign_placeholders():
+    _assign_subject, assign_body = get_default_template(EmailTemplateRoles.SHIFT_ASSIGNED_BY_ORGANIZER)
+    subject, body = get_default_template(EmailTemplateRoles.SHIFT_UNASSIGNED_BY_ORGANIZER)
+    assert "{event_name}" in str(subject)
+    for placeholder in ("{full_name}", "{event_name}", "{shift_name}", "{shift_time}", "{role_name}", "{shift_schedule_url}"):
+        assert placeholder in str(assign_body)
+        assert placeholder in str(body)
+
+
 def test_drop_confirmation_has_default_template():
     subject, body = get_default_template(EmailTemplateRoles.SHIFT_DROPPED_BY_VOLUNTEER)
     assert "{event_name}" in str(subject)

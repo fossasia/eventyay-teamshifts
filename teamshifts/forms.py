@@ -4,11 +4,12 @@ from zoneinfo import ZoneInfo
 
 from django import forms
 from django.core.exceptions import ValidationError
+from django.db.models import Count
 from django.forms import inlineformset_factory
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.html import escape as html_escape, format_html
-from django.utils.translation import gettext_lazy as _
+from django.utils.translation import gettext_lazy as _, ngettext
 from django_countries import countries
 from django_scopes import scopes_disabled
 from django_scopes.forms import SafeModelChoiceField
@@ -705,6 +706,36 @@ MAX_SHIFTS_PER_ACTION = 50
 MIN_FINAL_SHIFT_MINUTES = 15
 
 
+def overfilled_role_errors(shift, capacities):
+    """Return {role_id: message} for roles whose capacity would drop below the team members assigned to them.
+
+    ``capacities`` maps role IDs to the capacity they are about to get on ``shift``. A capacity that is not
+    lowered is accepted, so a shift that is already overfilled can still be edited.
+    """
+    new_capacities = {}
+    for role_id, capacity in capacities.items():
+        try:
+            new_capacities[int(role_id)] = int(capacity)
+        except (TypeError, ValueError):
+            continue
+    if not shift.pk or not new_capacities:
+        return {}
+    saved_capacities = dict(shift.role_assignments.filter(role_id__in=new_capacities).values_list("role_id", "capacity"))
+    assigned_counts = shift.assignments.filter(role_id__in=new_capacities).order_by().values("role_id", "role__name").annotate(assigned=Count("id"))
+    errors = {}
+    for row in assigned_counts:
+        role_id = row["role_id"]
+        capacity = new_capacities[role_id]
+        saved_capacity = saved_capacities.get(role_id)
+        if row["assigned"] > capacity and (saved_capacity is None or capacity < saved_capacity):
+            errors[role_id] = ngettext(
+                "%(count)d team member is assigned to %(role)s. Unassign team members before lowering its capacity to %(capacity)d.",
+                "%(count)d team members are assigned to %(role)s. Unassign team members before lowering its capacity to %(capacity)d.",
+                row["assigned"],
+            ) % {"count": row["assigned"], "role": row["role__name"], "capacity": capacity}
+    return errors
+
+
 def merges_into_previous_shift(remainder):
     """Return True if the time left over after the last full shift should extend that shift.
 
@@ -874,6 +905,7 @@ class BaseShiftRoleFormSet(forms.BaseInlineFormSet):
 
         roles = set()
         has_role = False
+        role_forms = {}
         for form in self.forms:
             if self.can_delete and self._should_delete_form(form):
                 continue
@@ -883,9 +915,14 @@ class BaseShiftRoleFormSet(forms.BaseInlineFormSet):
                 if role in roles:
                     raise forms.ValidationError(_("The same role cannot be added twice on the same shift."))
                 roles.add(role)
+                role_forms[role.pk] = form
 
         if not has_role:
             raise forms.ValidationError(_("At least one role must be added to the shift."))
+
+        capacities = {role_id: form.cleaned_data.get("capacity") for role_id, form in role_forms.items()}
+        for role_id, error in overfilled_role_errors(self.instance, capacities).items():
+            role_forms[role_id].add_error("capacity", error)
 
 
 class ShiftRoleAssignmentForm(forms.ModelForm):

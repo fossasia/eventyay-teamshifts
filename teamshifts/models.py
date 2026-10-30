@@ -48,6 +48,7 @@ class ApplicationStatus(models.TextChoices):
     PENDING = "pending", _("Pending")
     ACCEPTED = "accepted", _("Accepted")
     REJECTED = "rejected", _("Rejected")
+    REMOVED = "removed", _("Removed")
 
 
 class AskChoices(models.TextChoices):
@@ -621,6 +622,7 @@ class EmailTemplateRoles(models.TextChoices):
     APPLICATION_REJECTED = "teamshifts.application.rejected", _("Application rejected")
     NEW_APPLICATION_ORGANIZER = "teamshifts.application.organizer", _("New application (organizer notification)")
     MEMBER_ADDED_BY_ORGANIZER = "teamshifts.member.added_by_organizer", _("Added as volunteer by organizer")
+    MEMBER_REMOVED = "teamshifts.member.removed", _("Removed from team")
     SHIFT_ASSIGNED_BY_ORGANIZER = "teamshifts.shift.assigned_by_organizer", _("Shift assigned by organizer")
     SHIFT_CLAIMED_BY_VOLUNTEER = "teamshifts.shift.claimed_by_volunteer", _("Shift sign-up confirmation")
     SHIFT_DROPPED_BY_VOLUNTEER = "teamshifts.shift.dropped_by_volunteer", _("Shift drop confirmation")
@@ -635,6 +637,7 @@ EMAIL_TYPE_LABELS = {
     EmailTemplateRoles.APPLICATION_REJECTED: _("Application rejected"),
     EmailTemplateRoles.NEW_APPLICATION_ORGANIZER: _("Organizer notification"),
     EmailTemplateRoles.MEMBER_ADDED_BY_ORGANIZER: _("Added by organizer"),
+    EmailTemplateRoles.MEMBER_REMOVED: _("Removed from team"),
     EmailTemplateRoles.SHIFT_ASSIGNED_BY_ORGANIZER: _("Shift assigned"),
     EmailTemplateRoles.SHIFT_CLAIMED_BY_VOLUNTEER: _("Shift sign-up"),
     EmailTemplateRoles.SHIFT_DROPPED_BY_VOLUNTEER: _("Shift dropped"),

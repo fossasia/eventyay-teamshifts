@@ -143,19 +143,19 @@ def test_voucher_email_uses_redeem_url(event, cfm, voucher_settings, voucher_bat
     app = _make_member(event, "redeem@example.com", django_user_model)
 
     with (
-        patch("teamshifts.services.vouchers.build_absolute_uri", return_value="https://example.com/test-organizer/test-event/redeem/") as mock_uri,
+        patch("eventyay.multidomain.urlreverse.build_absolute_uri", return_value="https://example.com/test-organizer/test-event/redeem/") as mock_uri,
         patch("teamshifts.services.vouchers.mail") as mock_mail,
     ):
         result = allocate_and_send_vouchers(event, voucher_settings, [app])
 
     assert result["sent"] == 1
 
-    mock_uri.assert_called_with(event, "presale:event.redeem")
+    mock_uri.assert_any_call(event, "presale:event.redeem")
 
     context = mock_mail.call_args.kwargs["context"]
     with scopes_disabled():
         mv = MemberVoucher.objects.get(application=app)
-    assert context["ticket_claim_url"] == f"https://example.com/test-organizer/test-event/redeem/?voucher={mv.voucher.code}"
+    assert context["voucher_redeem_url"] == f"https://example.com/test-organizer/test-event/redeem/?voucher={mv.voucher.code}"
 
 
 @pytest.mark.django_db

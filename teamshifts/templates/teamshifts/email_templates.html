@@ -75,6 +75,7 @@
                 </div>
               </div>
             </div>
+            {% include "teamshifts/_placeholder_help.html" with placeholders=panel.placeholders %}
           </div>
         </details>
       {% endfor %}
@@ -126,20 +127,11 @@
                 </div>
               </div>
             </div>
+            {% include "teamshifts/_placeholder_help.html" with placeholders=panel.placeholders %}
           </div>
         </details>
       {% endfor %}
     </div>
-
-    <fieldset>
-      <legend>{% trans "Available placeholders" %}</legend>
-      <dl class='dl-horizontal'>
-        {% for token, description in email_placeholders %}
-          <dt><code>{{ token }}</code></dt>
-          <dd>{{ description }}</dd>
-        {% endfor %}
-      </dl>
-    </fieldset>
 
     <div class='form-group submit-group'>
       <button type='submit' class='btn btn-primary btn-save'>{% trans "Save" %}</button>

@@ -238,17 +238,17 @@ def test_sent_list_includes_recipients_of_partially_sent_queue(client, event, cf
 
 @pytest.mark.django_db
 def test_voucher_credentials_are_not_stored_in_listed_subject(event, volunteer):
-    voucher = type("FakeVoucher", (), {"code": "SECRETCODE"})()
+    voucher = type("FakeVoucher", (), {"code": "SECRETCODE", "subevent_id": None})()
     template = type(
         "FakeTemplate",
         (),
         {
-            "subject": LazyI18nString({"en": "Voucher {voucher_code} {ticket_claim_url} for {event_name}"}),
-            "body": LazyI18nString({"en": "Body {ticket_claim_url}"}),
+            "subject": LazyI18nString({"en": "Voucher {voucher_code} {voucher_redeem_url} for {event_name}"}),
+            "body": LazyI18nString({"en": "Body {voucher_redeem_url}"}),
         },
     )()
 
-    with patch("teamshifts.services.vouchers.mail"), patch("teamshifts.services.vouchers.build_absolute_uri", return_value="https://x.test/redeem"):
+    with patch("teamshifts.services.vouchers.mail"), patch("eventyay.multidomain.urlreverse.build_absolute_uri", return_value="https://x.test/redeem"):
         assert _send_voucher_email(event, volunteer, voucher, template, "en")
 
     with scope(event=event):

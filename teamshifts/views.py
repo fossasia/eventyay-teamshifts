@@ -1538,7 +1538,10 @@ class EmailSentView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Pagina
                     Cast(
                         KeyTextTransform(
                             get_language(),
-                            Cast("queue__subject", JSONField()),
+                            Cast(
+                                NullIf("queue__subject", Value("")),
+                                JSONField(),
+                            ),
                         ),
                         CharField(),
                     ),

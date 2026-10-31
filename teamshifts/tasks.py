@@ -14,7 +14,7 @@ from eventyay.base.services.tasks import ProfiledEventTask
 from eventyay.celery_app import app
 from i18nfield.strings import LazyI18nString
 
-from .models import TeamMemberApplication, TeamShiftsEmailQueue
+from .models import RecipientGroup, TeamMemberApplication, TeamShiftsEmailQueue
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +42,11 @@ def render_subject(subject, context, locale, event=None) -> str:
         if prefix and prefix.startswith("[") and prefix.endswith("]"):
             prefix = prefix[1:-1]
         return f"[{prefix}] {rendered}" if prefix else rendered
+
+
+def _left_group(event, queue, recipient) -> bool:
+    """True if the recipient left the queue's group after it was queued, e.g. by signing up for a shift."""
+    return not RecipientGroup(queue.recipient_group).applications(event).filter(user_id=recipient.user_id).exists()
 
 
 SCHEDULED_EMAIL_BATCH_SIZE = 50
@@ -119,6 +124,11 @@ def send_queued_email(self, event_id: int, queue_id: int):
             partial_send = False
             for recipient in recipients:
                 if recipient.sent_at:
+                    continue
+
+                if queue.recipient_group and _left_group(event, queue, recipient):
+                    type(recipient).objects.filter(pk=recipient.pk, sent_at__isnull=True).delete()
+                    logger.info("[TeamShifts] Queue %s: skipped %s, no longer in group %s", queue.pk, recipient.email, queue.recipient_group)
                     continue
 
                 claimed = type(recipient).objects.filter(pk=recipient.pk, sent_at__isnull=True).update(sent_at=now())

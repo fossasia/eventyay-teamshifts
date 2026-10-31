@@ -9,6 +9,7 @@ from eventyay.base.models import Event, User
 from ..models import (
     ApplicationStatus,
     CallForTeamMembers,
+    RecipientGroup,
     Shift,
     TeamMemberApplication,
     TeamRole,
@@ -24,19 +25,29 @@ class DraftNoLongerEditable(Exception):
     pass
 
 
+def split_send_to(send_to: str) -> tuple[str, str]:
+    """Return the ``(status_filter, recipient_group)`` stored for a "Send to" choice."""
+    if send_to in RecipientGroup.values:
+        return ApplicationStatus.ACCEPTED, send_to
+    return send_to, ""
+
+
 def get_recipients(
     event: Event,
     *,
     status: str = ApplicationStatus.ACCEPTED,
+    group: str = "",
     user_ids: Iterable[int] | None = None,
 ) -> list[User]:
-    user_ids = list(user_ids or ())
     with scope(event=event):
-        qs = TeamMemberApplication.objects.filter(event=event)
         if user_ids:
-            qs = qs.filter(user_id__in=user_ids)
-        elif status:
-            qs = qs.filter(status=status)
+            qs = TeamMemberApplication.objects.filter(event=event, user_id__in=list(user_ids))
+        elif group:
+            qs = RecipientGroup(group).applications(event)
+        else:
+            qs = TeamMemberApplication.objects.filter(event=event)
+            if status:
+                qs = qs.filter(status=status)
         user_ids = list(qs.values_list("user_id", flat=True).distinct())
     return list(User.objects.filter(pk__in=user_ids))
 
@@ -56,6 +67,7 @@ def queue_email(
     shift_role: TeamRole | None = None,
     status_filter: str = "",
     individual_recipients: bool = False,
+    recipient_group: str = "",
     mail_type: str = "",
     send_after=None,
     dispatch: bool = True,
@@ -75,6 +87,7 @@ def queue_email(
             shift_role=shift_role,
             status_filter=status_filter or "",
             individual_recipients=individual_recipients,
+            recipient_group=recipient_group,
             mail_type=mail_type,
             send_after=send_after,
             is_draft=is_draft,
@@ -124,6 +137,7 @@ def update_queued_email(
     recipients: Iterable[User],
     status_filter: str = "",
     individual_recipients: bool = False,
+    recipient_group: str = "",
     send_after=None,
     is_draft: bool = False,
     dispatch: bool = True,
@@ -136,9 +150,10 @@ def update_queued_email(
         locked.message = message
         locked.status_filter = status_filter or ""
         locked.individual_recipients = individual_recipients
+        locked.recipient_group = recipient_group
         locked.send_after = send_after
         locked.is_draft = is_draft
-        locked.save(update_fields=["subject", "message", "status_filter", "individual_recipients", "send_after", "is_draft", "updated"])
+        locked.save(update_fields=["subject", "message", "status_filter", "individual_recipients", "recipient_group", "send_after", "is_draft", "updated"])
         locked.recipients.all().delete()
         _set_recipients(locked, recipients)
 

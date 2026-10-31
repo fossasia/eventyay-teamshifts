@@ -676,6 +676,20 @@ EMAIL_TYPE_LABELS = {
 }
 
 
+class RecipientGroup(models.TextChoices):
+    """A narrower group of accepted members. Membership is checked again when a queued email is sent."""
+
+    WITHOUT_SHIFTS = "without_shifts", _("Without shifts")
+    VOUCHER_NOT_USED = "voucher_not_used", _("Voucher not used")
+
+    def applications(self, event):
+        accepted = TeamMemberApplication.objects.filter(event=event, status=ApplicationStatus.ACCEPTED)
+        if self == RecipientGroup.WITHOUT_SHIFTS:
+            return accepted.exclude(user_id__in=ShiftAssignment.objects.filter(shift__event=event).values("team_member_id"))
+        # A redeemed voucher counts as used even before its status has been synced to claimed.
+        return accepted.filter(voucher_assignment__status=VoucherStatus.SENT, voucher_assignment__voucher__redeemed=0)
+
+
 class TeamShiftsEmailQueue(models.Model):
     event = models.ForeignKey(
         "base.Event",
@@ -721,10 +735,19 @@ class TeamShiftsEmailQueue(models.Model):
         blank=True,
         default="",
     )
+    # db_default keeps inserts from app versions without these fields working during a rolling deploy.
     individual_recipients = models.BooleanField(
         default=False,
+        db_default=False,
         verbose_name=_("Specific people"),
         help_text=_("Sent to hand-picked people instead of everyone matching the status filter."),
+    )
+    recipient_group = models.CharField(
+        max_length=20,
+        choices=RecipientGroup.choices,
+        blank=True,
+        default="",
+        db_default="",
     )
     mail_type = models.CharField(max_length=40, blank=True, default="")
     send_after = models.DateTimeField(null=True, blank=True)

@@ -79,6 +79,8 @@
                         <span class='label label-warning'>{% trans "Pending" %}</span>
                       {% elif app.status == 'accepted' %}
                         <span class='label label-success'>{% trans "Accepted" %}</span>
+                      {% elif app.status == 'removed' %}
+                        <span class='label label-default'>{% trans "Removed" %}</span>
                       {% else %}
                         <span class='label label-danger'>{% trans "Rejected" %}</span>
                       {% endif %}

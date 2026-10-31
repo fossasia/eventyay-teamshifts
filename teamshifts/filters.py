@@ -72,13 +72,17 @@ class TeamShiftsFilterForm(FilterForm):
 
     def apply_ordering(self, queryset):
         if order_by := self.get_order_by():
-            if isinstance(order_by, (list, tuple)):
-                return queryset.order_by(*order_by, "pk")
-            return queryset.order_by(order_by, "pk")
+            order_list = list(order_by) if isinstance(order_by, (list, tuple)) else [order_by]
+            if "pk" not in order_list and "-pk" not in order_list:
+                tie_breaker = "-pk" if any(f.startswith("-") for f in order_list) else "pk"
+                order_list.append(tie_breaker)
+            return queryset.order_by(*order_list)
         if self.default_order:
-            if isinstance(self.default_order, (list, tuple)):
-                return queryset.order_by(*self.default_order)
-            return queryset.order_by(self.default_order)
+            default_list = list(self.default_order) if isinstance(self.default_order, (list, tuple)) else [self.default_order]
+            if "pk" not in default_list and "-pk" not in default_list:
+                tie_breaker = "-pk" if any(f.startswith("-") for f in default_list) else "pk"
+                default_list.append(tie_breaker)
+            return queryset.order_by(*default_list)
         return queryset
 
 
@@ -94,7 +98,7 @@ class LenientModelChoiceField(forms.ModelChoiceField):
 
 
 class ApplicationFilterForm(TeamShiftsFilterForm):
-    default_order = "-created_at"
+    default_order = ("-created_at", "-pk")
     orders = {
         "name": "user__fullname",
         "email": "user__email",
@@ -156,7 +160,7 @@ class ApplicationFilterForm(TeamShiftsFilterForm):
 
 
 class MemberFilterForm(TeamShiftsFilterForm):
-    default_order = ("user__fullname", "user__email")
+    default_order = ("user__fullname", "user__email", "pk")
     orders = {
         "name": "user__fullname",
         "email": "user__email",
@@ -369,7 +373,7 @@ class TeamShiftsEmailFilterForm(TeamShiftsFilterForm):
         self.event = event
         self.date_field = date_field
         self.hide_emails = hide_emails
-        self.default_order = f"-{date_field}"
+        self.default_order = (f"-{date_field}", "-pk")
         self.orders = {
             "subject": "subject",
             "date": date_field,

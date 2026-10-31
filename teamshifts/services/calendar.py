@@ -1,6 +1,7 @@
 from django_scopes import scopes_disabled
 
 from ..models import ShiftAssignment, ShiftCalendarToken
+from .members import removed_event_ids
 
 
 def get_member_assignments(user, event_id=None):
@@ -10,6 +11,7 @@ def get_member_assignments(user, event_id=None):
                 team_member=user,
                 shift__event__plugins__contains="teamshifts",
             )
+            .exclude(shift__event_id__in=removed_event_ids(user))
             .select_related(
                 "shift",
                 "shift__event",

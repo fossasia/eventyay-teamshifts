@@ -613,3 +613,12 @@ label .optional {
 #select2-id_individual_volunteers-results .loading-results {
   display: none;
 }
+
+.ts-remove-members-dialog {
+    width: 560px;
+}
+
+.ts-remove-members-dialog .help-block {
+    margin-top: 0;
+    padding-left: 20px;
+}

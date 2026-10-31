@@ -351,3 +351,38 @@ def test_sent_email_filter(event, role_a, role_b, django_user_model):
         form = TeamShiftsSentEmailFilterForm({"date_from": start_date, "date_to": start_date}, event=event)
         assert form.is_valid()
         assert list(form.filter_qs(qs)) == [r1]
+
+
+@pytest.mark.django_db
+def test_stable_default_ordering_with_shared_timestamps(event, django_user_model):
+    with scope(event=event):
+        shared_time = now()
+        u1 = django_user_model.objects.create_user(email="user1@test.com", fullname="Same Name")
+        u2 = django_user_model.objects.create_user(email="user2@test.com", fullname="Same Name")
+
+        # Applications with identical created_at
+        app1 = TeamMemberApplication.objects.create(event=event, user=u1, status=ApplicationStatus.PENDING)
+        app2 = TeamMemberApplication.objects.create(event=event, user=u2, status=ApplicationStatus.PENDING)
+        TeamMemberApplication.objects.filter(pk__in=[app1.pk, app2.pk]).update(created_at=shared_time)
+
+        app_form = ApplicationFilterForm({}, event=event)
+        assert app_form.is_valid()
+        app_qs = app_form.filter_qs(TeamMemberApplication.objects.filter(event=event))
+        # Descending: app2 (higher pk) comes before app1 (lower pk)
+        assert list(app_qs) == [app2, app1]
+
+        # Email queues with identical created timestamp
+        q1 = TeamShiftsEmailQueue.objects.create(event=event, subject="A", created=shared_time, user=u1)
+        q2 = TeamShiftsEmailQueue.objects.create(event=event, subject="B", created=shared_time, user=u1)
+        email_form = TeamShiftsEmailFilterForm({}, event=event)
+        assert email_form.is_valid()
+        email_qs = email_form.filter_qs(TeamShiftsEmailQueue.objects.filter(event=event))
+        assert list(email_qs) == [q2, q1]
+
+        # Shifts with identical start_time
+        s1 = Shift.objects.create(event=event, start_time=shared_time, end_time=shared_time + timedelta(hours=2))
+        s2 = Shift.objects.create(event=event, start_time=shared_time, end_time=shared_time + timedelta(hours=2))
+        shift_form = ShiftFilterForm({}, event=event)
+        assert shift_form.is_valid()
+        shift_qs = shift_form.filter_qs(Shift.objects.filter(event=event))
+        assert list(shift_qs) == [s1, s2]

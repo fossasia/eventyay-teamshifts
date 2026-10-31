@@ -1217,7 +1217,6 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
         kwargs["event"] = self.request.event
         kwargs["show_emails"] = can_view_email_addresses(self.request.user, self.request.organizer, self.request.event, request=self.request)
         kwargs["draft_save"] = self.request.POST.get("action") == "draft"
-        kwargs["show_emails"] = can_view_email_addresses(self.request.user, self.request.organizer, self.request.event, request=self.request)
         kwargs["require_people"] = getattr(self, "_require_people", False)
         return kwargs
 
@@ -1250,7 +1249,7 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
         if draft is not None:
             initial["subject"] = draft.subject
             initial["message"] = draft.message
-            self._restore_send_to(draft, initial)
+            self._restore_draft_recipients(draft, initial)
             initial["send_after"] = draft.send_after
             return initial
         copy_pk = self.request.GET.get("copy")
@@ -1262,19 +1261,20 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
                     return initial
             initial["subject"] = source.subject
             initial["message"] = source.message
-            self._restore_send_to(source, initial)
+            # A copy starts from the "Send to" dropdown; only reopening a draft restores hand-picked people.
+            initial["status"] = ApplicationStatus.ACCEPTED if source.individual_recipients else source.recipient_group or source.status_filter or ""
         return initial
 
-    def _restore_send_to(self, source, initial):
-        if not source.individual_recipients:
-            initial["status"] = source.recipient_group or source.status_filter or ""
+    def _restore_draft_recipients(self, draft, initial):
+        if not draft.individual_recipients:
+            initial["status"] = draft.recipient_group or draft.status_filter or ""
             return
         initial["status"] = ApplicationStatus.ACCEPTED
         with scope(event=self.request.event):
             initial["individual_volunteers"] = list(
-                source.recipients.filter(user__team_member_applications__event=self.request.event).values_list("user_id", flat=True)
+                draft.recipients.filter(user__team_member_applications__event=self.request.event).values_list("user_id", flat=True)
             )
-        # A specific-people email never falls back to the dropdown: with nobody left to restore, a new selection is required.
+        # A specific-people draft never falls back to the dropdown: with nobody left to restore, a new selection is required.
         self._require_people = not initial["individual_volunteers"]
 
     def get_context_data(self, **kwargs):

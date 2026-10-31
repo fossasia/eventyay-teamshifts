@@ -220,6 +220,17 @@ def test_reopening_a_draft_keeps_the_group(orga_client, event, user, vouchers_en
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("group", RecipientGroup.values)
+def test_copying_a_group_email_keeps_the_group(orga_client, event, user, vouchers_enabled, group):
+    with scope(event=event):
+        sent = queue_email(event, "s", "m", [], user=user, status_filter=ApplicationStatus.ACCEPTED, recipient_group=group, dispatch=False)
+
+    content = orga_client.get(_url(event, "email_compose") + f"?copy={sent.pk}").content.decode()
+
+    assert f'value="{group}" selected' in content
+
+
+@pytest.mark.django_db
 def test_reopening_a_voucher_draft_keeps_the_group_after_vouchers_are_disabled(orga_client, event, user):
     with scope(event=event):
         draft = queue_email(
@@ -367,17 +378,6 @@ def test_reopening_a_specific_people_draft_restores_them(orga_client, event, use
 
     assert f'<option value="{picked.user.pk}" selected>' in content
     assert f'value="{ApplicationStatus.ACCEPTED}" selected' in content
-
-
-@pytest.mark.django_db
-def test_copying_a_specific_people_email_restores_them(orga_client, event, user, django_user_model):
-    picked = _member(event, django_user_model, "picked@example.com")
-    with scope(event=event):
-        sent = queue_email(event, "s", "m", [picked.user], user=user, individual_recipients=True, dispatch=False)
-
-    content = orga_client.get(_url(event, "email_compose") + f"?copy={sent.pk}").content.decode()
-
-    assert f'<option value="{picked.user.pk}" selected>' in content
 
 
 @pytest.mark.django_db

@@ -28,7 +28,7 @@ from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.timezone import now
 from django.utils.translation import get_language, get_language_info, gettext_lazy as _, ngettext
 from django.views.decorators.csrf import ensure_csrf_cookie
-from django.views.generic import DeleteView, FormView, ListView, TemplateView, View
+from django.views.generic import DeleteView, FormView, ListView, RedirectView, TemplateView, View
 from django_scopes import scope, scopes_disabled
 from eventyay.base.i18n import LazyI18nString, language
 from eventyay.base.models import Event, User
@@ -75,7 +75,6 @@ from .models import (
     MemberVoucher,
     Shift,
     ShiftAssignment,
-    ShiftCalendarToken,
     ShiftLocation,
     ShiftRoleAssignment,
     TeamApplicationAnswer,
@@ -110,7 +109,6 @@ from .services.email import (
     update_queued_email,
 )
 from .services.members import (
-    IN_PROGRESS_ASSIGNMENT,
     AlreadyMemberError,
     accept_manager_as_member,
     add_member_from_organizer,
@@ -3646,72 +3644,68 @@ def _notify_organizers_new_application(event, application):
     )
 
 
-class MyShiftsView(PublicShiftScheduleMixin, TemplateView):
-    template_name = "teamshifts/my_shifts.html"
-    redirect_unpublished_to_schedule = False
-    allow_teamshifts_managers = True
+class MyShiftsRedirectView(RedirectView):
+    permanent = False
+    query_string = False
 
-    def get_context_data(self, **kwargs):
-        ctx = super().get_context_data(**kwargs)
-        event = self.event
-        with scopes_disabled():
-            assignments = (
-                ShiftAssignment.objects.filter(
-                    team_member=self.request.user,
-                    shift__event=event,
-                    shift__event__plugins__contains="teamshifts",
-                )
-                .select_related(
-                    "shift",
-                    "shift__event",
-                    "shift__event__organizer",
-                    "shift__location",
-                    "role",
-                    "assigned_by",
-                )
-                .order_by("shift__start_time")
-            )
-        shifts_by_day = defaultdict(list)
-        for assignment in assignments:
-            local_start = assignment.shift.start_time.astimezone(assignment.shift.event.tz)
-            day = local_start.date()
-            shifts_by_day[day].append(assignment)
-        ctx["shifts_by_day"] = dict(shifts_by_day)
-        ctx["event"] = event
-        ctx["now"] = now()
-        return ctx
+    def get_redirect_url(self, *args, **kwargs):
+        url = reverse("plugins:teamshifts:my_shifts_global")
+        query = self.request.META.get("QUERY_STRING", "")
+        if query:
+            url = f"{url}?{query}"
+        return url
 
 
-class ShiftCheckOutView(PublicShiftScheduleMixin, View):
-    redirect_unpublished_to_schedule = False
+class ShiftCheckOutRedirectView(View):
+    def dispatch(self, request, *args, **kwargs):
+        query = request.META.get("QUERY_STRING", "")
+        if request.method == "POST":
+            url = reverse("plugins:teamshifts:shift_checkout", kwargs={"pk": kwargs["pk"]})
+            if query:
+                url = f"{url}?{query}"
+            response = HttpResponseRedirect(url)
+            response.status_code = 307
+            return response
+        url = reverse("plugins:teamshifts:my_shifts_global")
+        if query:
+            url = f"{url}?{query}"
+        return redirect(url)
 
-    def _can_access_schedule(self, request):
-        if super()._can_access_schedule(request):
-            return True
-        # Someone removed from the team mid-shift may still close the shift they had started,
-        # so its hours count. Nothing else is opened up for them.
-        with scope(event=self.event):
-            removed = TeamMemberApplication.objects.filter(event=self.event, user=request.user, status=ApplicationStatus.REMOVED).exists()
-            return removed and ShiftAssignment.objects.filter(IN_PROGRESS_ASSIGNMENT, team_member=request.user, shift__event=self.event).exists()
 
+class ShiftCheckOutView(LoginRequiredMixin, View):
     def post(self, request, *args, **kwargs):
-        event = self.event
         assignment_pk = kwargs["pk"]
 
-        with scope(event=event), transaction.atomic():
+        with scopes_disabled(), transaction.atomic():
             assignment = (
                 ShiftAssignment.objects.select_for_update()
                 .filter(
                     pk=assignment_pk,
                     team_member=request.user,
-                    shift__event=event,
+                    shift__event__plugins__contains="teamshifts",
                 )
-                .select_related("shift")
+                .select_related("shift", "shift__event")
                 .first()
             )
 
             if assignment is None:
                 return JsonResponse({"status": "error", "error": str(_("Shift assignment not found."))}, status=404)
+
+            # Someone removed from the team mid-shift may still close the shift they had started,
+            # so its hours count. Nothing else is opened up for them.
+            allowed_statuses = [ApplicationStatus.ACCEPTED]
+            if assignment.started_at and not assignment.ended_at:
+                allowed_statuses.append(ApplicationStatus.REMOVED)
+            may_check_out = TeamMemberApplication.objects.filter(
+                user=request.user,
+                event=assignment.shift.event,
+                status__in=allowed_statuses,
+            ).exists()
+            if not may_check_out:
+                return JsonResponse(
+                    {"status": "error", "error": str(_("You need to be an accepted team member to check out of this shift."))},
+                    status=403,
+                )
 
             current_time = now()
 
@@ -3734,20 +3728,6 @@ class ShiftCheckOutView(PublicShiftScheduleMixin, View):
 class MyShiftsGlobalView(LoginRequiredMixin, TemplateView):
     template_name = "teamshifts/my_shifts_global.html"
 
-    def dispatch(self, request, *args, **kwargs):
-        if not request.user.is_authenticated:
-            return super().dispatch(request, *args, **kwargs)
-        with scopes_disabled():
-            has_active = (
-                ShiftAssignment.objects.filter(team_member=request.user, shift__event__plugins__contains="teamshifts")
-                .exclude(hidden_after_removal_filter(request.user))
-                .exists()
-            )
-            has_calendar_token = ShiftCalendarToken.objects.filter(user=request.user).exists()
-        if not has_active and not has_calendar_token:
-            raise Http404
-        return super().dispatch(request, *args, **kwargs)
-
     def get_context_data(self, **kwargs):
         from .forms import MyShiftsFilterForm
 
@@ -3768,7 +3748,7 @@ class MyShiftsGlobalView(LoginRequiredMixin, TemplateView):
                     "role",
                     "assigned_by",
                 )
-                .order_by("shift__event__name", "shift__start_time")
+                .order_by("shift__event__name", "shift__event_id", "shift__start_time")
             )
 
             if filter_form.is_valid():
@@ -3779,13 +3759,11 @@ class MyShiftsGlobalView(LoginRequiredMixin, TemplateView):
                 if search:
                     qs = qs.filter(shift__name__icontains=search)
 
-        shifts_by_event = defaultdict(list)
-        for assignment in qs:
-            shifts_by_event[assignment.shift.event].append(assignment)
-        ctx["shifts_by_event"] = dict(shifts_by_event)
+        assignments = list(qs)
+        ctx["assignments"] = assignments
         ctx["filter_form"] = filter_form
 
-        event_ids = {e.pk for e in shifts_by_event}
+        event_ids = {assignment.shift.event_id for assignment in assignments}
         with scopes_disabled():
             from .models import MemberCertificate
 
@@ -3799,16 +3777,26 @@ class MyShiftsGlobalView(LoginRequiredMixin, TemplateView):
                 .exclude(file="")
                 .values_list("application__event_id", flat=True)
             )
+            # Events from which a member was removed only list the shift still in progress there,
+            # which they may still check out of.
+            checkout_event_ids = set(
+                TeamMemberApplication.objects.filter(
+                    user=self.request.user,
+                    event_id__in=event_ids,
+                    status__in=[ApplicationStatus.ACCEPTED, ApplicationStatus.REMOVED],
+                ).values_list("event_id", flat=True)
+            )
             published_event_ids = set(
                 CallForTeamMembers.objects.filter(event_id__in=event_ids, shift_schedule_published=True).values_list("event_id", flat=True)
             )
         ctx["cert_event_ids"] = cert_event_ids
+        ctx["checkout_event_ids"] = checkout_event_ids
         ctx["published_event_ids"] = published_event_ids
         ctx["now"] = now()
 
         token = get_or_create_calendar_token(self.request.user)
         ctx["calendar_links"] = _my_shifts_calendar_links(token.token)
-        ctx["event_calendar_links"] = {event.pk: _my_shifts_calendar_links(token.token, event.pk) for event in shifts_by_event}
+        ctx["event_calendar_links"] = {event_id: _my_shifts_calendar_links(token.token, event_id) for event_id in event_ids}
         return ctx
 
 

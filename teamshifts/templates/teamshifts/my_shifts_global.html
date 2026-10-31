@@ -5,7 +5,7 @@
 {% load bootstrap3 %}
 {% load teamshifts_tags %}
 
-{% block title %}{% translate "My Shifts" %}{% endblock %}
+{% block title %}{% translate "My shifts" %}{% endblock %}
 
 {% block custom_header %}
   {{ block.super }}
@@ -15,7 +15,7 @@
 {% endblock %}
 
 {% block content %}
-<h1>{% translate "My Shifts" %}</h1>
+<h1>{% translate "My shifts" %}</h1>
 
 <div class="advanced-filter-search" data-advanced-filter-search>
   <form class="filter-form advanced-filter-search-form" action="" method="get">
@@ -70,7 +70,7 @@
           Anyone with this link can see your shifts, so keep it private.
         {% endblocktranslate %}
       </p>
-      {% if not shifts_by_event %}
+      {% if not assignments %}
         <p class="text-muted">{% translate "You have no shifts yet. Your shifts will appear in your calendar once you sign up." %}</p>
       {% endif %}
       <div class="input-group call-secret-input">
@@ -107,91 +107,40 @@
   </div>
 </div>
 
-{% if not shifts_by_event %}
-  <div class="alert alert-info">
-    <i class="fa fa-info-circle"></i>
-    {% blocktranslate trimmed %}
-      You have no shifts assigned yet.
-    {% endblocktranslate %}
-  </div>
-{% else %}
-  {% for event, assignments in shifts_by_event.items %}
-    <div class="panel panel-default my-shifts-event-panel">
-      <div class="panel-heading">
-        <div class="my-shifts-event-header">
-          <h3 class="panel-title">
-            <a href="{% url 'presale:event.index' event=event.slug organizer=event.organizer.slug %}">
-              {{ event.name }}
-            </a>
-            <span class="text-muted my-shifts-event-dates">{{ event.get_date_range_display }}</span>
-            <span class="badge">{{ assignments|length }}</span>
-          </h3>
-          <div class="my-shifts-event-actions">
-            {% with links=event_calendar_links|dict_get:event.pk %}
-              <div class="btn-group">
-                <button type="button" class="btn btn-xs btn-default dropdown-toggle" data-toggle="dropdown"
-                        aria-haspopup="true" aria-expanded="false">
-                  <i class="fa fa-calendar-plus-o"></i>
-                  {% translate "Add these shifts to calendar" %}
-                  <span class="caret"></span>
-                </button>
-                <ul class="dropdown-menu dropdown-menu-right">
-                  <li>
-                    <a href="{{ links.google }}" target="_blank" rel="noopener noreferrer">
-                      <i class="fa fa-google"></i> {% translate "Google Calendar" %}
-                    </a>
-                  </li>
-                  <li>
-                    <a href="{{ links.webcal }}"><i class="fa fa-apple"></i> {% translate "Apple / Outlook" %}</a>
-                  </li>
-                  <li>
-                    <a href="{{ links.download }}"><i class="fa fa-download"></i> {% translate "Download .ics file" %}</a>
-                  </li>
-                </ul>
-              </div>
-            {% endwith %}
-            {% if event.pk|in_set:cert_event_ids %}
-              <a href="{% url 'plugins:teamshifts:my_shifts_certificate_download' event_id=event.pk %}"
-                 class="btn btn-xs btn-primary my-shifts-cert-btn">
-                <i class="fa fa-download"></i>
-                {% translate "Download Certificate" %}
-              </a>
-            {% else %}
-              <button type="button"
-                      class="btn btn-xs btn-default my-shifts-cert-btn" disabled
-                      title="{% translate 'Certificate not yet available' %}">
-                <i class="fa fa-download"></i>
-                {% translate "Download Certificate" %}
-              </button>
-            {% endif %}
-          </div>
-        </div>
-      </div>
-      <div class="table-responsive">
-        <table class="table table-condensed table-hover">
-          <thead>
-            <tr>
-              <th>{% translate "Date" %}</th>
-              <th>{% translate "Time" %}</th>
-              <th>{% translate "Shift" %}</th>
-              <th>{% translate "Role" %}</th>
-              <th>{% translate "Location" %}</th>
-              <th>{% translate "Status" %}</th>
-              <th>{% translate "Actions" %}</th>
-            </tr>
-          </thead>
-          <tbody>
+<div data-ajax-results-region>
+  {% if assignments %}
+    <div class="table-responsive mt-3">
+      <table class="table table-condensed table-hover events-table">
+        <thead>
+          <tr>
+            <th>{% translate "Shift" %}</th>
+            <th>{% translate "Event" %}</th>
+            <th>{% translate "Date" %}</th>
+            <th>{% translate "Time" %}</th>
+            <th>{% translate "Role" %}</th>
+            <th>{% translate "Location" %}</th>
+            <th>{% translate "Status" %}</th>
+            <th class="text-right"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for assignment in assignments %}
+            {% with event=assignment.shift.event %}
             {% timezone event.timezone %}
-            {% for assignment in assignments %}
               <tr>
+                <td class="event-name-col" data-label="{% translate 'Shift' %}">
+                  {{ assignment.shift.name|default:"—" }}
+                </td>
+                <td data-label="{% translate 'Event' %}">
+                  <a href="{% url 'presale:event.index' event=event.slug organizer=event.organizer.slug %}">
+                    {{ event.name }}
+                  </a>
+                </td>
                 <td data-label="{% translate 'Date' %}">
                   {{ assignment.shift.start_time|date:"D, N j" }}
                 </td>
                 <td data-label="{% translate 'Time' %}">
                   {{ assignment.shift.start_time|time:"H:i" }}–{{ assignment.shift.end_time|time:"H:i" }}
-                </td>
-                <td data-label="{% translate 'Shift' %}">
-                  {{ assignment.shift.name|default:"—" }}
                 </td>
                 <td data-label="{% translate 'Role' %}">
                   {% if assignment.role %}
@@ -221,10 +170,10 @@
                     <span class="label label-default">{% translate "Pending" %}</span>
                   {% endif %}
                 </td>
-                <td data-label="{% translate 'Actions' %}">
-                  {% if assignment.started_at and not assignment.ended_at %}
+                <td class="text-right events-table__cell--no-border">
+                  {% if assignment.started_at and not assignment.ended_at and event.pk|in_set:checkout_event_ids %}
                     <form method="post"
-                          action="{% url 'plugins:teamshifts:shift_checkout' organizer=event.organizer.slug event=event.slug pk=assignment.pk %}"
+                          action="{% url 'plugins:teamshifts:shift_checkout' pk=assignment.pk %}"
                           class="shift-checkout-form">
                       {% csrf_token %}
                       <button type="submit" class="btn btn-warning btn-xs">
@@ -233,7 +182,7 @@
                       </button>
                     </form>
                   {% elif event.pk|in_set:published_event_ids and assignment.shift.start_time > now %}
-                    <form method="post"
+                    <form method="post" class="my-shifts-drop-form"
                           action="{% url 'plugins:teamshifts:public_shift_withdraw' organizer=event.organizer.slug event=event.slug pk=assignment.shift_id %}">
                       {% csrf_token %}
                       {% if assignment.role_id %}
@@ -244,17 +193,54 @@
                         {% translate "Drop shift" %}
                       </button>
                     </form>
-                  {% else %}
-                    —
                   {% endif %}
+                  {% ifchanged event.pk %}
+                    {% with links=event_calendar_links|dict_get:event.pk %}
+                      <div class="btn-group">
+                        <button type="button" class="btn btn-default btn-xs dropdown-toggle" data-toggle="dropdown"
+                                aria-haspopup="true" aria-expanded="false">
+                          <i class="fa fa-calendar-plus-o"></i>
+                          {% translate "Add these shifts to calendar" %}
+                          <span class="caret"></span>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-right">
+                          <li>
+                            <a href="{{ links.google }}" target="_blank" rel="noopener noreferrer">
+                              <i class="fa fa-google"></i> {% translate "Google Calendar" %}
+                            </a>
+                          </li>
+                          <li>
+                            <a href="{{ links.webcal }}"><i class="fa fa-apple"></i> {% translate "Apple / Outlook" %}</a>
+                          </li>
+                          <li>
+                            <a href="{{ links.download }}"><i class="fa fa-download"></i> {% translate "Download .ics file" %}</a>
+                          </li>
+                        </ul>
+                      </div>
+                    {% endwith %}
+                    {% if event.pk|in_set:cert_event_ids %}
+                      <a href="{% url 'plugins:teamshifts:my_shifts_certificate_download' event_id=event.pk %}"
+                         class="btn btn-default btn-xs my-shifts-cert-btn">
+                        <i class="fa fa-download"></i>
+                        {% translate "Certificate" %}
+                      </a>
+                    {% endif %}
+                  {% endifchanged %}
                 </td>
               </tr>
-            {% endfor %}
             {% endtimezone %}
-          </tbody>
-        </table>
-      </div>
+            {% endwith %}
+          {% endfor %}
+        </tbody>
+      </table>
     </div>
-  {% endfor %}
-{% endif %}
+  {% else %}
+    <div class="alert alert-info">
+      <i class="fa fa-info-circle"></i>
+      {% blocktranslate trimmed %}
+        You have no shifts assigned yet.
+      {% endblocktranslate %}
+    </div>
+  {% endif %}
+</div>
 {% endblock %}

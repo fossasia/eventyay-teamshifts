@@ -34,6 +34,18 @@ function setupStatusDropdowns() {
     });
 }
 
+function refreshSelectedCount() {
+    const checked = document.querySelectorAll(".app-checkbox:checked").length;
+    const countLabel = document.getElementById("applications-selected-count");
+
+    if (!countLabel) {
+        return;
+    }
+
+    countLabel.textContent = checked > 0 ? `${checked} ${gettext("selected")}` : "";
+    countLabel.hidden = checked === 0;
+}
+
 function setupSelectAll() {
     const selectAll = document.getElementById("select-all");
     if (!selectAll) {
@@ -44,6 +56,13 @@ function setupSelectAll() {
         document.querySelectorAll(".app-checkbox").forEach((checkbox) => {
             checkbox.checked = selectAll.checked;
         });
+        refreshSelectedCount();
+    });
+}
+
+function setupCheckboxes() {
+    document.querySelectorAll(".app-checkbox").forEach((checkbox) => {
+        checkbox.addEventListener("change", refreshSelectedCount);
     });
 }
 
@@ -79,5 +98,7 @@ function setupBulkActions() {
 document.addEventListener("DOMContentLoaded", () => {
     setupStatusDropdowns();
     setupSelectAll();
+    setupCheckboxes();
     setupBulkActions();
+    refreshSelectedCount();
 });

@@ -1254,6 +1254,27 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
                 initial["status"] = ApplicationStatus.ACCEPTED
             else:
                 initial["status"] = draft.status_filter or ""
+        template_pk = self.request.GET.get("template")
+        try:
+            template_pk = int(template_pk)
+        except (TypeError, ValueError):
+            template_pk = None
+
+        if template_pk is not None:
+            with scope(event=self.request.event):
+                template = TeamShiftsCustomEmailTemplate.objects.filter(
+                    event=self.request.event,
+                    pk=template_pk,
+                ).first()
+            if template:
+                initial["subject"] = template.subject
+                initial["message"] = template.body
+        if self.request.GET.get("template_picker") == "1":
+            initial["status"] = self.request.GET.get("status", "")
+            initial["send_after"] = self.request.GET.get("send_after", "")
+            initial["individual_volunteers"] = self.request.GET.getlist("individual_volunteers")
+
+        if draft is not None:
             return initial
         copy_pk = self.request.GET.get("copy")
         if copy_pk and copy_pk.isdigit():
@@ -1272,6 +1293,8 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
         ctx["preview_recipients"] = getattr(self, "_preview_recipients", None)
         ctx["can_view_email"] = can_view_email_addresses(self.request.user, self.request.organizer, self.request.event, request=self.request)
         ctx["draft"] = self.get_draft()
+        with scope(event=self.request.event):
+            ctx["custom_templates"] = list(TeamShiftsCustomEmailTemplate.objects.filter(event=self.request.event))
         return ctx
 
     def form_invalid(self, form):

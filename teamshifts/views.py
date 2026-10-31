@@ -625,6 +625,25 @@ class EmailTemplateEditView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin
         )
 
 
+class EmailTemplateResetView(EmailTemplateEditView):
+    template_name = "teamshifts/email_template_reset.html"
+
+    def get(self, request, *args, **kwargs):
+        template = self._get_or_seed(request, kwargs["role"])
+        return render(request, self.template_name, {"role_label": EmailTemplateRoles(template.role).label})
+
+    def post(self, request, *args, **kwargs):
+        template = self._get_or_seed(request, kwargs["role"])
+        with scope(event=request.event):
+            request.event.call_for_team_members.reset_mail_template(template.role)
+        messages.success(request, _("Template reset to the default text."))
+        return redirect(
+            "plugins:teamshifts:email_templates",
+            organizer=request.organizer.slug,
+            event=request.event.slug,
+        )
+
+
 class QuestionEditView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):
     permission = "can_teamshifts_manage_applicants"
     template_name = "teamshifts/question_edit.html"

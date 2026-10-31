@@ -39,7 +39,13 @@
             <h4 class='panel-title'>
               <strong>{{ panel.label }}</strong>
               {% if panel.is_customised %}
-                <span class='label label-info pull-right'>{% trans "Customised" %}</span>
+                <span class='pull-right'>
+                  <span class='label label-info'>{% trans "Customised" %}</span>
+                  <a href='{% url "plugins:teamshifts:email_template_reset" organizer=request.organizer.slug event=request.event.slug role=panel.role %}'
+                     class='btn btn-default btn-xs'>
+                    <i class='fa fa-undo'></i> {% trans "Reset to default" %}
+                  </a>
+                </span>
               {% endif %}
             </h4>
           </summary>

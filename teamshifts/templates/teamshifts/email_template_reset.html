@@ -1,0 +1,40 @@
+{% extends "teamshifts/base.html" %}
+{% load i18n %}
+{% load bootstrap3 %}
+
+{% block title %}{% trans "Reset Template" %}{% endblock %}
+
+{% block teamshifts_header %}
+  <h1>{% trans "Reset Template" %}</h1>
+{% endblock %}
+
+{% block teamshifts_content %}
+    <form action="" method="post" class="form-horizontal">
+        {% csrf_token %}
+        <div class="panel panel-warning">
+            <div class="panel-heading">
+                <h3 class="panel-title">{% trans "Reset Template" %}</h3>
+            </div>
+            <div class="panel-body">
+                <p>
+                    {% blocktrans trimmed with name=role_label %}
+                        Are you sure you want to reset the template "<strong>{{ name }}</strong>" to the default subject and text?
+                    {% endblocktrans %}
+                </p>
+                <p>
+                    <em>{% trans "Your changes to this template will be lost. This action cannot be undone." %}</em>
+                </p>
+            </div>
+            <div class="panel-footer">
+                <div class="form-group submit-group">
+                    <a href='{% url "plugins:teamshifts:email_templates" organizer=request.organizer.slug event=request.event.slug %}' class="btn btn-default">
+                        {% trans "Cancel" %}
+                    </a>
+                    <button type="submit" class="btn btn-warning btn-save">
+                        <span class="fa fa-undo"></span> {% trans "Reset to default" %}
+                    </button>
+                </div>
+            </div>
+        </div>
+    </form>
+{% endblock %}

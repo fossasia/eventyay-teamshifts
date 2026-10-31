@@ -168,6 +168,22 @@ SHIFT_DROPPED_ORGANIZER_TEXT = LazyI18nString.from_gettext(
     )
 )
 
+SHIFT_SUMMARY_SUBJECT = LazyI18nString.from_gettext(_("Your shifts for {event_name}"))
+SHIFT_SUMMARY_TEXT = LazyI18nString.from_gettext(
+    _(
+        "Hi {full_name},\n\n"
+        "Your shifts for {event_name} changed. Here is a summary of all your current shifts:\n\n"
+        "{shift_summary}\n\n"
+        "You can view all your shifts here:\n"
+        "{my_shifts_url}\n\n"
+        "To drop a shift, use the shift schedule:\n"
+        "{shift_schedule_url}\n\n"
+        "Best regards,\n"
+        "The {event_name} team"
+    )
+)
+
+
 SHIFT_REMINDER_SUBJECT = LazyI18nString.from_gettext(_("Reminder: your shift overview for {event_name}"))
 SHIFT_REMINDER_TEXT = LazyI18nString.from_gettext(
     _(
@@ -197,6 +213,7 @@ def get_default_template(role: str) -> tuple[LazyI18nString, LazyI18nString]:
         EmailTemplateRoles.SHIFT_CLAIMED_BY_VOLUNTEER: (SHIFT_CLAIMED_BY_VOLUNTEER_SUBJECT, SHIFT_CLAIMED_BY_VOLUNTEER_TEXT),
         EmailTemplateRoles.SHIFT_DROPPED_BY_VOLUNTEER: (SHIFT_DROPPED_BY_VOLUNTEER_SUBJECT, SHIFT_DROPPED_BY_VOLUNTEER_TEXT),
         EmailTemplateRoles.SHIFT_DROPPED_ORGANIZER: (SHIFT_DROPPED_ORGANIZER_SUBJECT, SHIFT_DROPPED_ORGANIZER_TEXT),
+        EmailTemplateRoles.SHIFT_SUMMARY: (SHIFT_SUMMARY_SUBJECT, SHIFT_SUMMARY_TEXT),
         EmailTemplateRoles.VOUCHER_SENT: (VOUCHER_SENT_SUBJECT, VOUCHER_SENT_TEXT),
         EmailTemplateRoles.CERTIFICATE_GENERATED: (CERTIFICATE_GENERATED_SUBJECT, CERTIFICATE_GENERATED_TEXT),
         EmailTemplateRoles.SHIFT_REMINDER: (SHIFT_REMINDER_SUBJECT, SHIFT_REMINDER_TEXT),

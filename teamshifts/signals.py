@@ -23,6 +23,7 @@ from .permissions import has_any_teamshifts_permission
 from .services.certificates import events_awaiting_certificates, issue_event_end_certificates_task
 from .services.checkin import handle_volunteer_checkin, handle_volunteer_checkout
 from .services.reminders import my_shifts_url
+from .services.shift_summary import build_shift_summary_sample
 from .tasks import send_queued_email
 
 logger = logging.getLogger(__name__)
@@ -177,7 +178,13 @@ def teamshifts_mail_placeholders(sender, **kwargs):
             "my_shifts_url",
             ["event"],
             lambda event: my_shifts_url(),
-            lambda event: "https://example.com/common/my-shifts/",
+            lambda event: my_shifts_url(),
+        ),
+        SimpleFunctionalMailTextPlaceholder(
+            "shift_summary",
+            ["shift_summary"],
+            lambda shift_summary: shift_summary,
+            build_shift_summary_sample,
         ),
         SimpleFunctionalMailTextPlaceholder(
             "shift_list",

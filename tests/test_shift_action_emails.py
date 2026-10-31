@@ -177,7 +177,7 @@ def test_drop_opt_out_skips_email(mock_queue, _mock_send, client, event, applica
     with scope(event=event):
         assert not ShiftAssignment.objects.filter(shift=shift, team_member=volunteer).exists()
         # Organizers are still told about the drop.
-        queue = TeamShiftsEmailQueue.objects.get(event=event)
+        queue = TeamShiftsEmailQueue.objects.get(event=event, is_shift_summary=False)
         assert [r.email for r in queue.recipients.all()] == [organizer_user.email]
         assert str(queue.subject) == str(get_default_template(EmailTemplateRoles.SHIFT_DROPPED_ORGANIZER)[0])
         assert (queue.user, queue.shift, queue.shift_role) == (volunteer, shift, team_role)

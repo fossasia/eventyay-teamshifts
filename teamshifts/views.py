@@ -424,8 +424,6 @@ class EmailTemplateListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin
         with scope(event=event):
             cfm, _created = CallForTeamMembers.objects.get_or_create(event=event)
 
-        from .mail.default_templates import get_default_template
-
         panels = []
         for role in EmailTemplateRoles.values:
             with scope(event=event):
@@ -438,13 +436,13 @@ class EmailTemplateListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin
             )
             is_customised = False
             if template.pk:
-                default_subject, default_body = get_default_template(role)
-                db_subject = str(template.subject).replace("\r\n", "\n").strip()
-                db_body = str(template.body).replace("\r\n", "\n").strip()
-                def_subject = str(default_subject).replace("\r\n", "\n").strip()
-                def_body = str(default_body).replace("\r\n", "\n").strip()
-                if db_subject != def_subject or db_body != def_body:
-                    is_customised = True
+                default_subject, default_body = cfm.default_mail_texts(role)
+                # Check every event language, so an edit in a secondary language still counts.
+                is_customised = any(
+                    _normalised(stored, locale) != _normalised(default, locale)
+                    for locale in event.locales
+                    for stored, default in ((template.subject, default_subject), (template.body, default_body))
+                )
             panels.append(
                 {
                     "role": role,
@@ -623,6 +621,11 @@ class EmailTemplateEditView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin
                 "email_placeholders": _TEMPLATE_PLACEHOLDERS,
             },
         )
+
+
+def _normalised(text, locale):
+    value = text.localize(locale) if hasattr(text, "localize") else text
+    return str(value or "").replace("\r\n", "\n").strip()
 
 
 class EmailTemplateResetView(EmailTemplateEditView):

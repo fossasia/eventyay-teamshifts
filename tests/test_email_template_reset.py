@@ -64,6 +64,31 @@ def test_reset_restores_default_text_and_keeps_other_settings(client, event, org
 
 
 @pytest.mark.django_db
+def test_change_in_secondary_language_counts_as_customised(client, event, organizer_user, cfm):
+    event.settings.locales = ["en", "de"]
+    with scope(event=event):
+        template = cfm.get_mail_template(ROLE)
+        assert _panel_is_customised(client, event, organizer_user) is False
+        body = dict(template.body.data)
+        body["de"] = "Eigener Text"
+        template.body = LazyI18nString(body)
+        template.save()
+
+    assert _panel_is_customised(client, event, organizer_user) is True
+
+    client.post(_url("email_template_reset", event, role=ROLE))
+
+    template.refresh_from_db()
+    assert template.body.localize("de") != "Eigener Text"
+    assert _panel_is_customised(client, event, organizer_user) is False
+
+
+def _panel_is_customised(client, event, user):
+    client.force_login(user)
+    return _panel(client.get(_url("email_templates", event)), ROLE)["is_customised"]
+
+
+@pytest.mark.django_db
 def test_reset_asks_for_confirmation_first(client, event, organizer_user, customised):
     client.force_login(organizer_user)
 

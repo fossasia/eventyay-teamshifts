@@ -184,17 +184,7 @@ class CallForTeamMembers(models.Model):
                     template.save(update_fields=["subject", "body"])
             return template
         except TeamShiftsEmailTemplate.DoesNotExist:
-            default_subject, default_text = get_default_template(role)
-            fallback_subject = str(default_subject.localize("en") or default_subject)
-            fallback_body = str(default_text.localize("en") or default_text)
-            subject_data = {}
-            body_data = {}
-            for locale in self.event.locales:
-                if locale:
-                    subject_data[locale] = str(default_subject.localize(locale)) or fallback_subject
-                    body_data[locale] = str(default_text.localize(locale)) or fallback_body
-            subject = LazyI18nString(subject_data) if subject_data else default_subject
-            body = LazyI18nString(body_data) if body_data else default_text
+            subject, body = self._default_mail_texts(role)
             with scope(event=self.event):
                 template, _ = TeamShiftsEmailTemplate.objects.get_or_create(
                     event=self.event,
@@ -202,6 +192,32 @@ class CallForTeamMembers(models.Model):
                     defaults={"subject": subject, "body": body},
                 )
             return template
+
+    def reset_mail_template(self, role: str) -> "TeamShiftsEmailTemplate":
+        """Restore the default subject and body, keeping the template's other settings."""
+        template = self.get_mail_template(role)
+        template.subject, template.body = self._default_mail_texts(role)
+        with scope(event=self.event):
+            template.save(update_fields=["subject", "body"])
+        return template
+
+    def _default_mail_texts(self, role: str):
+        from i18nfield.strings import LazyI18nString
+
+        from .mail.default_templates import get_default_template
+
+        default_subject, default_text = get_default_template(role)
+        fallback_subject = str(default_subject.localize("en") or default_subject)
+        fallback_body = str(default_text.localize("en") or default_text)
+        subject_data = {}
+        body_data = {}
+        for locale in self.event.locales:
+            if locale:
+                subject_data[locale] = str(default_subject.localize(locale)) or fallback_subject
+                body_data[locale] = str(default_text.localize(locale)) or fallback_body
+        subject = LazyI18nString(subject_data) if subject_data else default_subject
+        body = LazyI18nString(body_data) if body_data else default_text
+        return subject, body
 
     def __str__(self):
         return f"{self.title} — {self.event.slug} ({'active' if self.active else 'inactive'})"

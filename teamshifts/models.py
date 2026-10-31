@@ -184,7 +184,7 @@ class CallForTeamMembers(models.Model):
                     template.save(update_fields=["subject", "body"])
             return template
         except TeamShiftsEmailTemplate.DoesNotExist:
-            subject, body = self._default_mail_texts(role)
+            subject, body = self.default_mail_texts(role)
             with scope(event=self.event):
                 template, _ = TeamShiftsEmailTemplate.objects.get_or_create(
                     event=self.event,
@@ -196,12 +196,12 @@ class CallForTeamMembers(models.Model):
     def reset_mail_template(self, role: str) -> "TeamShiftsEmailTemplate":
         """Restore the default subject and body, keeping the template's other settings."""
         template = self.get_mail_template(role)
-        template.subject, template.body = self._default_mail_texts(role)
+        template.subject, template.body = self.default_mail_texts(role)
         with scope(event=self.event):
             template.save(update_fields=["subject", "body"])
         return template
 
-    def _default_mail_texts(self, role: str):
+    def default_mail_texts(self, role: str):
         from i18nfield.strings import LazyI18nString
 
         from .mail.default_templates import get_default_template

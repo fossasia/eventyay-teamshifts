@@ -215,7 +215,8 @@ label .optional {
   white-space: nowrap;
 }
 
-.shift-checkout-form {
+.shift-checkout-form,
+.my-shifts-drop-form {
   display: inline-block;
 }
 

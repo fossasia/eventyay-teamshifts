@@ -312,9 +312,10 @@ def test_my_shifts_global_table_matches_common_area(client, user, event, cfm, ac
     assert response.status_code == 200
     content = response.content.decode("utf-8")
     assert "table table-condensed table-hover events-table" in content
-    assert 'class="panel panel-default' not in content
-    assert 'class="panel-heading"' not in content
-    assert 'class="panel-body"' not in content
+    # The only panel left is the collapsible "Add to calendar" one; shifts are no longer grouped into per-event panels.
+    assert "my-shifts-event-panel" not in content
+    assert content.count('class="panel panel-default') == 1
+    assert content.count('class="panel-heading"') == 1
     assert "<h1>My shifts</h1>" in content
     assert content.count("<table") == 1
     assert "<th>Event</th>" in content

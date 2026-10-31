@@ -86,9 +86,34 @@ event_patterns = [
 
 urlpatterns = [
     path(
+        "my-shifts/calendar/<slug:token>.ics",
+        views.MyShiftsCalendarFeedView.as_view(),
+        name="my_shifts_calendar_feed",
+    ),
+    path(
         "common/my-shifts/",
         views.MyShiftsGlobalView.as_view(),
         name="my_shifts_global",
+    ),
+    path(
+        "common/my-shifts/calendar.ics",
+        views.MyShiftsCalendarDownloadView.as_view(),
+        name="my_shifts_calendar_download",
+    ),
+    path(
+        "common/my-shifts/calendar/export/google-calendar/",
+        views.MyShiftsCalendarRedirectView.as_view(),
+        name="my_shifts_calendar_google",
+    ),
+    path(
+        "common/my-shifts/calendar/export/webcal/",
+        views.MyShiftsCalendarRedirectView.as_view(),
+        name="my_shifts_calendar_webcal",
+    ),
+    path(
+        "common/my-shifts/calendar/reset/",
+        views.MyShiftsCalendarResetView.as_view(),
+        name="my_shifts_calendar_reset",
     ),
     path(
         "common/my-shifts/certificate/<int:event_id>/",
@@ -261,6 +286,11 @@ urlpatterns = [
         name="bulk_send_certificates",
     ),
     path(
+        "teamshifts/event/<orgslug:organizer>/<slug:event>/members/remove/",
+        views.BulkRemoveMembersView.as_view(),
+        name="bulk_remove_members",
+    ),
+    path(
         "teamshifts/event/<orgslug:organizer>/<slug:event>/voucher-settings/",
         views.VoucherSettingsView.as_view(),
         name="voucher_settings",
@@ -299,6 +329,11 @@ urlpatterns = [
         "teamshifts/event/<orgslug:organizer>/<slug:event>/emails/compose/",
         views.EmailComposeView.as_view(),
         name="email_compose",
+    ),
+    path(
+        "teamshifts/event/<orgslug:organizer>/<slug:event>/emails/compose/volunteers/select2/",
+        views.ComposeVolunteersSelect2View.as_view(),
+        name="compose_volunteers_select2",
     ),
     path(
         "teamshifts/event/<orgslug:organizer>/<slug:event>/emails/outbox/",

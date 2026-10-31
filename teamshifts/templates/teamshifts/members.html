@@ -27,6 +27,30 @@
     </form>
   {% endif %}
 
+  {% if can_remove_members %}
+    <dialog id='remove-members-dialog' class='pretix-confirm-dialog ts-remove-members-dialog' aria-labelledby='remove-members-title'>
+      <form method='post' action='{% url "plugins:teamshifts:bulk_remove_members" organizer=request.organizer.slug event=request.event.slug %}' id='remove-members-form'>
+        {% csrf_token %}
+        <h4 class='pretix-confirm-dialog__title' id='remove-members-title'></h4>
+        <p>{% trans "They will no longer be team members of this event and can't see the shift schedule or sign up for shifts." %}</p>
+        <ul id='remove-members-list'></ul>
+        <div class='alert alert-warning' id='remove-members-spots'></div>
+        <div class='checkbox'>
+          <label><input type='checkbox' name='notify' checked> {% trans 'Notify them by email' %}</label>
+          <p class='help-block'>{% trans 'Uses the "Removed from team" email template. No rejection email is sent.' %}</p>
+        </div>
+        <div class='checkbox'>
+          <label><input type='checkbox' name='cancel_vouchers'> {% trans 'Cancel their unused ticket vouchers' %}</label>
+          <p class='help-block'>{% trans 'Vouchers that have already been used to get a ticket are not affected.' %}</p>
+        </div>
+        <div class='pretix-confirm-dialog__actions text-right'>
+          <button type='button' class='btn btn-default' id='remove-members-cancel'>{% trans 'Cancel' %}</button>
+          <button type='submit' class='btn btn-danger' id='remove-members-confirm'></button>
+        </div>
+      </form>
+    </dialog>
+  {% endif %}
+
   <div class='teamshifts-filter-bar'>
     <form method='get' class='form-inline'>
       <div class='form-group'>
@@ -99,9 +123,17 @@
         </div>
       </details>
     {% endif %}
+    {% if can_remove_members %}
+      <button type='button' class='btn btn-danger' id='bulk-remove-btn' disabled>
+        <i class='fa fa-user-times'></i> {% trans 'Remove from team' %}
+      </button>
+    {% endif %}
   </div>
 
   {% if members %}
+    {% if can_remove_members %}
+      <p class='teamshifts-selected-count text-muted' id='members-selected-count' hidden></p>
+    {% endif %}
     <div class='table-responsive'>
       <table class='table table-hover table-quotas'>
         <thead>
@@ -128,7 +160,7 @@
           {% for member in members %}
             <tr>
               <td class='checkbox-column'>
-                <input type='checkbox' data-member-id='{{ member.pk }}' class='member-checkbox'>
+                <input type='checkbox' data-member-id='{{ member.pk }}' data-member-name='{{ member.user.fullname|default:member.user.email }}' data-upcoming-shifts='{{ member.upcoming_shifts|default:0 }}' class='member-checkbox'>
               </td>
               <td>
                 <strong>

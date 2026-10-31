@@ -48,6 +48,7 @@ class ApplicationStatus(models.TextChoices):
     PENDING = "pending", _("Pending")
     ACCEPTED = "accepted", _("Accepted")
     REJECTED = "rejected", _("Rejected")
+    REMOVED = "removed", _("Removed")
 
 
 class AskChoices(models.TextChoices):
@@ -513,6 +514,33 @@ class ShiftCalendarToken(models.Model):
         self.save(update_fields=["token", "regenerated_at"])
 
 
+class ShiftReminder(models.Model):
+    event = models.ForeignKey(
+        "base.Event",
+        on_delete=models.CASCADE,
+        related_name="teamshifts_shift_reminders",
+    )
+    user = models.ForeignKey(
+        "base.User",
+        on_delete=models.CASCADE,
+        related_name="teamshifts_shift_reminders",
+    )
+    day = models.DateField(help_text=_("Event-local date of the shifts this reminder covered."))
+    claimed_at = models.DateTimeField(auto_now_add=True)
+    attempts = models.PositiveSmallIntegerField(default=1)
+    sent_at = models.DateTimeField(null=True, blank=True)
+
+    objects = ScopedManager(event="event")
+
+    class Meta:
+        verbose_name = _("Shift reminder")
+        verbose_name_plural = _("Shift reminders")
+        unique_together = ("event", "user", "day")
+
+    def __str__(self):
+        return f"{self.user.email} · {self.day}"
+
+
 class QuestionVariant(models.TextChoices):
     STRING = "string", _("Text (one line)")
     TEXT = "text", _("Multi-line text")
@@ -621,12 +649,14 @@ class EmailTemplateRoles(models.TextChoices):
     APPLICATION_REJECTED = "teamshifts.application.rejected", _("Application rejected")
     NEW_APPLICATION_ORGANIZER = "teamshifts.application.organizer", _("New application (organizer notification)")
     MEMBER_ADDED_BY_ORGANIZER = "teamshifts.member.added_by_organizer", _("Added as volunteer by organizer")
+    MEMBER_REMOVED = "teamshifts.member.removed", _("Removed from team")
     SHIFT_ASSIGNED_BY_ORGANIZER = "teamshifts.shift.assigned_by_organizer", _("Shift assigned by organizer")
     SHIFT_CLAIMED_BY_VOLUNTEER = "teamshifts.shift.claimed_by_volunteer", _("Shift sign-up confirmation")
     SHIFT_DROPPED_BY_VOLUNTEER = "teamshifts.shift.dropped_by_volunteer", _("Shift drop confirmation")
     SHIFT_DROPPED_ORGANIZER = "teamshifts.shift.dropped_organizer", _("Shift dropped (organizer notification)")
     VOUCHER_SENT = "teamshifts.voucher.sent", _("Voucher sent to volunteer")
     CERTIFICATE_GENERATED = "teamshifts.certificate.generated", _("Certificate of participation generated")
+    SHIFT_REMINDER = "teamshifts.shift.reminder", _("Shift reminder (24 hours before)")
 
 
 EMAIL_TYPE_LABELS = {
@@ -635,12 +665,14 @@ EMAIL_TYPE_LABELS = {
     EmailTemplateRoles.APPLICATION_REJECTED: _("Application rejected"),
     EmailTemplateRoles.NEW_APPLICATION_ORGANIZER: _("Organizer notification"),
     EmailTemplateRoles.MEMBER_ADDED_BY_ORGANIZER: _("Added by organizer"),
+    EmailTemplateRoles.MEMBER_REMOVED: _("Removed from team"),
     EmailTemplateRoles.SHIFT_ASSIGNED_BY_ORGANIZER: _("Shift assigned"),
     EmailTemplateRoles.SHIFT_CLAIMED_BY_VOLUNTEER: _("Shift sign-up"),
     EmailTemplateRoles.SHIFT_DROPPED_BY_VOLUNTEER: _("Shift dropped"),
     EmailTemplateRoles.SHIFT_DROPPED_ORGANIZER: _("Organizer notification"),
     EmailTemplateRoles.VOUCHER_SENT: _("Voucher"),
     EmailTemplateRoles.CERTIFICATE_GENERATED: _("Certificate"),
+    EmailTemplateRoles.SHIFT_REMINDER: _("Shift reminder"),
 }
 
 
@@ -765,6 +797,7 @@ class TeamShiftsEmailTemplate(models.Model):
     role = models.CharField(max_length=40, choices=EmailTemplateRoles.choices)
     subject = I18nTextField()
     body = I18nTextField()
+    send_automatically = models.BooleanField(default=True, db_default=True, verbose_name=_("Send automatically"))
     updated = models.DateTimeField(auto_now=True)
 
     objects = ScopedManager(event="event")

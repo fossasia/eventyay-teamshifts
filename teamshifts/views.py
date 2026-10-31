@@ -2630,22 +2630,28 @@ class ShiftScheduleTalksAPIView(PluginActiveMixin, TeamShiftsPermissionRequiredM
             else:
                 shift_name = "Shift"
 
-            shift = Shift.objects.create(
-                event=event,
-                name=shift_name,
-                description=data.get("description", ""),
-                location=location,
-                start_time=start,
-                end_time=end,
-            )
-
+            validated_roles = {}
             for role_data in data.get("roles", []):
                 role_id = role_data.get("id")
-                capacity = role_data.get("capacity", 1)
                 if role_id:
+                    role_id = int(role_id)
                     role = TeamRole.objects.filter(pk=role_id, event=event).first()
                     if not role:
                         return HttpResponseBadRequest("Role ID does not belong to this event.")
+                    if not can_act_on_role(request.user, request.organizer, event, role_id, request=request):
+                        return HttpResponseBadRequest("You cannot assign members to this role.")
+                    validated_roles[role_id] = (role, role_data.get("capacity", 1))
+
+            with transaction.atomic():
+                shift = Shift.objects.create(
+                    event=event,
+                    name=shift_name,
+                    description=data.get("description", ""),
+                    location=location,
+                    start_time=start,
+                    end_time=end,
+                )
+                for role, capacity in validated_roles.values():
                     ShiftRoleAssignment.objects.create(shift=shift, role=role, capacity=capacity)
 
             return JsonResponse({"id": shift.id})
@@ -2705,38 +2711,64 @@ class ShiftScheduleTalkAPIView(PluginActiveMixin, TeamShiftsPermissionRequiredMi
             if capacity_errors:
                 return JsonResponse({"detail": next(iter(capacity_errors.values()))}, status=400)
 
-            shift.save()
-
             if "roles" in data:
-                incoming_role_ids = set()
+                incoming_roles = {}
                 for role_data in data["roles"]:
                     role_id = role_data.get("id")
                     if role_id:
-                        incoming_role_ids.add(role_id)
+                        incoming_roles[int(role_id)] = role_data.get("capacity", 1)
+                incoming_role_ids = set(incoming_roles.keys())
                 valid_roles = TeamRole.objects.filter(pk__in=incoming_role_ids, event=event)
                 valid_role_ids = set(valid_roles.values_list("pk", flat=True))
                 invalid_ids = incoming_role_ids - valid_role_ids
                 if invalid_ids:
                     return HttpResponseBadRequest("One or more role IDs do not belong to this event.")
-                shift.assignments.exclude(role_id__in=incoming_role_ids).delete()
-                shift.role_assignments.all().delete()
-                for role_data in data["roles"]:
-                    role_id = role_data.get("id")
-                    capacity = role_data.get("capacity", 1)
-                    if role_id:
-                        ShiftRoleAssignment.objects.create(shift=shift, role_id=role_id, capacity=capacity)
+                existing_assignments = {ra.role_id: ra.capacity for ra in shift.role_assignments.all()}
+                existing_role_ids = set(existing_assignments.keys())
+                added_or_changed = {rid for rid, cap in incoming_roles.items() if rid not in existing_assignments or existing_assignments[rid] != cap}
+                for rid in added_or_changed:
+                    if not can_act_on_role(request.user, request.organizer, event, rid, request=request):
+                        return HttpResponseBadRequest("You cannot assign members to this role.")
+                removed_role_ids = existing_role_ids - incoming_role_ids
+                for rid in removed_role_ids:
+                    if not can_act_on_role(request.user, request.organizer, event, rid, request=request):
+                        return HttpResponseBadRequest("You cannot modify assignments for this role.")
+
+                with transaction.atomic():
+                    shift.save()
+                    shift.assignments.exclude(role_id__in=incoming_role_ids).delete()
+                    shift.role_assignments.all().delete()
+                    for rid, cap in incoming_roles.items():
+                        ShiftRoleAssignment.objects.create(shift=shift, role_id=rid, capacity=cap)
             elif "role" in data and "capacity" in data:
                 role_id = data["role"]
                 if role_id:
+                    role_id = int(role_id)
                     if not TeamRole.objects.filter(pk=role_id, event=event).exists():
                         return HttpResponseBadRequest("Role ID does not belong to this event.")
-                if role_id:
-                    shift.assignments.exclude(role_id=role_id).delete()
-                else:
-                    shift.assignments.all().delete()
-                shift.role_assignments.all().delete()
-                if role_id:
-                    ShiftRoleAssignment.objects.create(shift=shift, role_id=role_id, capacity=data.get("capacity", 1))
+                existing_assignments = {ra.role_id: ra.capacity for ra in shift.role_assignments.all()}
+                existing_role_ids = set(existing_assignments.keys())
+                new_capacity = data.get("capacity", 1)
+                is_changed = role_id and (role_id not in existing_assignments or existing_assignments[role_id] != new_capacity)
+                if is_changed:
+                    if not can_act_on_role(request.user, request.organizer, event, role_id, request=request):
+                        return HttpResponseBadRequest("You cannot assign members to this role.")
+                removed_role_ids = existing_role_ids - ({role_id} if role_id else set())
+                for rid in removed_role_ids:
+                    if not can_act_on_role(request.user, request.organizer, event, rid, request=request):
+                        return HttpResponseBadRequest("You cannot modify assignments for this role.")
+
+                with transaction.atomic():
+                    shift.save()
+                    if role_id:
+                        shift.assignments.exclude(role_id=role_id).delete()
+                    else:
+                        shift.assignments.all().delete()
+                    shift.role_assignments.all().delete()
+                    if role_id:
+                        ShiftRoleAssignment.objects.create(shift=shift, role_id=role_id, capacity=data.get("capacity", 1))
+            else:
+                shift.save()
 
             shift = Shift.objects.prefetch_related(
                 "role_assignments__role",

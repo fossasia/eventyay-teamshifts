@@ -3,35 +3,14 @@ import pytest
 from teamshifts.mail.default_templates import get_default_template
 from teamshifts.models import EmailTemplateRoles
 
-DEFAULT_TEAMSHIFTS_PREFIX_ROLES = [
-    EmailTemplateRoles.APPLICATION_RECEIVED,
-    EmailTemplateRoles.APPLICATION_ACCEPTED,
-    EmailTemplateRoles.APPLICATION_REJECTED,
-    EmailTemplateRoles.NEW_APPLICATION_ORGANIZER,
-    EmailTemplateRoles.MEMBER_ADDED_BY_ORGANIZER,
-    EmailTemplateRoles.SHIFT_ASSIGNED_BY_ORGANIZER,
-    EmailTemplateRoles.SHIFT_CLAIMED_BY_VOLUNTEER,
-    EmailTemplateRoles.SHIFT_DROPPED_BY_VOLUNTEER,
-    EmailTemplateRoles.SHIFT_DROPPED_ORGANIZER,
-    EmailTemplateRoles.VOUCHER_SENT,
-    EmailTemplateRoles.CERTIFICATE_GENERATED,
-]
-
-
-@pytest.mark.parametrize("role", DEFAULT_TEAMSHIFTS_PREFIX_ROLES)
-def test_default_application_and_shift_email_templates_have_teamshifts_prefix(role):
-    subject, _ = get_default_template(role)
-    subject_str = str(subject)
-
-    assert subject_str.startswith("Team shifts:"), f"Subject for {role} should start with 'Team shifts:', got: {subject_str}"
-
 
 @pytest.mark.parametrize("role", EmailTemplateRoles.values)
-def test_all_default_email_templates_have_event_context_and_non_empty_body(role):
+def test_all_default_email_templates_have_teamshifts_prefix_and_event_context(role):
     subject, body = get_default_template(role)
     subject_str = str(subject)
     body_str = str(body)
 
+    assert subject_str.startswith("Team shifts:"), f"Subject for {role} should start with 'Team shifts:', got: {subject_str}"
     assert "{event_name}" in subject_str, f"Subject for {role} must contain '{{event_name}}'"
     assert body_str.strip() != "", f"Body for {role} should not be empty"
 

@@ -66,7 +66,7 @@ MEMBER_ADDED_BY_ORGANIZER_TEXT = LazyI18nString.from_gettext(
     )
 )
 
-MEMBER_REMOVED_SUBJECT = LazyI18nString.from_gettext(_("Update on your participation — {event_name}"))
+MEMBER_REMOVED_SUBJECT = LazyI18nString.from_gettext(_("Team shifts: Update on your participation — {event_name}"))
 MEMBER_REMOVED_TEXT = LazyI18nString.from_gettext(
     _(
         "Hi {full_name},\n\n"
@@ -168,7 +168,7 @@ SHIFT_DROPPED_ORGANIZER_TEXT = LazyI18nString.from_gettext(
     )
 )
 
-SHIFT_REMINDER_SUBJECT = LazyI18nString.from_gettext(_("Reminder: your shift overview for {event_name}"))
+SHIFT_REMINDER_SUBJECT = LazyI18nString.from_gettext(_("Team shifts: Reminder: your shift overview for {event_name}"))
 SHIFT_REMINDER_TEXT = LazyI18nString.from_gettext(
     _(
         "Hi {full_name},\n\n"

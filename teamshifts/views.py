@@ -1297,8 +1297,11 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
             if status not in dict(EmailComposeForm(event=event, initial=self.get_initial()).fields["status"].choices):
                 status = ApplicationStatus.ACCEPTED
             status_filter, recipient_group = split_send_to(status)
-            user_ids = [int(pk) for pk in volunteer_ids if str(pk).isdigit()] if posted_volunteers else None
-            recipients = get_recipients(event, status=status_filter, group=recipient_group, user_ids=user_ids)
+            # An unusable explicit selection must never fall back to the (broader) "Send to" choice.
+            if volunteer_ids or not posted_volunteers:
+                recipients = get_recipients(event, status=status_filter, group=recipient_group, user_ids=volunteer_ids)
+            else:
+                recipients = []
             self._preview_recipients = recipients
             locales = list(event.settings.get("locales") or [event.settings.locale])
             subject_i18n = LazyI18nString({locales[i]: request.POST.get(f"subject_{i}", "") for i in range(len(locales))})

@@ -369,7 +369,7 @@ def _copy_page(client, event, queue):
 
 
 @pytest.mark.django_db
-def test_copying_an_email_sent_to_specific_volunteers_opens_on_accepted(coordinator_client, event, user, accepted):
+def test_copying_an_email_sent_to_specific_volunteers_restores_them(coordinator_client, event, user, accepted):
     sent = queue_email(event, "Hello", "<p>Body</p>", [accepted], user=user, individual_recipients=True, dispatch=False)
 
     html = _copy_page(coordinator_client, event, sent)
@@ -377,7 +377,7 @@ def test_copying_an_email_sent_to_specific_volunteers_opens_on_accepted(coordina
     assert '<option value="accepted" selected>' in html
     assert '<option value="" selected>' not in html
     assert "Hello" in html
-    assert f'<option value="{accepted.pk}" selected>' not in html
+    assert f'<option value="{accepted.pk}" selected>' in html
 
 
 @pytest.mark.django_db

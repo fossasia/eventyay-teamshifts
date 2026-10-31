@@ -40,7 +40,7 @@ def get_recipients(
     user_ids: Iterable[int] | None = None,
 ) -> list[User]:
     with scope(event=event):
-        if user_ids is not None:
+        if user_ids:
             qs = TeamMemberApplication.objects.filter(event=event, user_id__in=list(user_ids))
         elif group:
             qs = RecipientGroup(group).applications(event)

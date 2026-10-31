@@ -623,10 +623,10 @@ class EmailComposeForm(forms.Form):
 
         self.fields["individual_volunteers"] = VolunteerChoiceField(
             queryset=User.objects.filter(team_member_applications__event=event),
-            required=False,
+            required=require_people,
             show_email=show_emails,
             label=_("Send to specific people"),
-            help_text=_("Optional. When people are selected here, only they receive the email and the status filter is ignored."),
+            help_text=_("Optional. When people are selected here, only they receive the email and the selection above is ignored."),
             widget=VolunteerSelect2Multiple(
                 attrs={
                     "data-model-select2": "generic",
@@ -638,22 +638,6 @@ class EmailComposeForm(forms.Form):
                     "data-compose-volunteers": "1",
                 }
             ),
-        )
-
-        self.fields["individual_volunteers"] = forms.ModelMultipleChoiceField(
-            queryset=User.objects.filter(team_member_applications__event=event).distinct().order_by("fullname", "email"),
-            required=require_people,
-            label=_("Send to specific people"),
-            help_text=_("Optional. When people are selected here, only they receive the email and the selection above is ignored."),
-            widget=forms.SelectMultiple(
-                attrs={
-                    "class": "form-control select2-static",
-                    "data-placeholder": _("Search by name or email") if show_emails else _("Search by name"),
-                }
-            ),
-        )
-        self.fields["individual_volunteers"].label_from_instance = lambda user: (
-            (f"{user.fullname} ({user.email})" if user.fullname else user.email) if show_emails else user.fullname or f"#{user.pk}"
         )
 
         self.fields["send_after"] = forms.DateTimeField(

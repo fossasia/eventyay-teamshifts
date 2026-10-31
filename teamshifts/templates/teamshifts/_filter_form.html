@@ -1,0 +1,57 @@
+{% load i18n %}
+{% load bootstrap3 %}
+<div class="advanced-filter-search" data-advanced-filter-search>
+    <form class="{% if not ajax %}filter-form {% endif %}advanced-filter-search-form" action="" method="get"{% if ajax %} data-ajax{% endif %}>
+        <input type="hidden" name="ordering" value="{{ filter_form.current_ordering }}">
+        <div class="advanced-filter-search-bar">
+            <div class="input-group advanced-filter-search-query-group">
+                {{ filter_form.query }}
+                <span class="input-group-btn">
+                    <button class="btn btn-primary" type="submit">
+                        <span class="fa fa-search" aria-hidden="true"></span>
+                        {% trans "Search" %}
+                    </button>
+                </span>
+            </div>
+            <div class="advanced-filter-search-actions">
+                <a href="{{ request.path }}" class="btn btn-default btn-clear-filter"
+                   aria-label="{% trans 'Clear filters' %}" title="{% trans 'Clear filters' %}"
+                   data-toggle="tooltip">
+                    <span class="fa fa-eraser" aria-hidden="true"></span>
+                    <span class="sr-only">{% trans "Clear filters" %}</span>
+                </a>
+                {% if filter_form.advanced_fields %}
+                    <button type="button"
+                            class="btn btn-default advanced-filter-toggle"
+                            data-advanced-filter-toggle
+                            aria-controls="advanced-filter-advanced"
+                            aria-expanded="{% if advanced_filters_open %}true{% else %}false{% endif %}">
+                        <span class="fa fa-sliders" aria-hidden="true"></span>
+                        {% trans "Filters" %}
+                        <span class="badge" data-filter-count-badge{% if not advanced_filter_count %} hidden{% endif %}>{{ advanced_filter_count }}</span>
+                    </button>
+                {% endif %}
+            </div>
+        </div>
+        {% if filter_form.advanced_fields %}
+            <div id="advanced-filter-advanced"
+                 class="advanced-filter-advanced{% if not advanced_filters_open %} is-collapsed{% endif %}"
+                 data-advanced-filter-advanced
+                 {% if not advanced_filters_open %}hidden{% endif %}>
+                <div class="advanced-filter-grid">
+                    {% for field in filter_form.advanced_fields %}
+                        <div class="advanced-filter-field">
+                            {% bootstrap_field field %}
+                        </div>
+                    {% endfor %}
+                </div>
+                <div class="advanced-filter-footer">
+                    <button class="btn btn-primary" type="submit">
+                        <span class="fa fa-filter" aria-hidden="true"></span>
+                        {% trans "Apply filters" %}
+                    </button>
+                </div>
+            </div>
+        {% endif %}
+    </form>
+</div>

@@ -34,6 +34,7 @@ def test_applicant_lifecycle_templates_mention_team_shifts():
         EmailTemplateRoles.APPLICATION_ACCEPTED,
         EmailTemplateRoles.APPLICATION_REJECTED,
         EmailTemplateRoles.MEMBER_ADDED_BY_ORGANIZER,
+        EmailTemplateRoles.MEMBER_REMOVED,
     ]
 
     for role in lifecycle_roles:

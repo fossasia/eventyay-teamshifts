@@ -70,7 +70,7 @@ MEMBER_REMOVED_SUBJECT = LazyI18nString.from_gettext(_("Team shifts: Update on y
 MEMBER_REMOVED_TEXT = LazyI18nString.from_gettext(
     _(
         "Hi {full_name},\n\n"
-        "We wanted to let you know that you are no longer part of the {event_name} team, "
+        "We wanted to let you know that you are no longer part of the event team through Team Shifts for {event_name}, "
         "and you have been removed from any upcoming shifts.\n\n"
         "If you think this is a mistake or have any questions, please reply to this email.\n\n"
         "Best regards,\n"

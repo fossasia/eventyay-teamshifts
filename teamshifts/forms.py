@@ -3,18 +3,22 @@ from datetime import timedelta
 from zoneinfo import ZoneInfo
 
 from django import forms
+from django.core.exceptions import ValidationError
+from django.db.models import Count
 from django.forms import inlineformset_factory
+from django.urls import reverse
 from django.utils import timezone
 from django.utils.html import escape as html_escape, format_html
-from django.utils.translation import gettext_lazy as _
+from django.utils.translation import gettext_lazy as _, ngettext
 from django_countries import countries
 from django_scopes import scopes_disabled
 from django_scopes.forms import SafeModelChoiceField
 from eventyay.base.forms import I18nInlineFormSet
 from eventyay.base.forms.questions import WrappedPhoneNumberPrefixWidget, guess_country
-from eventyay.base.models import Event
+from eventyay.base.models import Event, User
 from eventyay.common.forms.widgets import I18nEmailEditorWidget, RichTextWidget
 from eventyay.control.forms import SplitDateTimeField, SplitDateTimePickerWidget
+from eventyay.control.forms.widgets import Select2Multiple
 from i18nfield.forms import I18nFormField, I18nModelForm, I18nTextInput
 from phonenumber_field.formfields import PhoneNumberField
 from phonenumber_field.phonenumber import to_python as to_phone_number
@@ -29,6 +33,7 @@ from .models import (
     CertificateMatchMode,
     CertificateSettings,
     CertificateTrigger,
+    EmailTemplateRoles,
     QuestionVariant,
     ShiftLocation,
     TeamApplicationQuestion,
@@ -475,14 +480,20 @@ class EmailTemplateForm(forms.ModelForm):
         from .models import TeamShiftsEmailTemplate
 
         model = TeamShiftsEmailTemplate
-        fields = ("subject", "body")
+        fields = ("subject", "body", "send_automatically")
         labels = {
             "subject": _("Subject"),
             "body": _("Body"),
+            "send_automatically": _("Send this reminder automatically"),
+        }
+        help_texts = {
+            "send_automatically": _("Sent to each team member about 24 hours before their first shift of the day."),
         }
 
     def __init__(self, *args, locales=None, placeholders=None, **kwargs):
         super().__init__(*args, **kwargs)
+        if self.instance.role != EmailTemplateRoles.SHIFT_REMINDER:
+            del self.fields["send_automatically"]
         self.fields["subject"].required = False
         self.fields["body"].required = False
         if locales:
@@ -519,8 +530,41 @@ class CustomEmailTemplateForm(forms.ModelForm):
                 self.fields[field_name].widget.enabled_locales = locales
 
 
+def volunteer_choice_label(user, show_email):
+    name = (user.fullname or "").strip()
+    email = (user.email or "").strip()
+    if show_email:
+        return f"{name} ({email})" if name and email else name or email
+    return name or _("Volunteer #%(pk)s") % {"pk": user.pk}
+
+
+def valid_user_pk(value):
+    """Return the value as a user pk, or None if it is not a number the database could hold."""
+    pk_field = User._meta.pk
+    try:
+        pk = pk_field.to_python(value)
+        pk_field.run_validators(pk)
+    except ValidationError:
+        return None
+    return pk
+
+
+class VolunteerChoiceField(forms.ModelMultipleChoiceField):
+    def __init__(self, *args, show_email=False, **kwargs):
+        self.show_email = show_email
+        super().__init__(*args, **kwargs)
+
+    def label_from_instance(self, obj):
+        return volunteer_choice_label(obj, self.show_email)
+
+
+class VolunteerSelect2Multiple(Select2Multiple):
+    def options(self, name, value, attrs=None):
+        return super().options(name, [pk for pk in map(valid_user_pk, value or ()) if pk is not None], attrs)
+
+
 class EmailComposeForm(forms.Form):
-    def __init__(self, *args, event=None, draft_save=False, **kwargs):
+    def __init__(self, *args, event=None, show_emails=False, draft_save=False, **kwargs):
         super().__init__(*args, **kwargs)
         self._event = event
         locales = list(event.settings.get("locales") or [event.settings.locale])
@@ -547,7 +591,26 @@ class EmailComposeForm(forms.Form):
             required=False,
             initial=ApplicationStatus.ACCEPTED,
             label=_("Send to applications with status"),
-            widget=forms.Select(attrs={"class": "form-control"}),
+            widget=forms.Select(attrs={"class": "form-control select2-static"}),
+        )
+
+        self.fields["individual_volunteers"] = VolunteerChoiceField(
+            queryset=User.objects.filter(team_member_applications__event=event),
+            required=False,
+            show_email=show_emails,
+            label=_("Send to specific people"),
+            help_text=_("Optional. When people are selected here, only they receive the email and the status filter is ignored."),
+            widget=VolunteerSelect2Multiple(
+                attrs={
+                    "data-model-select2": "generic",
+                    "data-select2-url": reverse(
+                        "plugins:teamshifts:compose_volunteers_select2",
+                        kwargs={"organizer": event.organizer.slug, "event": event.slug},
+                    ),
+                    "data-placeholder": _("Search by name or email") if show_emails else _("Search by name"),
+                    "data-compose-volunteers": "1",
+                }
+            ),
         )
 
         self.fields["send_after"] = forms.DateTimeField(
@@ -646,6 +709,36 @@ class ShiftLocationForm(forms.ModelForm):
 
 MAX_SHIFTS_PER_ACTION = 50
 MIN_FINAL_SHIFT_MINUTES = 15
+
+
+def overfilled_role_errors(shift, capacities):
+    """Return {role_id: message} for roles whose capacity would drop below the team members assigned to them.
+
+    ``capacities`` maps role IDs to the capacity they are about to get on ``shift``. A capacity that is not
+    lowered is accepted, so a shift that is already overfilled can still be edited.
+    """
+    new_capacities = {}
+    for role_id, capacity in capacities.items():
+        try:
+            new_capacities[int(role_id)] = int(capacity)
+        except (TypeError, ValueError):
+            continue
+    if not shift.pk or not new_capacities:
+        return {}
+    saved_capacities = dict(shift.role_assignments.filter(role_id__in=new_capacities).values_list("role_id", "capacity"))
+    assigned_counts = shift.assignments.filter(role_id__in=new_capacities).order_by().values("role_id", "role__name").annotate(assigned=Count("id"))
+    errors = {}
+    for row in assigned_counts:
+        role_id = row["role_id"]
+        capacity = new_capacities[role_id]
+        saved_capacity = saved_capacities.get(role_id)
+        if row["assigned"] > capacity and (saved_capacity is None or capacity < saved_capacity):
+            errors[role_id] = ngettext(
+                "%(count)d team member is assigned to %(role)s. Unassign team members before lowering its capacity to %(capacity)d.",
+                "%(count)d team members are assigned to %(role)s. Unassign team members before lowering its capacity to %(capacity)d.",
+                row["assigned"],
+            ) % {"count": row["assigned"], "role": row["role__name"], "capacity": capacity}
+    return errors
 
 
 def merges_into_previous_shift(remainder):
@@ -777,6 +870,39 @@ class BaseShiftRoleFormSet(forms.BaseInlineFormSet):
     def validate_unique(self):
         pass
 
+    def _construct_form(self, i, **kwargs):
+        form = super()._construct_form(i, **kwargs)
+
+        if not self.is_bound or form.instance.pk:
+            return form
+
+        role_id = form.data.get(form.add_prefix("role"))
+        if not role_id:
+            return form
+
+        total_forms = self.total_form_count()
+
+        for index in range(min(total_forms, self.initial_form_count())):
+            prefix = f"{self.prefix}-{index}"
+
+            if not self.data.get(f"{prefix}-DELETE"):
+                continue
+
+            assignment_id = self.data.get(f"{prefix}-id")
+            if not assignment_id:
+                continue
+
+            try:
+                assignment = self.get_queryset().filter(pk=assignment_id).first()
+            except (ValueError, TypeError):
+                continue
+
+            if assignment and str(assignment.role_id) == str(role_id):
+                form._allow_deleted_role_readdition = True
+                break
+
+        return form
+
     def clean(self):
         super().clean()
         if any(self.errors):
@@ -784,6 +910,7 @@ class BaseShiftRoleFormSet(forms.BaseInlineFormSet):
 
         roles = set()
         has_role = False
+        role_forms = {}
         for form in self.forms:
             if self.can_delete and self._should_delete_form(form):
                 continue
@@ -793,9 +920,14 @@ class BaseShiftRoleFormSet(forms.BaseInlineFormSet):
                 if role in roles:
                     raise forms.ValidationError(_("The same role cannot be added twice on the same shift."))
                 roles.add(role)
+                role_forms[role.pk] = form
 
         if not has_role:
             raise forms.ValidationError(_("At least one role must be added to the shift."))
+
+        capacities = {role_id: form.cleaned_data.get("capacity") for role_id, form in role_forms.items()}
+        for role_id, error in overfilled_role_errors(self.instance, capacities).items():
+            role_forms[role_id].add_error("capacity", error)
 
 
 class ShiftRoleAssignmentForm(forms.ModelForm):
@@ -827,6 +959,14 @@ class ShiftRoleAssignmentForm(forms.ModelForm):
 
             with scopes_disabled():
                 self.fields["role"].queryset = TeamRole.objects.filter(event=event)
+
+    def _get_validation_exclusions(self):
+        exclude = super()._get_validation_exclusions()
+
+        if getattr(self, "_allow_deleted_role_readdition", False):
+            exclude.add("role")
+
+        return exclude
 
 
 class CertificateSettingsForm(forms.ModelForm):

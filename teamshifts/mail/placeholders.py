@@ -12,6 +12,7 @@ ROLE_CONTEXTS = {
     EmailTemplateRoles.APPLICATION_ACCEPTED: APPLICANT_CONTEXT,
     EmailTemplateRoles.APPLICATION_REJECTED: APPLICANT_CONTEXT,
     EmailTemplateRoles.MEMBER_ADDED_BY_ORGANIZER: APPLICANT_CONTEXT,
+    EmailTemplateRoles.MEMBER_REMOVED: APPLICANT_CONTEXT,
     EmailTemplateRoles.CERTIFICATE_GENERATED: APPLICANT_CONTEXT,
     EmailTemplateRoles.NEW_APPLICATION_ORGANIZER: [*APPLICANT_CONTEXT, "application"],
     EmailTemplateRoles.SHIFT_ASSIGNED_BY_ORGANIZER: SHIFT_CONTEXT,
@@ -19,6 +20,7 @@ ROLE_CONTEXTS = {
     EmailTemplateRoles.SHIFT_DROPPED_BY_VOLUNTEER: SHIFT_CONTEXT,
     EmailTemplateRoles.SHIFT_DROPPED_ORGANIZER: [*SHIFT_CONTEXT, "application"],
     EmailTemplateRoles.VOUCHER_SENT: [*APPLICANT_CONTEXT, "voucher"],
+    EmailTemplateRoles.SHIFT_REMINDER: [*APPLICANT_CONTEXT, "shift_list"],
 }
 
 PREVIEW_CONTEXT = sorted({key for context in [COMPOSE_CONTEXT, *ROLE_CONTEXTS.values()] for key in context})

@@ -21,6 +21,7 @@
 {% else %}
 <div id="fahrplan" class="grid">
   <script id="pretalx-schedule-data" type="application/json">{{ schedule_data_json|safe }}</script>
+  <script id="pretalx-schedule-meta" type="application/json">{{ schedule_meta_json|safe }}</script>
   {% vite_app_scripts 'schedule' 'src/main-wc.js' fallback='schedule/pretalx-schedule.js' %}
   <pretalx-schedule
     event-url="{{ request.event.urls.base }}"

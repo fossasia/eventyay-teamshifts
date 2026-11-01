@@ -1,8 +1,16 @@
 from datetime import datetime
+from urllib.parse import urlencode, urlparse
 
+import vobject
+from django.conf import settings
+from django.urls import reverse
+from django.utils.encoding import force_str
 from django.utils.translation import gettext as _, gettext_lazy
 from django_scopes import scope
 from eventyay.base.exporter import ListExporter
+from eventyay.common.exporter import BaseExporter
+from eventyay.common.urls import EventUrls
+from eventyay.schedule.exporters import BaseCalendarExporter
 
 from .forms import render_answer_for_review
 from .models import CallForTeamMembers, QuestionVariant, TeamApplicationAnswer, TeamApplicationQuestion
@@ -131,3 +139,76 @@ class MembersExporter(ListExporter):
         yield [guard(value) for value in self.get_header(questions)]
         for member in self.members:
             yield [guard(value) for value in self.get_row(member, questions, answers, tz)]
+
+
+def my_shifts_export_url(url_name):
+    def build(exporter):
+        return f"{reverse(url_name)}?{urlencode({'event': exporter.event.pk})}"
+
+    return build
+
+
+class MyShiftsICalExporter(BaseExporter):
+    identifier = "my-shifts.ics"
+    verbose_name = gettext_lazy("iCal (your shifts)")
+    public = False
+    show_public = True
+    show_qrcode = True
+    icon = "fa-calendar"
+
+    def __init__(self, event, assignments=None):
+        super().__init__(event)
+        self.assignments = assignments or []
+
+    class urls(EventUrls):
+        base = my_shifts_export_url("plugins:teamshifts:my_shifts_calendar_download")
+
+    def render(self, **kwargs):
+        netloc = urlparse(settings.SITE_URL).netloc
+        cal = vobject.iCalendar()
+        cal.add("prodid").value = f"-//eventyay//{netloc}//teamshifts//my-shifts"
+
+        for assignment in self.assignments:
+            assignment.build_ical(cal, netloc=netloc)
+        file_name = f"{self.event.slug}-my-shifts.ics" if self.event else "my-shifts.ics"
+        return file_name, "text/calendar", cal.serialize()
+
+
+class MyShiftsGoogleCalendarExporter(BaseCalendarExporter):
+    identifier = "my-google-calendar"
+    verbose_name = gettext_lazy("Subscribe to My Shifts in Google Calendar")
+    icon = "fa-google"
+    ical_exporter_cls = MyShiftsICalExporter
+
+    class urls(EventUrls):
+        base = my_shifts_export_url("plugins:teamshifts:my_shifts_calendar_google")
+
+
+class MyShiftsWebcalExporter(BaseCalendarExporter):
+    identifier = "my-webcal"
+    verbose_name = gettext_lazy("Subscribe to My Shifts in Other Calendar")
+    ical_exporter_cls = MyShiftsICalExporter
+
+    class urls(EventUrls):
+        base = my_shifts_export_url("plugins:teamshifts:my_shifts_calendar_webcal")
+
+
+SHIFT_SCHEDULE_EXPORTERS = (MyShiftsGoogleCalendarExporter, MyShiftsWebcalExporter, MyShiftsICalExporter)
+
+
+def build_shift_schedule_exporters(event):
+    result = []
+    for exporter_cls in SHIFT_SCHEDULE_EXPORTERS:
+        exporter = exporter_cls(event)
+        if not exporter.show_public:
+            continue
+        result.append(
+            {
+                "identifier": exporter.identifier,
+                "verbose_name": force_str(exporter.verbose_name),
+                "icon": getattr(exporter, "icon", ""),
+                "export_url": exporter.urls.base,
+                "qrcode_svg": str(exporter.get_qrcode()) if getattr(exporter, "show_qrcode", False) else "",
+            }
+        )
+    return result

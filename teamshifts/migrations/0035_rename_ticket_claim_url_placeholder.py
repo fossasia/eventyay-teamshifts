@@ -55,7 +55,7 @@ def backwards(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("teamshifts", "0030_teamapplicationquestionoption"),
+        ("teamshifts", "0034_shift_reminders"),
     ]
 
     operations = [

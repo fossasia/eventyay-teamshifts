@@ -45,7 +45,9 @@
             {% else %}
               <span class='text-muted'>{% trans "All roles" %}</span>
             {% endif %}
-            {% if mail.status_filter %}
+            {% if mail.individual_recipients %}
+              <span class='label label-default'>{% trans "Specific people" %}</span>
+            {% elif mail.status_filter %}
               <span class='label label-default'>{{ mail.get_status_filter_display }}</span>
             {% endif %}
           </td>

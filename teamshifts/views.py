@@ -1321,6 +1321,7 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
             form = EmailComposeForm(
                 event=event,
                 show_emails=self.get_form_kwargs()["show_emails"],
+                can_view_email=self.get_form_kwargs()["can_view_email"],
                 initial={
                     "status": status,
                     "individual_volunteers": volunteer_ids,
@@ -1342,7 +1343,9 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
         volunteer_ids = [volunteer.pk for volunteer in form.cleaned_data.get("individual_volunteers") or ()]
 
         if specific_recipients:
-            recipients = list(form.cleaned_data["recipient_ids"])
+            individual_recipients = get_recipients(event, status="", user_ids=volunteer_ids) if volunteer_ids else []
+            selected_recipients = form.cleaned_data["recipient_ids"]
+            recipients = list({user.pk: user for user in [*individual_recipients, *selected_recipients]}.values())
             status = ""
         else:
             status = "" if volunteer_ids else status
@@ -1381,11 +1384,19 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
             except DraftNoLongerEditable:
                 return self._stale_draft_response()
         else:
-            queue_email(
+            queue = queue_email(
                 event=event,
                 user=self.request.user,
                 submission_key=form.cleaned_data["submission_key"],
                 **fields,
+            )
+
+        if draft is None and queue.sent_at:
+            messages.info(self.request, _("This email submission has already been processed."))
+            return redirect(
+                "plugins:teamshifts:email_sent",
+                organizer=self.request.organizer.slug,
+                event=event.slug,
             )
 
         if is_draft:

@@ -636,7 +636,7 @@ class EmailComposeForm(forms.Form):
             initial=False,
         )
         self.fields["recipient_ids"] = forms.ModelMultipleChoiceField(
-            queryset=User.objects.filter(pk__in=member_ids).exclude(email=""),
+            queryset=User.objects.filter(pk__in=member_ids).exclude(email__isnull=True).exclude(email=""),
             required=False,
             label=_("Recipients"),
             widget=forms.SelectMultiple(attrs={"class": "form-control", "size": "8"}),

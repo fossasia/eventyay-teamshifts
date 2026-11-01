@@ -62,52 +62,46 @@ def queue_email(
     is_draft: bool = False,
     submission_key=None,
 ) -> TeamShiftsEmailQueue:
-    created = True
     with scope(event=event), transaction.atomic():
+        defaults = {
+            "user": user,
+            "subject": subject,
+            "message": message,
+            "reply_to": reply_to,
+            "bcc": bcc,
+            "locale": locale or event.settings.locale,
+            "role_filter": role_filter,
+            "shift": shift,
+            "shift_role": shift_role,
+            "status_filter": status_filter or "",
+            "individual_recipients": individual_recipients,
+            "mail_type": mail_type,
+            "send_after": send_after,
+            "is_draft": is_draft,
+        }
+
         if submission_key:
             queue, created = TeamShiftsEmailQueue.objects.get_or_create(
                 event=event,
                 submission_key=submission_key,
-                defaults={
-                    "user": user,
-                    "subject": subject,
-                    "message": message,
-                    "reply_to": reply_to,
-                    "bcc": bcc,
-                    "locale": locale or event.settings.locale,
-                    "role_filter": role_filter,
-                    "shift": shift,
-                    "shift_role": shift_role,
-                    "status_filter": status_filter or "",
-                    "individual_recipients": individual_recipients,
-                    "mail_type": mail_type,
-                    "send_after": send_after,
-                    "is_draft": is_draft,
-                },
+                defaults=defaults,
             )
+            if not created:
+                if queue.sent_at:
+                    return queue
+
+                for field, value in defaults.items():
+                    setattr(queue, field, value)
+                queue.save()
         else:
             queue = TeamShiftsEmailQueue.objects.create(
                 event=event,
-                user=user,
-                subject=subject,
-                message=message,
-                reply_to=reply_to,
-                bcc=bcc,
-                locale=locale or event.settings.locale,
-                role_filter=role_filter,
-                shift=shift,
-                shift_role=shift_role,
-                status_filter=status_filter or "",
-                individual_recipients=individual_recipients,
-                mail_type=mail_type,
-                send_after=send_after,
-                is_draft=is_draft,
+                **defaults,
             )
 
-        if created:
-            _set_recipients(queue, recipients)
+        _set_recipients(queue, recipients)
 
-        if created and dispatch and not is_draft:
+        if dispatch and not is_draft:
             _dispatch(event.pk, queue.pk, eta=send_after)
 
         return queue
@@ -192,11 +186,14 @@ def update_queued_email(
 
 
 def _set_recipients(queue: TeamShiftsEmailQueue, recipients: Iterable[User]) -> None:
+    sent_emails = set(queue.recipients.filter(sent_at__isnull=False).values_list("email", flat=True))
+    queue.recipients.filter(sent_at__isnull=True).delete()
+
     seen: set[str] = set()
     rows: list[TeamShiftsEmailQueueRecipient] = []
     for u in recipients:
         email = (u.email or "").strip().lower()
-        if not email or email in seen:
+        if not email or email in seen or email in sent_emails:
             continue
         seen.add(email)
         rows.append(TeamShiftsEmailQueueRecipient(queue=queue, user=u, email=email))

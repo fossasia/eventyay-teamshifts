@@ -302,6 +302,36 @@ def test_hidden_email_leads_get_names_only_in_the_preselected_picker(hidden_emai
     assert "alice@example.com" not in html
 
 
+@pytest.mark.django_db
+def test_hidden_email_leads_do_not_see_email_in_recipient_options(hidden_email_lead_client, event):
+    volunteer = _volunteer(event, "noname@example.com", ApplicationStatus.ACCEPTED)
+
+    response = hidden_email_lead_client.post(
+        _compose_url(event),
+        _compose_data(
+            action="preview",
+            specific_recipients="on",
+            recipient_ids=[volunteer.pk],
+        ),
+    )
+
+    assert response.status_code == 200
+    assert "noname@example.com" not in response.content.decode()
+
+
+@pytest.mark.django_db
+def test_hidden_email_leads_do_not_see_email_when_fullname_is_empty(hidden_email_lead_client, event):
+    volunteer = _volunteer(event, "noname@example.com", ApplicationStatus.ACCEPTED)
+
+    response = hidden_email_lead_client.post(
+        _compose_url(event),
+        _compose_data(action="preview", individual_volunteers=[volunteer.pk]),
+    )
+
+    assert response.status_code == 200
+    assert "noname@example.com" not in response.content.decode()
+
+
 @pytest.mark.parametrize(
     ("value", "expected"),
     [("12", 12), (7, 7), (" 7 ", 7), ("abc", None), ("1.5", None), ("", None), ("²", None), ("9" * 5000, None), (str(2**70), None)],

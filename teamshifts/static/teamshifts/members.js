@@ -16,16 +16,11 @@ function setupRemoveMembers(checkboxes) {
     const form = document.getElementById("remove-members-form");
     if (!button || !dialog || !form) return;
 
-    const countLabel = document.getElementById("members-selected-count");
     const selected = () => Array.from(checkboxes).filter((cb) => cb.checked);
 
     const refreshButton = () => {
         const count = selected().length;
         button.disabled = count === 0;
-        if (countLabel) {
-            countLabel.textContent = count > 0 ? `${count} ${gettext("selected")}` : "";
-            countLabel.hidden = count === 0;
-        }
     };
     checkboxes.forEach((cb) => cb.addEventListener("change", refreshButton));
     document.getElementById("select-all")?.addEventListener("change", refreshButton);
@@ -194,12 +189,10 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     const emailSelectedBtn = document.getElementById("email-selected-btn");
-    const emailSelectedCount = document.getElementById("email-selected-count");
 
-    if (emailSelectedBtn && emailSelectedCount) {
+    if (emailSelectedBtn) {
         const updateEmailSelected = () => {
             const checked = document.querySelectorAll(".member-checkbox:checked");
-            emailSelectedCount.textContent = checked.length;
             emailSelectedBtn.disabled = checked.length === 0;
         };
 

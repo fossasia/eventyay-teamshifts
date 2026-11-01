@@ -7,7 +7,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
     dependencies = [
         ("base", "0001_initial"),
-        ("teamshifts", "0033_member_removed_status"),
+        ("teamshifts", "0034_shift_reminders"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

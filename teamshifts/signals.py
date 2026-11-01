@@ -22,6 +22,7 @@ from .models import ApplicationStatus, CallForTeamMembers, Shift, ShiftAssignmen
 from .permissions import has_any_teamshifts_permission
 from .services.certificates import events_awaiting_certificates, issue_event_end_certificates_task
 from .services.checkin import handle_volunteer_checkin, handle_volunteer_checkout
+from .services.reminders import my_shifts_url
 from .tasks import send_queued_email
 
 logger = logging.getLogger(__name__)
@@ -171,6 +172,18 @@ def teamshifts_mail_placeholders(sender, **kwargs):
             ["shift"],
             _format_shift_time,
             lambda event: "2026-01-15 09:00 – 12:00",
+        ),
+        SimpleFunctionalMailTextPlaceholder(
+            "my_shifts_url",
+            ["event"],
+            lambda event: my_shifts_url(),
+            lambda event: "https://example.com/common/my-shifts/",
+        ),
+        SimpleFunctionalMailTextPlaceholder(
+            "shift_list",
+            ["shift_list"],
+            lambda shift_list: shift_list,
+            "- Sat, Oct 10, 2026, 8 a.m.–12 p.m.: Registration desk (Role: Greeter, Location: Main hall)",
         ),
         SimpleFunctionalMailTextPlaceholder(
             "voucher_code",

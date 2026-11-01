@@ -12,6 +12,9 @@
     <form action='' method='post' class='form-horizontal'>
         {% csrf_token %}
         {% bootstrap_form_errors form %}
+        {% if "send_automatically" in form.fields %}
+            {% bootstrap_field form.send_automatically layout='control' %}
+        {% endif %}
         {% bootstrap_field form.subject layout='control' %}
         {% bootstrap_field form.body layout='control' %}
         <fieldset>

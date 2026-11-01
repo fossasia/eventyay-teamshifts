@@ -177,7 +177,8 @@ def test_summary_template_is_editable_role(event, cfm):
         template = cfm.get_mail_template(EmailTemplateRoles.SHIFT_SUMMARY)
     assert "{shift_summary}" in str(template.body)
     assert "{my_shifts_url}" in str(template.body)
-    assert "{shift_schedule_url}" in str(template.body)
+    assert "{shift_schedule_url}" not in str(template.body)
+    assert "drop it there" in str(template.body)
     assert str(template.subject) == "Your shifts for {event_name}"
 
 

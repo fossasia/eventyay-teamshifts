@@ -174,10 +174,10 @@ SHIFT_SUMMARY_TEXT = LazyI18nString.from_gettext(
         "Hi {full_name},\n\n"
         "Your shifts for {event_name} changed. Here is a summary of all your current shifts:\n\n"
         "{shift_summary}\n\n"
-        "You can view all your shifts here:\n"
+        "You can see and manage your shifts here:\n"
         "{my_shifts_url}\n\n"
-        "To drop a shift, use the shift schedule:\n"
-        "{shift_schedule_url}\n\n"
+        "If you can no longer attend a shift, please drop it there as soon as possible "
+        "so the organizing team can find a replacement.\n\n"
         "Best regards,\n"
         "The {event_name} team"
     )

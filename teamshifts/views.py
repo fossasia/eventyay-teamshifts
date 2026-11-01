@@ -1236,25 +1236,6 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
                 initial["status"] = ApplicationStatus.ACCEPTED
             else:
                 initial["status"] = draft.status_filter or ""
-        template_pk = self.request.GET.get("template")
-        try:
-            template_pk = int(template_pk)
-        except (TypeError, ValueError):
-            template_pk = None
-
-        if template_pk is not None:
-            with scope(event=self.request.event):
-                template = TeamShiftsCustomEmailTemplate.objects.filter(
-                    event=self.request.event,
-                    pk=template_pk,
-                ).first()
-            if template:
-                initial["subject"] = template.subject
-                initial["message"] = template.body
-        if self.request.GET.get("template_picker") == "1":
-            initial["status"] = self.request.GET.get("status", "")
-            initial["send_after"] = self.request.GET.get("send_after", "")
-            initial["individual_volunteers"] = self.request.GET.getlist("individual_volunteers")
 
         if draft is not None:
             return initial
@@ -1277,6 +1258,15 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
         ctx["draft"] = self.get_draft()
         with scope(event=self.request.event):
             ctx["custom_templates"] = list(TeamShiftsCustomEmailTemplate.objects.filter(event=self.request.event))
+
+        ctx["custom_templates_data"] = [
+            {
+                "id": template.pk,
+                "subject": template.subject.data,
+                "body": template.body.data,
+            }
+            for template in ctx["custom_templates"]
+        ]
         return ctx
 
     def form_invalid(self, form):

@@ -1,34 +1,31 @@
-const picker = document.querySelector(".custom-template-picker");
+const button = document.querySelector("#load-email-template");
 
-if (picker) {
-    picker.addEventListener("submit", (event) => {
-        const template = picker.querySelector('select[name="template"]');
+if (button) {
+    const templates = JSON.parse(
+        document.querySelector("#custom-email-templates").textContent
+    );
 
-        if (!template?.value) {
-            event.preventDefault();
-            template?.focus();
-            return;
-        }
-        const status = document.querySelector("#id_status");
-        const sendAfter = document.querySelector("#id_send_after");
+    button.addEventListener("click", () => {
+        const select = document.querySelector("#id_template_picker");
+        const template = templates.find(
+            (item) => String(item.id) === select.value
+        );
 
-        picker.querySelector("#template_picker_status").value =
-            status?.value ?? "";
-        picker.querySelector("#template_picker_send_after").value =
-            sendAfter?.value ?? "";
+        if (!template) return;
 
-        picker.querySelector("#template_picker_submitted").value = "1";
-
-        const volunteers = document.querySelector("#id_individual_volunteers");
-        picker.querySelectorAll('input[name="individual_volunteers"]').forEach((input) => {
-            input.remove();
+        document.querySelectorAll('input[name^="subject_"]').forEach((input) => {
+            input.value = template.subject[input.lang] ?? "";
         });
-        for (const option of volunteers?.selectedOptions ?? []) {
-            const input = document.createElement("input");
-            input.type = "hidden";
-            input.name = "individual_volunteers";
-            input.value = option.value;
-            picker.append(input);
-        }
+
+        document.querySelectorAll('textarea[name^="message_"]').forEach((textarea) => {
+            const content = template.body[textarea.lang] ?? "";
+            const editor = textarea.__eventyayTiptapEditor;
+
+            if (editor) {
+                editor.commands.setContent(content);
+            } else {
+                textarea.value = content;
+            }
+        });
     });
 }

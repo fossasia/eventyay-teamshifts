@@ -674,7 +674,7 @@ EMAIL_TYPE_LABELS = {
     EmailTemplateRoles.CERTIFICATE_GENERATED: _("Certificate"),
     EmailTemplateRoles.SHIFT_REMINDER: _("Shift reminder"),
     "specific_people": _("Specific people"),
-    }
+}
 
 
 class TeamShiftsEmailQueue(models.Model):

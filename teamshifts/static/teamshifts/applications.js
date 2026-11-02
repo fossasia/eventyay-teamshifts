@@ -42,7 +42,8 @@ function refreshSelectedCount() {
         return;
     }
 
-    countLabel.textContent = checked > 0 ? `${checked} ${gettext("selected")}` : "";
+    const selectedText = countLabel.dataset.selected || gettext("selected");
+    countLabel.textContent = checked > 0 ? `${checked} ${selectedText}` : "";
     countLabel.hidden = checked === 0;
 }
 

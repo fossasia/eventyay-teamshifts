@@ -17,8 +17,8 @@ document.addEventListener("DOMContentLoaded", () => {
             return;
         }
 
-        countLabel.textContent =
-            count > 0 ? `${count} ${gettext("selected")}` : "";
+        const selectedText = countLabel.dataset.selected || gettext("selected");
+        countLabel.textContent = count > 0 ? `${count} ${selectedText}` : "";
         countLabel.hidden = count === 0;
     };
 

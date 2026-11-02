@@ -49,6 +49,10 @@
         {% if can_manage_applicants %}
            <p class="teamshifts-selected-count text-muted"
             id="applications-selected-count"
+            data-selected="{% trans 'selected' %}"
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
             hidden></p>
         {% endif %}
 

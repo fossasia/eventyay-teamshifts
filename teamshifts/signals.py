@@ -94,6 +94,13 @@ def teamshifts_public_schedule_nav_tab(sender, request=None, **kwargs):
     from django_scopes import scope as _scope
 
     with _scope(event=sender):
+        try:
+            cfm = sender.call_for_team_members
+        except CallForTeamMembers.DoesNotExist:
+            return ""
+        if not cfm.shift_schedule_published:
+            return ""
+
         is_accepted = TeamMemberApplication.objects.filter(
             event=sender,
             user=request.user,

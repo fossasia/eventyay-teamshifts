@@ -424,8 +424,6 @@ class EmailTemplateListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin
         with scope(event=event):
             cfm, _created = CallForTeamMembers.objects.get_or_create(event=event)
 
-        from .mail.default_templates import get_default_template
-
         panels = []
         for role in EmailTemplateRoles.values:
             with scope(event=event):
@@ -438,13 +436,13 @@ class EmailTemplateListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin
             )
             is_customised = False
             if template.pk:
-                default_subject, default_body = get_default_template(role)
-                db_subject = str(template.subject).replace("\r\n", "\n").strip()
-                db_body = str(template.body).replace("\r\n", "\n").strip()
-                def_subject = str(default_subject).replace("\r\n", "\n").strip()
-                def_body = str(default_body).replace("\r\n", "\n").strip()
-                if db_subject != def_subject or db_body != def_body:
-                    is_customised = True
+                default_subject, default_body = cfm.default_mail_texts(role)
+                # Check every event language, so an edit in a secondary language still counts.
+                is_customised = any(
+                    _normalised(stored, locale) != _normalised(default, locale)
+                    for locale in event.locales
+                    for stored, default in ((template.subject, default_subject), (template.body, default_body))
+                )
             panels.append(
                 {
                     "role": role,
@@ -622,6 +620,30 @@ class EmailTemplateEditView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin
                 "role_label": EmailTemplateRoles(template.role).label,
                 "email_placeholders": _TEMPLATE_PLACEHOLDERS,
             },
+        )
+
+
+def _normalised(text, locale):
+    value = text.localize(locale) if hasattr(text, "localize") else text
+    return str(value or "").replace("\r\n", "\n").strip()
+
+
+class EmailTemplateResetView(EmailTemplateEditView):
+    template_name = "teamshifts/email_template_reset.html"
+
+    def get(self, request, *args, **kwargs):
+        template = self._get_or_seed(request, kwargs["role"])
+        return render(request, self.template_name, {"role_label": EmailTemplateRoles(template.role).label})
+
+    def post(self, request, *args, **kwargs):
+        template = self._get_or_seed(request, kwargs["role"])
+        with scope(event=request.event):
+            request.event.call_for_team_members.reset_mail_template(template.role)
+        messages.success(request, _("Template reset to the default text."))
+        return redirect(
+            "plugins:teamshifts:email_templates",
+            organizer=request.organizer.slug,
+            event=request.event.slug,
         )
 
 
@@ -2790,13 +2812,15 @@ def _queue_lifecycle_email_safely(application, template_role):
 
 def _notify_shift_change_safely(event, user, shift, role, template_role):
     try:
-        queue_shift_notification_email(
-            event=event,
-            user=user,
-            shift=shift,
-            role=role,
-            template_role=template_role,
-        )
+        # Savepoint, so a failed queue write inside the caller's transaction doesn't roll back the shift change.
+        with transaction.atomic():
+            queue_shift_notification_email(
+                event=event,
+                user=user,
+                shift=shift,
+                role=role,
+                template_role=template_role,
+            )
     except Exception:
         logger.exception(
             "[TeamShifts] Failed to queue %s notification for user %s, shift %s",
@@ -2916,11 +2940,8 @@ class ShiftScheduleAssignmentsAPIView(PluginActiveMixin, TeamShiftsPermissionReq
                 if created or previous_role_id != role_id:
                     shift_role_assignment = shift.role_assignments.select_related("role").filter(role_id=role_id).first() if role_id else None
                     role = shift_role_assignment.role if shift_role_assignment else None
-                    transaction.on_commit(
-                        lambda event=event, user=user, shift=shift, role=role: _notify_shift_change_safely(
-                            event, user, shift, role, EmailTemplateRoles.SHIFT_ASSIGNED_BY_ORGANIZER
-                        )
-                    )
+                    # Queued inside the transaction so the email commits with the change, in commit order.
+                    _notify_shift_change_safely(event, user, shift, role, EmailTemplateRoles.SHIFT_ASSIGNED_BY_ORGANIZER)
             shift = Shift.objects.prefetch_related(
                 "role_assignments__role",
                 "assignments__team_member",
@@ -2958,9 +2979,18 @@ class ShiftScheduleAssignmentsAPIView(PluginActiveMixin, TeamShiftsPermissionReq
                     {"detail": "You cannot unassign members from this role."},
                     status=400,
                 )
-            assignment = ShiftAssignment.objects.filter(shift=shift, team_member_id=user_id, role_id=role_id).first()
-            if assignment:
-                assignment.delete()
+            with transaction.atomic():
+                # Lock the row so a repeated request waits, then finds nothing and sends no second email.
+                assignment = (
+                    ShiftAssignment.objects.select_for_update(of=("self",))
+                    .select_related("team_member", "role")
+                    .filter(shift=shift, team_member_id=user_id, role_id=role_id)
+                    .first()
+                )
+                if assignment:
+                    user, role = assignment.team_member, assignment.role
+                    assignment.delete()
+                    _notify_shift_change_safely(event, user, shift, role, EmailTemplateRoles.SHIFT_UNASSIGNED_BY_ORGANIZER)
             shift = Shift.objects.prefetch_related(
                 "role_assignments__role",
                 "assignments__team_member",

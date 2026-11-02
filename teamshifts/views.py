@@ -3007,9 +3007,15 @@ class ShiftScheduleTogglePublishView(PluginActiveMixin, TeamShiftsPermissionRequ
 
     def post(self, request, *args, **kwargs):
         event = request.event
-        with scope(event=event):
-            cfm, _created = CallForTeamMembers.objects.get_or_create(event=event)
-            cfm.shift_schedule_published = not cfm.shift_schedule_published
+        action = request.POST.get("action")
+        with scope(event=event), transaction.atomic():
+            cfm, _created = CallForTeamMembers.objects.select_for_update().get_or_create(event=event)
+            if action == "publish":
+                cfm.shift_schedule_published = True
+            elif action == "unpublish":
+                cfm.shift_schedule_published = False
+            else:
+                cfm.shift_schedule_published = not cfm.shift_schedule_published
             cfm.save(update_fields=["shift_schedule_published"])
             if cfm.shift_schedule_published:
                 messages.success(request, _("Shift schedule has been published. Team members can now view it."))

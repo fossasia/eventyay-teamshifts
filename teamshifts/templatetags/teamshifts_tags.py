@@ -12,7 +12,7 @@ def teamshifts_outbox_count(context):
     if not request or not hasattr(request, "event"):
         return 0
     with scope(event=request.event):
-        return TeamShiftsEmailQueue.objects.filter(event=request.event, sent_at__isnull=True, user__isnull=False).count()
+        return TeamShiftsEmailQueue.objects.filter(event=request.event, sent_at__isnull=True, is_draft=False, user__isnull=False).count()
 
 
 @register.filter

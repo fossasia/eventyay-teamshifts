@@ -15,7 +15,7 @@
     {% csrf_token %}
     <div class='row'>
       <div class='col-xs-6 text-left'>
-        <a href='{% url "plugins:teamshifts:email_outbox" organizer=request.organizer.slug event=request.event.slug %}'
+        <a href='{% if queue.is_draft %}{% url "plugins:teamshifts:email_drafts" organizer=request.organizer.slug event=request.event.slug %}{% else %}{% url "plugins:teamshifts:email_outbox" organizer=request.organizer.slug event=request.event.slug %}{% endif %}'
            class='btn btn-default btn-lg'>
           {% trans "Back" %}
         </a>

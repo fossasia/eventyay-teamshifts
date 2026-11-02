@@ -1,4 +1,4 @@
-"""Tests for certificate email notification on first generation."""
+"""Tests for certificate email notification when a certificate is issued."""
 
 from unittest.mock import patch
 
@@ -16,7 +16,7 @@ from teamshifts.models import (
     MemberCertificate,
     TeamMemberApplication,
 )
-from teamshifts.services.certificates import _send_certificate_email, generate_certificate
+from teamshifts.services.certificates import _send_certificate_email, generate_certificate, issue_certificate
 
 
 @pytest.fixture
@@ -52,12 +52,12 @@ def cert_settings(event):
 
 @pytest.mark.django_db
 def test_send_certificate_email_calls_mail(event, application, cert_settings):
-    with scope(event=event):
-        MemberCertificate.objects.get_or_create(application=application)
+    with scope(event=event, organizer=event.organizer):
+        certificate = generate_certificate(application, cert_settings)
 
     with patch("teamshifts.services.certificates.mail") as mock_mail:
         with scope(event=event):
-            _send_certificate_email(application, b"%PDF-1.4 fake content")
+            _send_certificate_email(application, certificate)
 
     mock_mail.assert_called_once()
     call_kwargs = mock_mail.call_args.kwargs
@@ -72,7 +72,7 @@ def test_send_certificate_email_stamps_notified_at(event, application, cert_sett
     captured = []
     with patch("teamshifts.services.certificates.transaction.on_commit", side_effect=lambda fn: captured.append(fn)):
         with scope(event=event, organizer=event.organizer):
-            generate_certificate(application, cert_settings)
+            issue_certificate(application, cert_settings)
 
     with scope(event=event):
         cert = MemberCertificate.objects.get(application=application)
@@ -84,17 +84,20 @@ def test_send_certificate_email_stamps_notified_at(event, application, cert_sett
 def test_send_skipped_when_no_email(event, application, cert_settings):
     application.user.email = ""
     application.user.save(update_fields=["email"])
+    with scope(event=event):
+        certificate, _ = MemberCertificate.objects.get_or_create(application=application)
 
     with patch("teamshifts.services.certificates.mail") as mock_mail:
         with scope(event=event):
-            _send_certificate_email(application, b"%PDF-fake")
+            _send_certificate_email(application, certificate)
 
     mock_mail.assert_not_called()
 
 
 @pytest.mark.django_db
 def test_send_skipped_when_no_cfm(event, application):
-    from teamshifts.models import CallForTeamMembers
+    with scope(event=event):
+        certificate, _ = MemberCertificate.objects.get_or_create(application=application)
 
     with (
         patch.object(
@@ -104,17 +107,30 @@ def test_send_skipped_when_no_cfm(event, application):
         ),
         patch("teamshifts.services.certificates.mail") as mock_mail,
     ):
-        _send_certificate_email(application, b"%PDF-fake")
+        _send_certificate_email(application, certificate)
 
     mock_mail.assert_not_called()
 
 
 @pytest.mark.django_db
-def test_generate_certificate_registers_email_on_first_gen(event, application, cert_settings):
+def test_generate_certificate_does_not_email(event, application, cert_settings):
     captured = []
     with patch("teamshifts.services.certificates.transaction.on_commit", side_effect=lambda fn: captured.append(fn)):
         with scope(event=event, organizer=event.organizer):
             generate_certificate(application, cert_settings)
+
+    with scope(event=event):
+        cert = MemberCertificate.objects.get(application=application)
+    assert len(captured) == 0
+    assert cert.notified_at is None
+
+
+@pytest.mark.django_db
+def test_issue_certificate_registers_email_on_first_issue(event, application, cert_settings):
+    captured = []
+    with patch("teamshifts.services.certificates.transaction.on_commit", side_effect=lambda fn: captured.append(fn)):
+        with scope(event=event, organizer=event.organizer):
+            issue_certificate(application, cert_settings)
 
     with scope(event=event):
         cert = MemberCertificate.objects.get(application=application)
@@ -123,7 +139,7 @@ def test_generate_certificate_registers_email_on_first_gen(event, application, c
 
 
 @pytest.mark.django_db
-def test_generate_certificate_skips_email_on_regen(event, application, cert_settings):
+def test_issue_certificate_skips_email_when_already_sent(event, application, cert_settings):
     with scope(event=event):
         cert, _ = MemberCertificate.objects.get_or_create(application=application)
         cert.notified_at = now()
@@ -132,7 +148,7 @@ def test_generate_certificate_skips_email_on_regen(event, application, cert_sett
     captured = []
     with patch("teamshifts.services.certificates.transaction.on_commit", side_effect=lambda fn: captured.append(fn)):
         with scope(event=event, organizer=event.organizer):
-            generate_certificate(application, cert_settings)
+            issue_certificate(application, cert_settings)
 
     assert len(captured) == 0
 

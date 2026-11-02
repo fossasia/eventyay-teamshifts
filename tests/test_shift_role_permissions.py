@@ -430,3 +430,46 @@ def test_null_capacity_cannot_add_an_unmanaged_role(role_setup, endpoint):
         assert editable.capacity == 2
         assert not ShiftRoleAssignment.objects.filter(role=unmanaged).exists()
     assert_protected(role_setup)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("endpoint", ["api_shift_detail", "public_shift_manage", "shift_edit"])
+def test_limited_lead_cannot_reduce_own_capacity_below_assigned_volunteers(role_setup, endpoint):
+    client, event, shift, allowed, _, editable, *_ = role_setup
+    with scope(event=event):
+        for index in range(2):
+            volunteer = User.objects.create_user(email=f"registration{index}@example.com", password="secret")
+            ShiftAssignment.objects.create(shift=shift, role=allowed, team_member=volunteer)
+    if endpoint == "shift_edit":
+        response = client.post(
+            url(event, endpoint, shift),
+            {
+                "mode": "single",
+                "name": "Must not persist",
+                "location": shift.location_id,
+                "start_time": shift.start_time.strftime("%Y-%m-%dT%H:%M"),
+                "end_time": shift.end_time.strftime("%Y-%m-%dT%H:%M"),
+                "roles-TOTAL_FORMS": 1,
+                "roles-INITIAL_FORMS": 1,
+                "roles-0-id": editable.pk,
+                "roles-0-role": allowed.pk,
+                "roles-0-capacity": 1,
+            },
+        )
+        assert response.status_code == 200
+        assert "2 team members are assigned to Registration." in response.content.decode()
+    else:
+        response = client.patch(
+            url(event, endpoint, shift),
+            data=json.dumps({"title": "Must not persist", "roles": [{"id": allowed.pk, "capacity": 1}]}),
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+        assert "2 team members are assigned to Registration." in response.json()["detail"]
+    with scope(event=event):
+        shift.refresh_from_db()
+        editable.refresh_from_db()
+        assert shift.name == "Morning"
+        assert editable.capacity == 2
+        assert shift.assignments.filter(role=allowed).count() == 2
+    assert_protected(role_setup)

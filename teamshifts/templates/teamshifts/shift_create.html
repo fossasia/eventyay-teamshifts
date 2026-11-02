@@ -124,6 +124,25 @@
             {% endfor %}
           </tbody>
         </table>
+        <template id="role-form-template">
+          {% with form=formset.empty_form %}
+            <tr class="role-form-row">
+              <td>
+                {{ form.id }}
+                {{ form.role }}
+              </td>
+              <td>
+                {{ form.capacity }}
+              </td>
+              <td>
+                <button type="button" class="btn btn-danger btn-sm remove-role-btn">
+                  <i class="fa fa-trash"></i>
+                </button>
+                <span class="delete-checkbox">{{ form.DELETE }}</span>
+              </td>
+            </tr>
+          {% endwith %}
+        </template>
         <button type='button' class='btn btn-default' id='add-role-btn'>
           <i class='fa fa-plus'></i> {% trans "Add another role" %}
         </button>
@@ -134,7 +153,7 @@
       <button type='submit' class='btn btn-primary btn-save' {% if not has_locations %}disabled{% endif %}>
         {% trans "Save" %}
       </button>
-      <a href='{% if is_duplicate %}{% url "plugins:teamshifts:shifts" request.organizer.slug request.event.slug %}{% else %}{% url "plugins:teamshifts:dashboard" request.organizer.slug request.event.slug %}{% endif %}' class='btn btn-default'>
+      <a href='{% url "plugins:teamshifts:shifts" request.organizer.slug request.event.slug %}' class='btn btn-default'>
         {% trans "Cancel" %}
       </a>
     </div>

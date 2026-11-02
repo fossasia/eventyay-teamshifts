@@ -12,18 +12,20 @@ from eventyay.multidomain.urlreverse import build_absolute_uri
 from i18nfield.strings import LazyI18nString
 
 from ..models import (
+    ApplicationStatus,
     CallForTeamMembers,
     EmailTemplateRoles,
     MemberVoucher,
     TeamMemberApplication,
-    TeamShiftsEmailQueue,
-    TeamShiftsEmailQueueRecipient,
     VolunteerVoucherSettings,
     VoucherStatus,
 )
 from ..tasks import MarkdownBreakString
+from .email import record_sent_email
 
 logger = logging.getLogger(__name__)
+
+VOUCHER_CREDENTIAL_CONTEXT_KEYS = frozenset({"voucher_code", "ticket_claim_url"})
 
 
 class SendResult(TypedDict):
@@ -99,7 +101,8 @@ def allocate_and_send_vouchers(
             continue
 
         with scope(event=event), transaction.atomic():
-            if TeamMemberApplication.objects.select_for_update().filter(pk=application.pk).first() is None:
+            # Recheck the status under the lock: the member may have been removed meanwhile.
+            if TeamMemberApplication.objects.select_for_update().filter(pk=application.pk, status=ApplicationStatus.ACCEPTED).first() is None:
                 continue
             if MemberVoucher.objects.filter(application=application).exists():
                 continue
@@ -176,20 +179,6 @@ def _send_voucher_email(event, user, voucher, template, locale) -> bool:
         logger.exception("[TeamShifts] Failed to send voucher email to %s", user.email)
         return False
 
-    with scope(event=event):
-        sent_now = now()
-        queue = TeamShiftsEmailQueue.objects.create(
-            event=event,
-            user=user,
-            subject=template.subject,
-            message=template.body,
-            locale=locale or "",
-            sent_at=sent_now,
-        )
-        TeamShiftsEmailQueueRecipient.objects.create(
-            queue=queue,
-            user=user,
-            email=user.email,
-            sent_at=sent_now,
-        )
+    listing_context = {key: "[redacted]" if key in VOUCHER_CREDENTIAL_CONTEXT_KEYS else value for key, value in context.items()}
+    record_sent_email(event, user, template.subject, template.body, listing_context, locale, EmailTemplateRoles.VOUCHER_SENT)
     return True

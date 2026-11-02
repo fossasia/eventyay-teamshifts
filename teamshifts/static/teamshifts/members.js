@@ -16,16 +16,11 @@ function setupRemoveMembers(checkboxes) {
     const form = document.getElementById("remove-members-form");
     if (!button || !dialog || !form) return;
 
-    const countLabel = document.getElementById("members-selected-count");
     const selected = () => Array.from(checkboxes).filter((cb) => cb.checked);
 
     const refreshButton = () => {
         const count = selected().length;
         button.disabled = count === 0;
-        if (countLabel) {
-            countLabel.textContent = count > 0 ? `${count} ${gettext("selected")}` : "";
-            countLabel.hidden = count === 0;
-        }
     };
     checkboxes.forEach((cb) => cb.addEventListener("change", refreshButton));
     document.getElementById("select-all")?.addEventListener("change", refreshButton);
@@ -193,7 +188,34 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
-    setupRemoveMembers(checkboxes);
+    const emailSelectedBtn = document.getElementById("email-selected-btn");
+
+    if (emailSelectedBtn) {
+        const updateEmailSelected = () => {
+            const checked = document.querySelectorAll(".member-checkbox:checked");
+            emailSelectedBtn.disabled = checked.length === 0;
+        };
+
+        checkboxes.forEach((cb) => cb.addEventListener("change", updateEmailSelected));
+
+        if (selectAll) {
+            selectAll.addEventListener("change", updateEmailSelected);
+        }
+
+        updateEmailSelected();
+
+        emailSelectedBtn.addEventListener("click", () => {
+            const ids = Array.from(document.querySelectorAll(".member-checkbox:checked"))
+                .map((cb) => cb.dataset.memberId);
+            if (!ids.length) return;
+
+            const url = new URL(emailSelectedBtn.dataset.composeUrl, window.location.origin);
+            ids.forEach((id) => url.searchParams.append("member_ids", id));
+            window.location.href = url;
+        });
+    }
+
+setupRemoveMembers(checkboxes);
 
     // Bulk send button
     const sendBtn = document.getElementById("bulk-send-btn");

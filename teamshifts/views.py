@@ -1216,6 +1216,12 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
         kwargs["event"] = self.request.event
         kwargs["show_emails"] = can_view_email_addresses(self.request.user, self.request.organizer, self.request.event, request=self.request)
         kwargs["draft_save"] = self.request.POST.get("action") == "draft"
+        kwargs["can_view_email"] = can_view_email_addresses(
+            self.request.user,
+            self.request.organizer,
+            self.request.event,
+            request=self.request,
+        )
         return kwargs
 
     def get_draft(self):
@@ -1248,6 +1254,11 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
             initial["subject"] = draft.subject
             initial["message"] = draft.message
             initial["send_after"] = draft.send_after
+            if draft.mail_type == "specific_people":
+                initial["specific_recipients"] = True
+                with scope(event=self.request.event):
+                    initial["recipient_ids"] = list(draft.recipients.filter(user__isnull=False).values_list("user_id", flat=True))
+
             if draft.individual_recipients:
                 with scope(event=self.request.event):
                     initial["individual_volunteers"] = list(draft.recipients.filter(user__isnull=False).values_list("user_id", flat=True))
@@ -1255,13 +1266,29 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
             else:
                 initial["status"] = draft.status_filter or ""
             return initial
+        member_ids = self.request.GET.getlist("member_ids")
+        if member_ids:
+            with scope(event=self.request.event):
+                user_ids = TeamMemberApplication.objects.filter(pk__in=member_ids).values_list("user_id", flat=True)
+
+            initial["specific_recipients"] = True
+            initial["recipient_ids"] = list(user_ids)
         copy_pk = self.request.GET.get("copy")
         if copy_pk and copy_pk.isdigit():
             with scope(event=self.request.event):
                 try:
-                    source = TeamShiftsEmailQueue.objects.get(pk=int(copy_pk), event=self.request.event, mail_type="")
+                    source = TeamShiftsEmailQueue.objects.get(
+                        pk=int(copy_pk),
+                        event=self.request.event,
+                        mail_type__in=["", "specific_people"],
+                    )
                 except TeamShiftsEmailQueue.DoesNotExist:
                     return initial
+
+                if source.mail_type == "specific_people":
+                    initial["specific_recipients"] = True
+                    initial["recipient_ids"] = list(source.recipients.filter(user__isnull=False).values_list("user_id", flat=True))
+
             initial["subject"] = source.subject
             initial["message"] = source.message
             initial["status"] = ApplicationStatus.ACCEPTED if source.individual_recipients else source.status_filter or ""
@@ -1282,10 +1309,16 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
         if request.POST.get("action") == "preview":
             event = request.event
             status = request.POST.get("status") or ""
-            posted_volunteers = request.POST.getlist("individual_volunteers")
-            volunteer_ids = [pk for pk in map(valid_user_pk, posted_volunteers) if pk is not None]
-            # An unusable explicit selection must never fall back to the (broader) status filter.
-            recipients = get_recipients(event, status=status, user_ids=volunteer_ids) if volunteer_ids or not posted_volunteers else []
+            volunteer_ids = []
+            if request.POST.get("specific_recipients"):
+                selected_ids = request.POST.getlist("recipient_ids")
+                recipient_form = EmailComposeForm(event=event)
+                recipients = list(recipient_form.fields["recipient_ids"].queryset.filter(pk__in=selected_ids))
+            else:
+                posted_volunteers = request.POST.getlist("individual_volunteers")
+                volunteer_ids = [pk for pk in map(valid_user_pk, posted_volunteers) if pk is not None]
+                # An unusable explicit selection must never fall back to the broader status filter.
+                recipients = get_recipients(event, status=status, user_ids=volunteer_ids) if volunteer_ids or not posted_volunteers else []
             self._preview_recipients = recipients
             locales = list(event.settings.get("locales") or [event.settings.locale])
             subject_i18n = LazyI18nString({locales[i]: request.POST.get(f"subject_{i}", "") for i in range(len(locales))})
@@ -1293,12 +1326,16 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
             form = EmailComposeForm(
                 event=event,
                 show_emails=self.get_form_kwargs()["show_emails"],
+                can_view_email=self.get_form_kwargs()["can_view_email"],
                 initial={
                     "status": status,
                     "individual_volunteers": volunteer_ids,
                     "subject": subject_i18n,
                     "message": message_i18n,
                     "send_after": request.POST.get("send_after", ""),
+                    "specific_recipients": bool(request.POST.get("specific_recipients")),
+                    "recipient_ids": ([user.pk for user in recipients] if request.POST.get("specific_recipients") else []),
+                    "submission_key": request.POST.get("submission_key"),
                 },
             )
             return self.render_to_response(self.get_context_data(form=form))
@@ -1306,12 +1343,21 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
 
     def form_valid(self, form):
         event = self.request.event
+        status = form.cleaned_data.get("status") or ""
+        specific_recipients = form.cleaned_data["specific_recipients"]
         volunteer_ids = [volunteer.pk for volunteer in form.cleaned_data.get("individual_volunteers") or ()]
-        status = "" if volunteer_ids else form.cleaned_data.get("status") or ""
+
+        if specific_recipients:
+            individual_recipients = get_recipients(event, status="", user_ids=volunteer_ids) if volunteer_ids else []
+            selected_recipients = form.cleaned_data["recipient_ids"]
+            recipients = list({user.pk: user for user in [*individual_recipients, *selected_recipients]}.values())
+            status = ""
+        else:
+            status = "" if volunteer_ids else status
+            recipients = get_recipients(event, status=status, user_ids=volunteer_ids)
+
+        recipients = [user for user in recipients if user.email and user.email.strip()]
         send_after = form.cleaned_data.get("send_after")
-
-        recipients = get_recipients(event, status=status, user_ids=volunteer_ids)
-
         action = self.request.POST.get("action")
         if action == "preview":
             self._preview_recipients = recipients
@@ -1335,6 +1381,7 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
             "send_after": send_after,
             "is_draft": is_draft,
             "dispatch": action not in ("draft", "outbox"),
+            "mail_type": "specific_people" if specific_recipients else "",
         }
         if draft is not None:
             try:
@@ -1342,7 +1389,20 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
             except DraftNoLongerEditable:
                 return self._stale_draft_response()
         else:
-            queue_email(event=event, user=self.request.user, **fields)
+            queue = queue_email(
+                event=event,
+                user=self.request.user,
+                submission_key=form.cleaned_data["submission_key"],
+                **fields,
+            )
+
+        if draft is None and queue.sent_at:
+            messages.info(self.request, _("This email submission has already been processed."))
+            return redirect(
+                "plugins:teamshifts:email_sent",
+                organizer=self.request.organizer.slug,
+                event=event.slug,
+            )
 
         if is_draft:
             messages.success(self.request, _("Draft saved. It will not be sent until you move it to the outbox."))
@@ -2301,6 +2361,13 @@ class MembersListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Memb
         ctx["certificate_status_choices"] = CertificateStatus.choices
 
         ctx["can_view_email"] = can_view_email_addresses(self.request.user, self.request.organizer, self.request.event, request=self.request)
+        ctx["can_send_emails"] = has_teamshifts_permission(
+            self.request.user,
+            self.request.organizer,
+            self.request.event,
+            "can_teamshifts_send_emails",
+            request=self.request,
+        )
         ctx["can_add_member"] = has_teamshifts_permission(
             self.request.user,
             self.request.organizer,

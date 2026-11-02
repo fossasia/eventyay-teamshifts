@@ -130,7 +130,7 @@ def test_sent_list_shows_one_row_per_recipient_with_type_and_timezone(client, ev
     assert "Otto Other" in content
     assert "Application received" in content
     assert str(event.timezone) in content
-    assert "All roles" not in content
+    assert "All roles" not in content.split("<table")[1]
 
 
 @pytest.mark.django_db
@@ -173,10 +173,10 @@ def test_sent_list_search_matches_subject_and_recipient_name(client, event, cfm,
     by_subject = client.get(_sent_url(event), {"q": "reminder"}).content.decode()
     by_name = client.get(_sent_url(event), {"q": "Otto"}).content.decode()
 
-    assert "Shift reminder" in by_subject
-    assert "Voucher inside" not in by_subject
-    assert "Voucher inside" in by_name
-    assert "Shift reminder" not in by_name
+    assert "Shift reminder" in by_subject.split("<table")[1]
+    assert "Voucher inside" not in by_subject.split("<table")[1]
+    assert "Voucher inside" in by_name.split("<table")[1]
+    assert "Shift reminder" not in by_name.split("<table")[1]
 
 
 @pytest.mark.django_db

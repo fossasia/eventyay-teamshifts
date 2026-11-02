@@ -1,6 +1,11 @@
 {% extends "teamshifts/base.html" %}
 {% load i18n %}
+{% load static %}
 
+{% block custom_header %}
+    {{ block.super }}
+    <script type="module" src="{% static 'teamshifts/drafts_list.js' %}"></script>
+{% endblock %}
 {% block title %}{% trans "Drafts" %} :: {{ request.event.name }}{% endblock %}
 
 {% block teamshifts_header %}
@@ -25,15 +30,24 @@
       <i class='fa fa-plus'></i> {% trans "New email" %}
     </a>
   </p>
-
+<div data-teamshifts-list>
   <table class='table'>
     <thead>
       <tr>
-        <th>{% trans "Subject" %}</th>
+        {% trans "Subject" as subject_label %}
+        <th>
+          {% include "teamshifts/_sort_header.html" with label=subject_label field="subject" current_ordering=current_ordering %}
+        </th>
         <th>{% trans "Filters" %}</th>
-        <th>{% trans "Recipients" %}</th>
+        {% trans "Recipients" as recipients_label %}
+        <th>
+          {% include "teamshifts/_sort_header.html" with label=recipients_label field="recipient_count" current_ordering=current_ordering %}
+        </th>
         <th>{% trans "Scheduled for" %}</th>
-        <th>{% trans "Last edited" %}</th>
+        {% trans "Last edited" as updated_label %}
+        <th>
+          {% include "teamshifts/_sort_header.html" with label=updated_label field="updated" current_ordering=current_ordering %}
+        </th>
         <th>{% trans "Actions" %}</th>
       </tr>
     </thead>
@@ -93,4 +107,5 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
 {% endblock %}

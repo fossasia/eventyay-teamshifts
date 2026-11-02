@@ -1,9 +1,14 @@
 {% extends "teamshifts/base.html" %}
 {% load i18n %}
+{% load static %}
+{% load urlreplace %}
 {% load tz %}
 
 {% block title %}{% trans "Sent emails" %} :: {{ request.event.name }}{% endblock %}
-
+{% block custom_header %}
+  {{ block.super }}
+  <script type="module" src="{% static 'teamshifts/sent_list.js' %}"></script>
+{% endblock %}
 {% block teamshifts_header %}
         <h1>
           {% blocktrans count mail_count=page_obj.paginator.count trimmed %}
@@ -30,13 +35,20 @@
     </div>
   </div>
 
+  <div data-teamshifts-list>
   <table class='table'>
     <thead>
       <tr>
-        <th>{% trans "Subject" %}</th>
+        <th>
+          {% trans "Subject" as subject_label %}
+          {% include "teamshifts/_sort_header.html" with label=subject_label field="subject" current_ordering=current_ordering %}
+        </th>
         <th>{% trans "To" %}</th>
         <th>{% trans "Type" %}</th>
-        <th>{% trans "Sent at" %}</th>
+        <th>
+          {% trans "Sent at" as sent_label %}
+          {% include "teamshifts/_sort_header.html" with label=sent_label field="sent_at" current_ordering=current_ordering %}
+        </th>
         <th>{% trans "Actions" %}</th>
       </tr>
     </thead>
@@ -82,5 +94,6 @@
       {% endfor %}
     </tbody>
   </table>
-  {% include "pretixcontrol/pagination.html" %}
+    {% include "pretixcontrol/pagination.html" %}
+  </div>
 {% endblock %}

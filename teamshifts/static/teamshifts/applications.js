@@ -1,3 +1,4 @@
+import { setupAjaxSorting } from "./list_sorting.js";
 function gettext(msgid) {
     return typeof window.gettext === "function" ? window.gettext(msgid) : msgid;
 }
@@ -76,8 +77,21 @@ function setupBulkActions() {
     });
 }
 
-document.addEventListener("DOMContentLoaded", () => {
+function initializeControls() {
     setupStatusDropdowns();
     setupSelectAll();
     setupBulkActions();
-});
+}
+
+function initializeApplicationsPage() {
+    initializeControls();
+    setupAjaxSorting(initializeControls);
+}
+
+if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", initializeApplicationsPage, {
+        once: true,
+    });
+} else {
+    initializeApplicationsPage();
+}

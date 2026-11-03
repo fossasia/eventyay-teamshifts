@@ -107,6 +107,7 @@ from .services.email import (
     queue_email,
     queue_lifecycle_email,
     queue_shift_notification_email,
+    split_send_to,
     update_queued_email,
 )
 from .services.members import (
@@ -1216,6 +1217,7 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
         kwargs["event"] = self.request.event
         kwargs["show_emails"] = can_view_email_addresses(self.request.user, self.request.organizer, self.request.event, request=self.request)
         kwargs["draft_save"] = self.request.POST.get("action") == "draft"
+        kwargs["require_people"] = getattr(self, "_require_people", False)
         return kwargs
 
     def get_draft(self):
@@ -1247,13 +1249,8 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
         if draft is not None:
             initial["subject"] = draft.subject
             initial["message"] = draft.message
+            self._restore_draft_recipients(draft, initial)
             initial["send_after"] = draft.send_after
-            if draft.individual_recipients:
-                with scope(event=self.request.event):
-                    initial["individual_volunteers"] = list(draft.recipients.filter(user__isnull=False).values_list("user_id", flat=True))
-                initial["status"] = ApplicationStatus.ACCEPTED
-            else:
-                initial["status"] = draft.status_filter or ""
             return initial
         copy_pk = self.request.GET.get("copy")
         if copy_pk and copy_pk.isdigit():
@@ -1264,8 +1261,21 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
                     return initial
             initial["subject"] = source.subject
             initial["message"] = source.message
-            initial["status"] = ApplicationStatus.ACCEPTED if source.individual_recipients else source.status_filter or ""
+            # A copy starts from the "Send to" dropdown; only reopening a draft restores hand-picked people.
+            initial["status"] = ApplicationStatus.ACCEPTED if source.individual_recipients else source.recipient_group or source.status_filter or ""
         return initial
+
+    def _restore_draft_recipients(self, draft, initial):
+        if not draft.individual_recipients:
+            initial["status"] = draft.recipient_group or draft.status_filter or ""
+            return
+        initial["status"] = ApplicationStatus.ACCEPTED
+        with scope(event=self.request.event):
+            initial["individual_volunteers"] = list(
+                draft.recipients.filter(user__team_member_applications__event=self.request.event).values_list("user_id", flat=True)
+            )
+        # A specific-people draft never falls back to the dropdown: with nobody left to restore, a new selection is required.
+        self._require_people = not initial["individual_volunteers"]
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -1284,15 +1294,21 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
             status = request.POST.get("status") or ""
             posted_volunteers = request.POST.getlist("individual_volunteers")
             volunteer_ids = [pk for pk in map(valid_user_pk, posted_volunteers) if pk is not None]
-            # An unusable explicit selection must never fall back to the (broader) status filter.
-            recipients = get_recipients(event, status=status, user_ids=volunteer_ids) if volunteer_ids or not posted_volunteers else []
+            if status not in dict(EmailComposeForm(event=event, initial=self.get_initial()).fields["status"].choices):
+                status = ApplicationStatus.ACCEPTED
+            status_filter, recipient_group = split_send_to(status)
+            # An unusable explicit selection must never fall back to the (broader) "Send to" choice.
+            if volunteer_ids or not posted_volunteers:
+                recipients = get_recipients(event, status=status_filter, group=recipient_group, user_ids=volunteer_ids)
+            else:
+                recipients = []
             self._preview_recipients = recipients
             locales = list(event.settings.get("locales") or [event.settings.locale])
             subject_i18n = LazyI18nString({locales[i]: request.POST.get(f"subject_{i}", "") for i in range(len(locales))})
             message_i18n = LazyI18nString({locales[i]: request.POST.get(f"message_{i}", "") for i in range(len(locales))})
             form = EmailComposeForm(
                 event=event,
-                show_emails=self.get_form_kwargs()["show_emails"],
+                show_emails=can_view_email_addresses(request.user, request.organizer, event, request=request),
                 initial={
                     "status": status,
                     "individual_volunteers": volunteer_ids,
@@ -1306,11 +1322,11 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
 
     def form_valid(self, form):
         event = self.request.event
-        volunteer_ids = [volunteer.pk for volunteer in form.cleaned_data.get("individual_volunteers") or ()]
-        status = "" if volunteer_ids else form.cleaned_data.get("status") or ""
+        people = list(form.cleaned_data.get("individual_volunteers") or [])
+        status, recipient_group = ("", "") if people else split_send_to(form.cleaned_data.get("status") or "")
         send_after = form.cleaned_data.get("send_after")
 
-        recipients = get_recipients(event, status=status, user_ids=volunteer_ids)
+        recipients = people or get_recipients(event, status=status, group=recipient_group)
 
         action = self.request.POST.get("action")
         if action == "preview":
@@ -1331,7 +1347,8 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
             "message": form.cleaned_data.get("message") or LazyI18nString(""),
             "recipients": recipients,
             "status_filter": status,
-            "individual_recipients": bool(volunteer_ids),
+            "individual_recipients": bool(people),
+            "recipient_group": recipient_group,
             "send_after": send_after,
             "is_draft": is_draft,
             "dispatch": action not in ("draft", "outbox"),

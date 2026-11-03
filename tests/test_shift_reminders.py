@@ -93,7 +93,7 @@ def test_one_email_lists_all_shifts_of_the_day_sorted_by_time(event, cfm, accept
     assert "Noon" in lines[1]
     assert "Evening" in lines[2]
     assert all("Greeter" in line and "Main hall" in line for line in lines)
-    assert str(kwargs["subject"]) == "Reminder: your shift overview for {event_name}"
+    assert str(kwargs["subject"]) == "Team shifts: Reminder: your shift overview for {event_name}"
     assert "{my_shifts_url}" in str(kwargs["template"])
     assert kwargs["context"]["my_shifts_url"].endswith("/common/my-shifts/")
     assert kwargs["email"] == "volunteer@example.com"

@@ -29,17 +29,26 @@
                 }
 
                 var event = arguments[0];
+                var forceSavepoint = event === true;
                 var isGroupedFontSizeEvent = event &&
+                    !forceSavepoint &&
                     event.target &&
                     event.target.id === "toolbox-fontsize" &&
                     editor.fabric &&
                     editor._all_selected_are_text &&
                     editor._all_selected_are_text(editor.fabric.getActiveObjects());
+                var isGroupedFontSizeFocused = document.activeElement &&
+                    document.activeElement.id === "toolbox-fontsize" &&
+                    editor.fabric &&
+                    editor._all_selected_are_text &&
+                    editor._all_selected_are_text(editor.fabric.getActiveObjects());
 
                 if (
+                    !forceSavepoint &&
                     (
                         editor._ts_group_fontsize_editing ||
-                        isGroupedFontSizeEvent
+                        isGroupedFontSizeEvent ||
+                        isGroupedFontSizeFocused
                     ) &&
                     !editor._ts_group_fontsize_committing
                 ) {
@@ -614,7 +623,7 @@
                     }
 
                     editor._ts_group_fontsize_changed = false;
-                    editor._create_savepoint();
+                    editor._create_savepoint(true);
                 }
             )
             .on(

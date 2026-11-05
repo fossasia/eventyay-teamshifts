@@ -168,6 +168,7 @@ function createEditorHarness(objects, values = {}) {
         editor,
         handlers,
         values,
+        document,
         get savepointCount() {
             return savepointCount;
         }
@@ -311,7 +312,12 @@ test("group font-size typing creates one savepoint after the focused edit", () =
         currentTarget: fontSizeInput
     });
 
+    harness.document.activeElement = fontSizeInput;
     harness.values["#toolbox-fontsize"] = "1";
+    harness.editor._create_savepoint({
+        type: "change",
+        target: fontSizeInput
+    });
     findHandler(harness, "#toolbox", "input", "#toolbox-fontsize")({
         currentTarget: fontSizeInput
     });
@@ -383,6 +389,7 @@ test("group font-size change events do not snapshot intermediate values", () => 
     });
     assert.equal(harness.savepointCount, 0);
 
+    harness.document.activeElement = fontSizeInput;
     findHandler(harness, "#toolbox", "input", "#toolbox-fontsize")({
         currentTarget: fontSizeInput
     });
@@ -395,6 +402,7 @@ test("group font-size change events do not snapshot intermediate values", () => 
     assert.equal(harness.savepointCount, 0);
     assert.equal(editable.maxFontPt, 1);
 
+    harness.document.activeElement = null;
     findHandler(harness, "#toolbox", "focusout", "#toolbox-fontsize")({
         currentTarget: fontSizeInput
     });

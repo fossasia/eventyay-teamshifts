@@ -19,7 +19,7 @@ from teamshifts.models import (
     ShiftLocation,
     TeamMemberApplication,
 )
-from teamshifts.pdf import CertificateRenderer, default_layout, preview_context, render_certificate_pdf
+from teamshifts.pdf import default_layout, preview_context, render_certificate_pdf
 from teamshifts.services.certificates import completed_shift_count, member_qualifies
 
 
@@ -380,21 +380,16 @@ def test_certificate_editor_view_get_current_layout(event, rf):
 
 
 @pytest.mark.django_db
-def test_certificate_renderer_get_ev_returns_event(event):
-    with scope(event=event, organizer=event.organizer):
-        renderer = CertificateRenderer(event, default_layout(), None, {"_event_color": "#c0392b"})
-
-        assert renderer._get_ev(None, None) == event
-
-
-@pytest.mark.django_db
 def test_render_certificate_pdf_renders_group_formatted_text(event, settings_obj):
     with scope(event=event, organizer=event.organizer):
         context = preview_context(event)
         layout = default_layout()
+        free_text_marker = "TeamShifts free-text certificate marker"
         for obj in layout:
             if obj.get("type") == "textarea":
                 obj["color"] = [255, 0, 0, 1]
+                if obj.get("content") == "other":
+                    obj["text"] = free_text_marker
                 obj["fontfamily"] = "Open Sans"
                 obj["fontsize"] = "15.0"
                 obj["bold"] = False

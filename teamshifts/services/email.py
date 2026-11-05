@@ -28,10 +28,14 @@ def get_recipients(
     event: Event,
     *,
     status: str = ApplicationStatus.ACCEPTED,
+    user_ids: Iterable[int] | None = None,
 ) -> list[User]:
+    user_ids = list(user_ids or ())
     with scope(event=event):
         qs = TeamMemberApplication.objects.filter(event=event)
-        if status:
+        if user_ids:
+            qs = qs.filter(user_id__in=user_ids)
+        elif status:
             qs = qs.filter(status=status)
         user_ids = list(qs.values_list("user_id", flat=True).distinct())
     return list(User.objects.filter(pk__in=user_ids))
@@ -51,6 +55,7 @@ def queue_email(
     shift: Shift | None = None,
     shift_role: TeamRole | None = None,
     status_filter: str = "",
+    individual_recipients: bool = False,
     mail_type: str = "",
     send_after=None,
     dispatch: bool = True,
@@ -69,6 +74,7 @@ def queue_email(
             shift=shift,
             shift_role=shift_role,
             status_filter=status_filter or "",
+            individual_recipients=individual_recipients,
             mail_type=mail_type,
             send_after=send_after,
             is_draft=is_draft,
@@ -117,6 +123,7 @@ def update_queued_email(
     message,
     recipients: Iterable[User],
     status_filter: str = "",
+    individual_recipients: bool = False,
     send_after=None,
     is_draft: bool = False,
     dispatch: bool = True,
@@ -128,9 +135,10 @@ def update_queued_email(
         locked.subject = subject
         locked.message = message
         locked.status_filter = status_filter or ""
+        locked.individual_recipients = individual_recipients
         locked.send_after = send_after
         locked.is_draft = is_draft
-        locked.save(update_fields=["subject", "message", "status_filter", "send_after", "is_draft", "updated"])
+        locked.save(update_fields=["subject", "message", "status_filter", "individual_recipients", "send_after", "is_draft", "updated"])
         locked.recipients.all().delete()
         _set_recipients(locked, recipients)
 

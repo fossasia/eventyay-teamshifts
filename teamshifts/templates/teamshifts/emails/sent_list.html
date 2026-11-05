@@ -54,7 +54,10 @@
               <br><small class='text-muted'>{{ mail.email }}</small>
             {% endif %}
           </td>
-          <td><span class='label label-default'>{{ mail.queue.mail_type_label }}</span></td>
+          <td>
+            <span class='label label-default'>{{ mail.queue.mail_type_label }}</span>
+            {% if mail.queue.individual_recipients %}<span class='label label-default'>{% trans "Specific people" %}</span>{% endif %}
+          </td>
           <td>
             {% timezone request.event.timezone %}
               {{ mail.sent_at|date:"SHORT_DATETIME_FORMAT" }} {{ request.event.timezone }}

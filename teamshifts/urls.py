@@ -280,6 +280,11 @@ urlpatterns = [
         name="bulk_send_certificates",
     ),
     path(
+        "teamshifts/event/<orgslug:organizer>/<slug:event>/members/remove/",
+        views.BulkRemoveMembersView.as_view(),
+        name="bulk_remove_members",
+    ),
+    path(
         "teamshifts/event/<orgslug:organizer>/<slug:event>/voucher-settings/",
         views.VoucherSettingsView.as_view(),
         name="voucher_settings",
@@ -318,6 +323,11 @@ urlpatterns = [
         "teamshifts/event/<orgslug:organizer>/<slug:event>/emails/compose/",
         views.EmailComposeView.as_view(),
         name="email_compose",
+    ),
+    path(
+        "teamshifts/event/<orgslug:organizer>/<slug:event>/emails/compose/volunteers/select2/",
+        views.ComposeVolunteersSelect2View.as_view(),
+        name="compose_volunteers_select2",
     ),
     path(
         "teamshifts/event/<orgslug:organizer>/<slug:event>/emails/outbox/",

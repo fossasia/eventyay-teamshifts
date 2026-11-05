@@ -12,6 +12,7 @@ from eventyay.multidomain.urlreverse import build_absolute_uri
 from i18nfield.strings import LazyI18nString
 
 from ..models import (
+    ApplicationStatus,
     CallForTeamMembers,
     EmailTemplateRoles,
     MemberVoucher,
@@ -100,7 +101,8 @@ def allocate_and_send_vouchers(
             continue
 
         with scope(event=event), transaction.atomic():
-            if TeamMemberApplication.objects.select_for_update().filter(pk=application.pk).first() is None:
+            # Recheck the status under the lock: the member may have been removed meanwhile.
+            if TeamMemberApplication.objects.select_for_update().filter(pk=application.pk, status=ApplicationStatus.ACCEPTED).first() is None:
                 continue
             if MemberVoucher.objects.filter(application=application).exists():
                 continue

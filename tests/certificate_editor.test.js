@@ -52,6 +52,22 @@ function createEditorHarness(objects, values = {}) {
             return this;
         }
 
+        unbind(events, handler) {
+            const eventNames = events.split(/\s+/).map((event) => event.split(".")[0]);
+            for (let index = handlers.length - 1; index >= 0; index--) {
+                const entry = handlers[index];
+                if (
+                    entry.selector === this.selector &&
+                    entry.delegate === null &&
+                    entry.handler === handler &&
+                    entry.events.some((event) => eventNames.includes(event))
+                ) {
+                    handlers.splice(index, 1);
+                }
+            }
+            return this;
+        }
+
         find(selector) {
             return new Collection(`${this.selector} ${selector}`);
         }
@@ -82,7 +98,13 @@ function createEditorHarness(objects, values = {}) {
         addClass() { return this; }
     }
 
-    const $ = (selector) => new Collection(selector === document ? "document" : selector);
+    const $ = (selector) => {
+        if (typeof selector === "function") {
+            selector();
+            return new Collection("document");
+        }
+        return new Collection(selector === document ? "document" : selector);
+    };
     const fabric = {
         getObjects: () => objects,
         getActiveObjects: () => objects,
@@ -125,6 +147,13 @@ function createEditorHarness(objects, values = {}) {
             return value / 2;
         }
     };
+
+    handlers.push({
+        selector: "#toolbox-fontsize",
+        events: ["change"],
+        delegate: null,
+        handler: editor._create_savepoint
+    });
 
     vm.runInNewContext(editorScript, {
         editor,
@@ -338,6 +367,14 @@ test("group font-size change events do not snapshot intermediate values", () => 
         "#toolbox",
         "change",
         "#toolbox-fontsize, #toolbox-fontfamily"
+    );
+    assert.equal(
+        harness.handlers.some((entry) =>
+            entry.selector === "#toolbox-fontsize" &&
+            entry.delegate === null &&
+            entry.events.includes("change")
+        ),
+        false
     );
 
     harness.editor._create_savepoint({

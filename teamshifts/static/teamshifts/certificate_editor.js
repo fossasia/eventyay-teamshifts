@@ -84,6 +84,13 @@
             }
         };
 
+        var tsGroupCreateSavepoint = editor._create_savepoint;
+        $(function () {
+            $("#toolbox-fontsize")
+                .unbind("change", tsOriginalCreateSavepoint)
+                .unbind("change", tsGroupCreateSavepoint);
+        });
+
         var tsOriginalLoadForHistory = editor.load;
         editor.load = function () {
             var historyModificationInProgress =

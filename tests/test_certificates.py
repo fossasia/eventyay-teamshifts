@@ -1,9 +1,13 @@
+import re
 from datetime import timedelta
+from io import BytesIO
 
 import pytest
 from django.utils.timezone import now
 from django_scopes import scope
 from eventyay.base.models import User
+from pypdf import PdfReader
+from pypdf.generic import ContentStream
 
 from teamshifts.forms import CertificateSettingsForm
 from teamshifts.models import (
@@ -15,6 +19,7 @@ from teamshifts.models import (
     ShiftLocation,
     TeamMemberApplication,
 )
+from teamshifts.pdf import default_layout, preview_context, render_certificate_pdf
 from teamshifts.services.certificates import completed_shift_count, member_qualifies
 
 
@@ -372,3 +377,55 @@ def test_certificate_editor_view_get_current_layout(event, rf):
         custom_layout = view.get_current_layout()
         custom_title = next(o for o in custom_layout if o.get("content") == "certificate_title")
         assert custom_title["color"] == custom_color
+
+
+@pytest.mark.django_db
+def test_render_certificate_pdf_renders_group_formatted_text(event, settings_obj):
+    with scope(event=event, organizer=event.organizer):
+        context = preview_context(event)
+        layout = default_layout()
+        free_text_marker = "TeamShifts free-text certificate marker"
+        for obj in layout:
+            if obj.get("type") == "textarea":
+                obj["color"] = [255, 0, 0, 1]
+                if obj.get("content") == "other":
+                    obj["text"] = free_text_marker
+                obj["fontfamily"] = "Open Sans"
+                obj["fontsize"] = "15.0"
+                obj["bold"] = False
+                obj["italic"] = False
+                if obj.get("content") == "certificate_intro":
+                    obj["fontfamily"] = "Droid Sans Fallback"
+
+        pdf_bytes = render_certificate_pdf(settings_obj, context, layout=layout)
+
+    assert pdf_bytes.startswith(b"%PDF-")
+
+    reader = PdfReader(BytesIO(pdf_bytes))
+    assert len(reader.pages) == 1
+
+    text = reader.pages[0].extract_text()
+    assert "Jane Member" in text
+    assert "Certificate of Appreciation" in text
+    for obj in layout:
+        if obj.get("type") != "textarea" or obj.get("content") == "certificate_intro":
+            continue
+        rendered = obj.get("text") or "" if obj.get("content") == "other" else context[obj["content"]]
+        normalized_rendered = re.sub(r"\s+", " ", rendered).strip()
+        normalized_text = re.sub(r"\s+", " ", text).strip()
+        assert normalized_rendered in normalized_text
+
+    content = ContentStream(reader.pages[0].get_contents(), reader)
+    font_sizes = set()
+    fill_colors = set()
+    for operands, operator in content.operations:
+        if operator == b"Tf":
+            font_sizes.add(float(operands[1]))
+        elif operator == b"rg":
+            fill_colors.add(tuple(float(component) for component in operands))
+
+    fonts = reader.pages[0]["/Resources"]["/Font"].get_object()
+    font_names = {str(font.get_object()["/BaseFont"]) for font in fonts.values()}
+    assert 15.0 in font_sizes
+    assert (1.0, 0.0, 0.0) in fill_colors
+    assert any("DroidSansFallback" in font_name for font_name in font_names)

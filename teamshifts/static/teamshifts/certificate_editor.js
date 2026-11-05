@@ -441,11 +441,15 @@
         var tsOriginalOnKeydown = editor._on_keydown;
         editor._on_keydown = function (e) {
             var canvasArea = editor.$cva && editor.$cva.get(0);
-            if (canvasArea && e.target && !canvasArea.contains(e.target)) {
-                return;
-            }
-
-            if (e.keyCode >= 37 && e.keyCode <= 40 && editor.fabric) {
+            var isCanvasTarget = canvasArea &&
+                e.target &&
+                canvasArea.contains(e.target);
+            if (
+                isCanvasTarget &&
+                e.keyCode >= 37 &&
+                e.keyCode <= 40 &&
+                editor.fabric
+            ) {
                 var objects = editor.fabric.getActiveObjects();
                 var hasPinned = objects.some(function (obj) {
                     return obj.pinned === true;

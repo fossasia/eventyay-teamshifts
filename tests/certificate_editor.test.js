@@ -113,6 +113,7 @@ function createEditorHarness(objects, values = {}) {
     };
 
     let savepointCount = 0;
+    let originalKeydownCount = 0;
     const editor = {
         fabric,
         $cva: { get: () => canvasArea },
@@ -124,7 +125,9 @@ function createEditorHarness(objects, values = {}) {
         },
         _update_values_from_toolbox() {},
         _init_fabric() {},
-        _on_keydown() {},
+        _on_keydown() {
+            originalKeydownCount++;
+        },
         _undo() {},
         _redo() {},
         load() {},
@@ -171,6 +174,9 @@ function createEditorHarness(objects, values = {}) {
         document,
         get savepointCount() {
             return savepointCount;
+        },
+        get originalKeydownCount() {
+            return originalKeydownCount;
         }
     };
 }
@@ -218,6 +224,7 @@ test("pinned selection only suppresses arrow keys from the editor canvas", () =>
         stopPropagation() {}
     });
     assert.equal(prevented, false);
+    assert.equal(harness.originalKeydownCount, 1);
 
     harness.editor._on_keydown({
         keyCode: 37,
@@ -226,6 +233,24 @@ test("pinned selection only suppresses arrow keys from the editor canvas", () =>
         stopPropagation() {}
     });
     assert.equal(prevented, true);
+    assert.equal(harness.originalKeydownCount, 1);
+});
+
+test("non-canvas keyboard shortcuts reach the original editor handler", () => {
+    const object = makeTextObject({ pinned: true });
+    const harness = createEditorHarness([object]);
+
+    [46, 90].forEach((keyCode) => {
+        harness.editor._on_keydown({
+            keyCode,
+            ctrlKey: keyCode === 90,
+            target: { tagName: "INPUT" },
+            preventDefault() {},
+            stopPropagation() {}
+        });
+    });
+
+    assert.equal(harness.originalKeydownCount, 2);
 });
 
 test("group font-size input previews without snapshots and change preserves other styles", () => {

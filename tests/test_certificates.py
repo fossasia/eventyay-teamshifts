@@ -7,6 +7,7 @@ from django.utils.timezone import now
 from django_scopes import scope
 from eventyay.base.models import User
 from pypdf import PdfReader
+from pypdf.generic import ContentStream
 
 from teamshifts.forms import CertificateSettingsForm
 from teamshifts.models import (
@@ -387,16 +388,19 @@ def test_certificate_renderer_get_ev_returns_event(event):
 
 
 @pytest.mark.django_db
-def test_render_certificate_pdf_renders_pinned_and_group_formatted_text(event, settings_obj):
+def test_render_certificate_pdf_renders_group_formatted_text(event, settings_obj):
     with scope(event=event, organizer=event.organizer):
         context = preview_context(event)
         layout = default_layout()
         for obj in layout:
             if obj.get("type") == "textarea":
-                obj["pinned"] = True
                 obj["color"] = [255, 0, 0, 1]
-                obj["fontFamily"] = "Open Sans"
-                obj["fontSize"] = "15.0"
+                obj["fontfamily"] = "Open Sans"
+                obj["fontsize"] = "15.0"
+                obj["bold"] = False
+                obj["italic"] = False
+                if obj.get("content") == "certificate_intro":
+                    obj["fontfamily"] = "Droid Sans Fallback"
 
         pdf_bytes = render_certificate_pdf(settings_obj, context, layout=layout)
 
@@ -409,12 +413,24 @@ def test_render_certificate_pdf_renders_pinned_and_group_formatted_text(event, s
     assert "Jane Member" in text
     assert "Certificate of Appreciation" in text
     for obj in layout:
-        if obj.get("type") != "textarea":
+        if obj.get("type") != "textarea" or obj.get("content") == "certificate_intro":
             continue
         rendered = obj.get("text") or "" if obj.get("content") == "other" else context[obj["content"]]
         normalized_rendered = re.sub(r"\s+", " ", rendered).strip()
         normalized_text = re.sub(r"\s+", " ", text).strip()
         assert normalized_rendered in normalized_text
 
-    assert all(obj.get("pinned") is True for obj in layout if obj.get("type") == "textarea")
-    assert all(obj.get("color") == [255, 0, 0, 1] for obj in layout if obj.get("type") == "textarea")
+    content = ContentStream(reader.pages[0].get_contents(), reader)
+    font_sizes = set()
+    fill_colors = set()
+    for operands, operator in content.operations:
+        if operator == b"Tf":
+            font_sizes.add(float(operands[1]))
+        elif operator == b"rg":
+            fill_colors.add(tuple(float(component) for component in operands))
+
+    fonts = reader.pages[0]["/Resources"]["/Font"].get_object()
+    font_names = {str(font.get_object()["/BaseFont"]) for font in fonts.values()}
+    assert 15.0 in font_sizes
+    assert (1.0, 0.0, 0.0) in fill_colors
+    assert any("DroidSansFallback" in font_name for font_name in font_names)

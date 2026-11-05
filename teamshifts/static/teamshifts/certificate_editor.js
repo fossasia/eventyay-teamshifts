@@ -399,31 +399,21 @@
         editor._init_fabric = function () {
             tsOriginalInitFabricForPin.apply(this, arguments);
             tsBindPinnedSelection();
-            tsBindKeyboardMovement();
         };
 
         if (editor.fabric) {
             tsBindPinnedSelection();
-            tsBindKeyboardMovement();
         }
 
-        var tsBindKeyboardMovement = function () {
-            if (!editor.fabric || editor._ts_keyboard_bound) {
+        var tsOriginalOnKeydown = editor._on_keydown;
+        editor._on_keydown = function (e) {
+            var canvasArea = editor.$cva && editor.$cva.get(0);
+            if (canvasArea && e.target && !canvasArea.contains(e.target)) {
                 return;
             }
 
-            editor._ts_keyboard_bound = true;
-
-            $(document).on("keydown.ts_keyboard", function (e) {
-                if (e.keyCode < 37 || e.keyCode > 40) {
-                    return;
-                }
-
+            if (e.keyCode >= 37 && e.keyCode <= 40 && editor.fabric) {
                 var objects = editor.fabric.getActiveObjects();
-                if (!objects || objects.length === 0) {
-                    return;
-                }
-
                 var hasPinned = objects.some(function (obj) {
                     return obj.pinned === true;
                 });
@@ -431,11 +421,14 @@
                 if (hasPinned) {
                     e.preventDefault();
                     e.stopPropagation();
+                    return;
                 }
-            });
+            }
+
+            return tsOriginalOnKeydown.apply(this, arguments);
         };
 
-        var tsApplyGroupFormatting = function () {
+        var tsApplyGroupFormatting = function (event, savepoint) {
             if (!editor.fabric || editor._ts_updating_group_toolbox) {
                 return;
             }
@@ -446,12 +439,31 @@
                 return;
             }
 
-            var color = $("#toolbox-col").val();
-            var fontFamily = $("#toolbox-fontfamily").val();
-            var fontSize = parseFloat($("#toolbox-fontsize").val());
-            var bold = $("#toolbox").find("button[data-action=bold]").is(".active");
-            var italic = $("#toolbox").find("button[data-action=italic]").is(".active");
-            var align = $("#toolbox-align").find(".active").attr("data-action");
+            var control = event && event.currentTarget;
+            var action = control && control.getAttribute("data-action");
+            var controlId = control && control.id;
+            var fontSize;
+            var fontFamily;
+            var isBold;
+            var isItalic;
+
+            if (controlId === "toolbox-fontsize") {
+                fontSize = parseFloat($("#toolbox-fontsize").val());
+                if (isNaN(fontSize)) {
+                    return;
+                }
+            } else if (controlId === "toolbox-fontfamily") {
+                fontFamily = $("#toolbox-fontfamily").val();
+                if (!fontFamily) {
+                    return;
+                }
+            } else if (action === "bold") {
+                isBold = $(control).is(".active");
+            } else if (action === "italic") {
+                isItalic = $(control).is(".active");
+            } else if (action !== "left" && action !== "center" && action !== "right") {
+                return;
+            }
 
             var historyModificationInProgress =
                 editor._history_modification_in_progress;
@@ -462,23 +474,27 @@
                         return;
                     }
 
-                    if (color) {
-                        object.set("fill", color);
-                    }
-
-                    if (fontFamily) {
+                    if (controlId === "toolbox-fontfamily") {
                         object.set("fontFamily", fontFamily);
+                        editor._apply_autofit_fontsize(object);
                     }
 
-                    if (!isNaN(fontSize)) {
-                        object.set("fontSize", editor._pt2px(fontSize));
+                    if (controlId === "toolbox-fontsize") {
+                        editor._apply_autofit_fontsize(object, fontSize);
                     }
 
-                    object.set("fontWeight", bold ? "bold" : "normal");
-                    object.set("fontStyle", italic ? "italic" : "normal");
+                    if (action === "bold") {
+                        object.set("fontWeight", isBold ? "bold" : "normal");
+                        editor._apply_autofit_fontsize(object);
+                    }
 
-                    if (align) {
-                        object.set("textAlign", align);
+                    if (action === "italic") {
+                        object.set("fontStyle", isItalic ? "italic" : "normal");
+                        editor._apply_autofit_fontsize(object);
+                    }
+
+                    if (action === "left" || action === "center" || action === "right") {
+                        object.set("textAlign", action);
                     }
 
                     object.setCoords();
@@ -489,7 +505,9 @@
             }
 
             editor.fabric.renderAll();
-            editor._create_savepoint();
+            if (savepoint !== false) {
+                editor._create_savepoint();
+            }
         };
 
         var tsApplyGroupColor = function () {
@@ -544,7 +562,14 @@
 
         $("#toolbox")
             .on(
-                "change.ts_group_format input.ts_group_format keyup.ts_group_format",
+                "input.ts_group_format",
+                "#toolbox-fontsize",
+                function (event) {
+                    tsApplyGroupFormatting(event, false);
+                }
+            )
+            .on(
+                "change.ts_group_format",
                 "#toolbox-fontsize, #toolbox-fontfamily",
                 tsApplyGroupFormatting
             )

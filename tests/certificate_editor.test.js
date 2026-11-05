@@ -138,6 +138,7 @@ function createEditorHarness(objects, values = {}) {
     return {
         editor,
         handlers,
+        values,
         get savepointCount() {
             return savepointCount;
         }
@@ -255,4 +256,57 @@ test("group font-size input previews without snapshots and change preserves othe
     assert.equal(editable.fontWeight, "normal");
     assert.equal(editable.fontStyle, "italic");
     assert.equal(editable.textAlign, "center");
+});
+
+test("group font-size typing creates one savepoint after the focused edit", () => {
+    const editable = makeTextObject({
+        maxFontPt: 13,
+        fontSize: 26
+    });
+    const harness = createEditorHarness(
+        [makeTextObject({ pinned: true }), editable],
+        { "#toolbox-fontsize": "13" }
+    );
+    const fontSizeInput = {
+        id: "toolbox-fontsize",
+        getAttribute() { return null; }
+    };
+
+    findHandler(harness, "#toolbox", "focusin", "#toolbox-fontsize")({
+        currentTarget: fontSizeInput
+    });
+
+    harness.values["#toolbox-fontsize"] = "1";
+    findHandler(harness, "#toolbox", "input", "#toolbox-fontsize")({
+        currentTarget: fontSizeInput
+    });
+    harness.editor._create_savepoint({
+        type: "change",
+        target: fontSizeInput
+    });
+
+    harness.values["#toolbox-fontsize"] = "19";
+    findHandler(harness, "#toolbox", "input", "#toolbox-fontsize")({
+        currentTarget: fontSizeInput
+    });
+    findHandler(
+        harness,
+        "#toolbox",
+        "change",
+        "#toolbox-fontsize, #toolbox-fontfamily"
+    )({ currentTarget: fontSizeInput });
+    harness.editor._create_savepoint({
+        type: "change",
+        target: fontSizeInput
+    });
+
+    assert.equal(editable.maxFontPt, 19);
+    assert.equal(harness.savepointCount, 0);
+
+    findHandler(harness, "#toolbox", "focusout", "#toolbox-fontsize")({
+        currentTarget: fontSizeInput
+    });
+
+    assert.equal(harness.savepointCount, 1);
+    assert.equal(editable.maxFontPt, 19);
 });

@@ -28,6 +28,12 @@
                     return;
                 }
 
+                if (
+                    editor._ts_group_fontsize_editing
+                ) {
+                    return;
+                }
+
                 var event = arguments[0];
                 var isTextColorControlEvent = event &&
                     event.target &&
@@ -562,16 +568,62 @@
 
         $("#toolbox")
             .on(
+                "focusin.ts_group_format",
+                "#toolbox-fontsize",
+                function () {
+                    if (
+                        editor.fabric &&
+                        editor._all_selected_are_text(
+                            editor.fabric.getActiveObjects()
+                        )
+                    ) {
+                        editor._ts_group_fontsize_editing = true;
+                        editor._ts_group_fontsize_changed = false;
+                    }
+                }
+            )
+            .on(
+                "focusout.ts_group_format",
+                "#toolbox-fontsize",
+                function () {
+                    if (!editor._ts_group_fontsize_editing) {
+                        return;
+                    }
+
+                    editor._ts_group_fontsize_editing = false;
+                    if (!editor._ts_group_fontsize_changed) {
+                        return;
+                    }
+
+                    editor._ts_group_fontsize_changed = false;
+                    editor._create_savepoint();
+                }
+            )
+            .on(
                 "input.ts_group_format",
                 "#toolbox-fontsize",
                 function (event) {
+                    if (editor._ts_group_fontsize_editing) {
+                        editor._ts_group_fontsize_changed = true;
+                    }
                     tsApplyGroupFormatting(event, false);
                 }
             )
             .on(
                 "change.ts_group_format",
                 "#toolbox-fontsize, #toolbox-fontfamily",
-                tsApplyGroupFormatting
+                function (event) {
+                    if (
+                        event.currentTarget.id === "toolbox-fontsize" &&
+                        editor._ts_group_fontsize_editing
+                    ) {
+                        editor._ts_group_fontsize_changed = true;
+                        tsApplyGroupFormatting(event, false);
+                        return;
+                    }
+
+                    tsApplyGroupFormatting(event);
+                }
             )
             .on(
                 "click.ts_group_format",

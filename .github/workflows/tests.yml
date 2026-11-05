@@ -41,6 +41,11 @@ jobs:
       - name: Checkout eventyay_teamshifts plugin
         uses: actions/checkout@v7
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
       - name: Clone eventyay
         run: |
           git clone https://github.com/fossasia/eventyay.git ../eventyay
@@ -75,3 +80,6 @@ jobs:
         run: |
           . ../eventyay/app/.venv/bin/activate
           pytest tests --reruns 3
+
+      - name: Test certificate group formatting
+        run: node --test tests/certificate_group_format.test.js

@@ -28,13 +28,24 @@
                     return;
                 }
 
+                var event = arguments[0];
+                var isGroupedFontSizeEvent = event &&
+                    event.target &&
+                    event.target.id === "toolbox-fontsize" &&
+                    editor.fabric &&
+                    editor._all_selected_are_text &&
+                    editor._all_selected_are_text(editor.fabric.getActiveObjects());
+
                 if (
-                    editor._ts_group_fontsize_editing
+                    (
+                        editor._ts_group_fontsize_editing ||
+                        isGroupedFontSizeEvent
+                    ) &&
+                    !editor._ts_group_fontsize_committing
                 ) {
                     return;
                 }
 
-                var event = arguments[0];
                 var isTextColorControlEvent = event &&
                     event.target &&
                     event.target.id === "toolbox-col" &&
@@ -603,9 +614,8 @@
                 "input.ts_group_format",
                 "#toolbox-fontsize",
                 function (event) {
-                    if (editor._ts_group_fontsize_editing) {
-                        editor._ts_group_fontsize_changed = true;
-                    }
+                    editor._ts_group_fontsize_editing = true;
+                    editor._ts_group_fontsize_changed = true;
                     tsApplyGroupFormatting(event, false);
                 }
             )
@@ -613,10 +623,8 @@
                 "change.ts_group_format",
                 "#toolbox-fontsize, #toolbox-fontfamily",
                 function (event) {
-                    if (
-                        event.currentTarget.id === "toolbox-fontsize" &&
-                        editor._ts_group_fontsize_editing
-                    ) {
+                    if (event.currentTarget.id === "toolbox-fontsize") {
+                        editor._ts_group_fontsize_editing = true;
                         editor._ts_group_fontsize_changed = true;
                         tsApplyGroupFormatting(event, false);
                         return;

@@ -235,6 +235,12 @@ test("group font-size input previews without snapshots and change preserves othe
             getAttribute() { return null; }
         }
     });
+    findHandler(harness, "#toolbox", "focusout", "#toolbox-fontsize")({
+        currentTarget: {
+            id: "toolbox-fontsize",
+            getAttribute() { return null; }
+        }
+    });
     assert.equal(harness.savepointCount, 1);
     assert.equal(pinned.maxFontPt, undefined);
     assert.equal(pinned.fontWeight, "bold");
@@ -280,6 +286,12 @@ test("group font-size typing creates one savepoint after the focused edit", () =
     findHandler(harness, "#toolbox", "input", "#toolbox-fontsize")({
         currentTarget: fontSizeInput
     });
+    findHandler(
+        harness,
+        "#toolbox",
+        "change",
+        "#toolbox-fontsize, #toolbox-fontfamily"
+    )({ currentTarget: fontSizeInput });
     harness.editor._create_savepoint({
         type: "change",
         target: fontSizeInput
@@ -309,4 +321,46 @@ test("group font-size typing creates one savepoint after the focused edit", () =
 
     assert.equal(harness.savepointCount, 1);
     assert.equal(editable.maxFontPt, 19);
+});
+
+test("group font-size change events do not snapshot intermediate values", () => {
+    const editable = makeTextObject({ maxFontPt: 13, fontSize: 26 });
+    const harness = createEditorHarness(
+        [makeTextObject(), editable],
+        { "#toolbox-fontsize": "1" }
+    );
+    const fontSizeInput = {
+        id: "toolbox-fontsize",
+        getAttribute() { return null; }
+    };
+    const change = findHandler(
+        harness,
+        "#toolbox",
+        "change",
+        "#toolbox-fontsize, #toolbox-fontfamily"
+    );
+
+    harness.editor._create_savepoint({
+        type: "change",
+        target: fontSizeInput
+    });
+    assert.equal(harness.savepointCount, 0);
+
+    findHandler(harness, "#toolbox", "input", "#toolbox-fontsize")({
+        currentTarget: fontSizeInput
+    });
+    change({ currentTarget: fontSizeInput });
+    harness.editor._create_savepoint({
+        type: "change",
+        target: fontSizeInput
+    });
+
+    assert.equal(harness.savepointCount, 0);
+    assert.equal(editable.maxFontPt, 1);
+
+    findHandler(harness, "#toolbox", "focusout", "#toolbox-fontsize")({
+        currentTarget: fontSizeInput
+    });
+
+    assert.equal(harness.savepointCount, 1);
 });

@@ -24,6 +24,7 @@ from phonenumber_field.formfields import PhoneNumberField
 from phonenumber_field.phonenumber import to_python as to_phone_number
 from phonenumbers.data import _COUNTRY_CODE_TO_REGION_CODE
 
+from .mail.placeholders import COMPOSE_CONTEXT, mail_context, placeholder_names
 from .models import (
     CFM_BUILTIN_FIELD_KEYS,
     ApplicationStatus,
@@ -53,9 +54,6 @@ def get_event_local_now(event):
 
 def format_datetime_local(dt):
     return f"{dt:%Y-%m-%dT%H:%M}"
-
-
-EMAIL_PLACEHOLDERS = ["full_name", "event_name", "role_name", "event_dates", "event_location", "shift_schedule_url"]
 
 
 def plain_text_to_html(text: str) -> str:
@@ -492,7 +490,7 @@ class EmailTemplateForm(forms.ModelForm):
             "send_automatically": _("Sent to each team member about 24 hours before their first shift of the day."),
         }
 
-    def __init__(self, *args, locales=None, **kwargs):
+    def __init__(self, *args, locales=None, placeholders=None, **kwargs):
         super().__init__(*args, **kwargs)
         if self.instance.role != EmailTemplateRoles.SHIFT_REMINDER:
             del self.fields["send_automatically"]
@@ -503,7 +501,7 @@ class EmailTemplateForm(forms.ModelForm):
             self.fields["body"].widget = _HtmlNormalizingEmailWidget(
                 locales=locales,
                 field=self.fields["body"],
-                placeholders=EMAIL_PLACEHOLDERS,
+                placeholders=placeholders or [],
             )
             for field_name in ("subject", "body"):
                 self.fields[field_name].widget.enabled_locales = locales
@@ -519,14 +517,14 @@ class CustomEmailTemplateForm(forms.ModelForm):
             "name": forms.TextInput(attrs={"class": "form-control"}),
         }
 
-    def __init__(self, *args, locales=None, **kwargs):
+    def __init__(self, *args, locales=None, placeholders=None, **kwargs):
         super().__init__(*args, **kwargs)
         if locales:
             self.fields["subject"].widget = I18nTextInput(locales=locales, field=self.fields["subject"])
             self.fields["body"].widget = _HtmlNormalizingEmailWidget(
                 locales=locales,
                 field=self.fields["body"],
-                placeholders=EMAIL_PLACEHOLDERS,
+                placeholders=placeholders or [],
             )
             for field_name in ("subject", "body"):
                 self.fields[field_name].widget.enabled_locales = locales
@@ -584,7 +582,7 @@ class EmailComposeForm(forms.Form):
             locales=locales,
             widget_kwargs={
                 "attrs": {"rows": 10},
-                "placeholders": EMAIL_PLACEHOLDERS,
+                "placeholders": placeholder_names(event, COMPOSE_CONTEXT),
             },
         )
 
@@ -652,7 +650,7 @@ class EmailQueueEditForm(forms.ModelForm):
             self.fields["message"].widget = _HtmlNormalizingEmailWidget(
                 locales=locales,
                 field=self.fields["message"],
-                placeholders=EMAIL_PLACEHOLDERS,
+                placeholders=placeholder_names(event, mail_context(self.instance.mail_type)),
             )
             for field_name in ("subject", "message"):
                 self.fields[field_name].widget.enabled_locales = locales

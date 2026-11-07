@@ -20,6 +20,7 @@ from eventyay.base.services.tasks import ProfiledEventTask
 from eventyay.celery_app import app
 from i18nfield.strings import LazyI18nString
 
+from ..mail import MAIL_CONTEXT_KEY
 from ..models import (
     ApplicationStatus,
     CertificateMatchMode,
@@ -210,7 +211,7 @@ def _send_certificate_email(application: TeamMemberApplication, certificate: Mem
     template = cfm.get_mail_template(EmailTemplateRoles.CERTIFICATE_GENERATED)
     locale = user.locale or event.settings.locale
 
-    context = get_email_context(event=event, user=user)
+    context = get_email_context(event=event, user=user, **{MAIL_CONTEXT_KEY: True})
     subject = LazyI18nString(template.subject)
     body = MarkdownBreakString(LazyI18nString(template.body))
 

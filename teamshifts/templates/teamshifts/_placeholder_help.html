@@ -1,0 +1,10 @@
+{% load i18n %}
+<fieldset>
+  <legend>{% trans "Available placeholders" %}</legend>
+  <dl class='dl-horizontal'>
+    {% for token, description in placeholders %}
+      <dt><code>{{ token }}</code></dt>
+      <dd>{{ description }}</dd>
+    {% endfor %}
+  </dl>
+</fieldset>

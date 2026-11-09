@@ -106,7 +106,7 @@ def test_reset_button_only_on_customised_templates(client, event, organizer_user
 
     content = client.get(_url("email_templates", event)).content.decode()
 
-    assert _url("email_template_reset", event, role=ROLE) in content
+    assert content.index(_url("email_template_reset", event, role=ROLE)) > content.index("</summary>", content.index(str(ROLE.label)))
     assert _url("email_template_reset", event, role=EmailTemplateRoles.SHIFT_UNASSIGNED_BY_ORGANIZER) not in content
 
 

@@ -1273,7 +1273,7 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
                 except TeamShiftsEmailQueue.DoesNotExist:
                     return initial
 
-                if source.mail_type == "specific_people" or source.individual_recipients:
+                if source.mail_type == "specific_people":
                     initial["individual_volunteers"] = list(source.recipients.filter(user__isnull=False).values_list("user_id", flat=True))
 
             initial["subject"] = source.subject

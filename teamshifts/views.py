@@ -1282,6 +1282,17 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
         ctx["preview_recipients"] = getattr(self, "_preview_recipients", None)
         ctx["can_view_email"] = can_view_email_addresses(self.request.user, self.request.organizer, self.request.event, request=self.request)
         ctx["draft"] = self.get_draft()
+        with scope(event=self.request.event):
+            ctx["custom_templates"] = list(TeamShiftsCustomEmailTemplate.objects.filter(event=self.request.event))
+
+        ctx["custom_templates_data"] = [
+            {
+                "id": template.pk,
+                "subject": template.subject.data,
+                "body": template.body.data,
+            }
+            for template in ctx["custom_templates"]
+        ]
         return ctx
 
     def form_invalid(self, form):

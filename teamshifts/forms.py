@@ -1,4 +1,5 @@
 import re
+import uuid
 from datetime import timedelta
 from zoneinfo import ZoneInfo
 
@@ -566,8 +567,19 @@ class VolunteerSelect2Multiple(Select2Multiple):
 
 
 class EmailComposeForm(forms.Form):
-    def __init__(self, *args, event=None, show_emails=False, draft_save=False, **kwargs):
+    def __init__(
+        self,
+        *args,
+        event=None,
+        show_emails=False,
+        draft_save=False,
+        **kwargs,
+    ):
         super().__init__(*args, **kwargs)
+        self.fields["submission_key"] = forms.UUIDField(
+            widget=forms.HiddenInput,
+            initial=uuid.uuid4,
+        )
         self._event = event
         locales = list(event.settings.get("locales") or [event.settings.locale])
 
@@ -614,7 +626,6 @@ class EmailComposeForm(forms.Form):
                 }
             ),
         )
-
         self.fields["send_after"] = forms.DateTimeField(
             required=False,
             label=_("Schedule for later"),

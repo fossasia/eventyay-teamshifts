@@ -9,6 +9,7 @@ from django.utils.formats import date_format
 from django.utils.translation import gettext_lazy as _
 from eventyay.base.pdf import Renderer, correct_page_media_box
 from pypdf import PdfReader, PdfWriter
+from pypdf.errors import DeprecationError
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.units import mm
 from reportlab.lib.utils import ImageReader
@@ -314,7 +315,7 @@ def _safe_correct_page_media_box(page):
     try:
         correct_page_media_box(page)
         return page
-    except Exception:
+    except DeprecationError:
         # In pypdf >= 7.0, replace_contents requires the page to be assigned to a writer
         try:
             writer = PdfWriter()

@@ -88,12 +88,12 @@ def _url(event, name, **kwargs):
     return reverse(f"plugins:teamshifts:{name}", kwargs={"organizer": event.organizer.slug, "event": event.slug, **kwargs})
 
 
-def _fail_for(application):
+def _fail_for(application, error=None):
     real_generate = generate_certificate
 
     def generate(target, *args, **kwargs):
         if target.pk == application.pk:
-            raise OSError("storage unavailable")
+            raise error or OSError("storage unavailable")
         return real_generate(target, *args, **kwargs)
 
     return patch("teamshifts.services.certificates.generate_certificate", side_effect=generate)
@@ -349,6 +349,51 @@ def test_a_failed_rebuild_stops_the_resend_and_is_reported(event, application, a
         assert send_certificates(event, [application]) == {"sent": 0, "resent": 0, "not_qualified": 0, "no_email": 0, "failed": 1}
 
     assert len(attached_pdfs) == 1
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("error", [OSError("storage unavailable"), KeyError("left")])
+def test_a_failed_rebuild_only_fails_that_member_whatever_the_error(event, application, attached_pdfs, error):
+    other = _member(event, "other")
+    _configure(event, layout=_design("#112233"))
+    send_certificates(event, [application, other])
+    _configure(event, layout=_design("#445566"))
+
+    with _fail_for(application, error):
+        result = send_certificates(event, [application, other])
+
+    assert result == {"sent": 0, "resent": 1, "not_qualified": 0, "no_email": 0, "failed": 1}
+    assert attached_pdfs[-1] == _design("#445566").encode()  # the other member still got the new design
+
+
+@pytest.mark.django_db
+def test_a_sent_certificate_whose_file_is_gone_is_rebuilt_and_resent(event, application, attached_pdfs):
+    _configure(event, layout=_design("#112233"))
+    send_certificates(event, [application])
+    MemberCertificate.objects.filter(application=application).update(file="")
+
+    assert send_certificates(event, [application])["resent"] == 1
+
+    assert attached_pdfs[-1] == _design("#112233").encode()
+
+
+@pytest.mark.django_db
+def test_regenerating_leaves_the_notification_state_alone(application):
+    certificate = generate_certificate(application)
+    MemberCertificate.objects.filter(pk=certificate.pk).update(notified_at=now(), downloaded_at=now())
+    real_save = MemberCertificate.save
+
+    def save_after_a_resend_failed(self, *args, **kwargs):
+        # Another job resets the notification between this job loading the certificate and saving it.
+        MemberCertificate.objects.filter(pk=self.pk).update(notified_at=None)
+        return real_save(self, *args, **kwargs)
+
+    with patch.object(MemberCertificate, "save", autospec=True, side_effect=save_after_a_resend_failed):
+        generate_certificate(application)
+
+    refreshed = MemberCertificate.objects.get(pk=certificate.pk)
+    assert refreshed.notified_at is None
+    assert refreshed.downloaded_at is not None
 
 
 @pytest.mark.django_db

@@ -164,7 +164,9 @@ def generate_certificate(application: TeamMemberApplication, settings: Certifica
         old_file_name = certificate.file.name if certificate.file else None
         certificate.file.save(certificate_filename(application), ContentFile(pdf_bytes), save=False)
         certificate.generated_at = now()
-        certificate.save()
+        # Only the file fields: a full save would overwrite notified_at and downloaded_at with the values this
+        # instance loaded, undoing a change a resend made in the meantime (for example resetting a failed send).
+        certificate.save(update_fields=["file", "generated_at"])
         if old_file_name:
             certificate.file.storage.delete(old_file_name)
     return certificate
@@ -329,12 +331,15 @@ def send_certificates(event, applications) -> dict:
             result["no_email"] += 1
             continue
         with scope(event=event):
-            sent_certificate = MemberCertificate.objects.filter(application=application, notified_at__isnull=False).exclude(file="").first()
+            # A sent certificate whose file is gone is still a resend: it is rebuilt below, like any other.
+            sent_certificate = MemberCertificate.objects.filter(application=application, notified_at__isnull=False).first()
         if sent_certificate:
             try:
                 # Rebuild first: the stored PDF still has the design it was first sent with, not the current one.
                 sent_certificate = generate_certificate(application, settings)
-            except (OSError, ValueError):
+            except Exception:
+                # Whatever goes wrong while rendering or storing one PDF (a storage error, a layout item with missing
+                # fields) only fails this member; the rest of the batch is still resent.
                 logger.exception("Failed to rebuild member certificate for application %s before resending", application.pk)
                 result["failed"] += 1
                 continue

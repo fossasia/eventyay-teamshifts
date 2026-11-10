@@ -3,6 +3,7 @@
 {% load bootstrap3 %}
 {% load rich_text %}
 {% load static %}
+{% load urlreplace %}
 
 {% block custom_header %}
   {{ block.super }}
@@ -68,7 +69,10 @@
     <div class='table-responsive'>
       {% if current_ordering != "position" or request.GET.q or request.GET.search or request.GET.status or request.GET.filter %}
         <div class="alert alert-info">
-          {% trans "Drag-and-drop reordering is unavailable while custom sorting or filtering is active. Clear sorting and filters to reorder locations." %}
+          {% trans "Drag-and-drop reordering is unavailable while custom sorting or filtering is active." %}
+          <a href="?{% url_replace request 'sort' '' 'q' '' 'search' '' 'status' '' 'filter' '' 'page' '1' %}" class="alert-link">
+            {% trans "Reset to default order" %}
+          </a>
         </div>
       {% endif %}
       <table class='table table-hover table-quotas'>

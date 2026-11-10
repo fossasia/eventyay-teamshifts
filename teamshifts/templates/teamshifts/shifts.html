@@ -44,20 +44,20 @@
                     {% endif %}
                 </th>
                 {% trans "Name" as name_label %}
-                <th>
+                <th aria-sort="{% if current_ordering == 'name' %}ascending{% elif current_ordering == '-name' %}descending{% else %}none{% endif %}">
                     {% include "teamshifts/_sort_header.html" with label=name_label field="name" current_ordering=current_ordering %}
                 </th>
                     {% trans "Location" as location_label %}
-                <th>
+                <th aria-sort="{% if current_ordering == 'location__name' %}ascending{% elif current_ordering == '-location__name' %}descending{% else %}none{% endif %}">
                     {% include "teamshifts/_sort_header.html" with label=location_label field="location__name" current_ordering=current_ordering %}
                 </th>
                 <th>{% trans "Roles" %}</th>
                 {% trans "Start" as start_label %}
-                <th>
+                <th aria-sort="{% if current_ordering == 'start_time' %}ascending{% elif current_ordering == '-start_time' %}descending{% else %}none{% endif %}">
                     {% include "teamshifts/_sort_header.html" with label=start_label field="start_time" current_ordering=current_ordering %}
                 </th>
                 {% trans "End" as end_label %}
-                <th>
+                <th aria-sort="{% if current_ordering == 'end_time' %}ascending{% elif current_ordering == '-end_time' %}descending{% else %}none{% endif %}">
                     {% include "teamshifts/_sort_header.html" with label=end_label field="end_time" current_ordering=current_ordering %}
                 </th>
                 <th class="text-right">{% trans "Actions" %}</th>

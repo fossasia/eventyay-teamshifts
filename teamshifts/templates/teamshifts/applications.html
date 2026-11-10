@@ -57,7 +57,7 @@
                             {% endif %}
                         </th>
                         {% for col in columns %}
-                        <th>
+                        <th{% if col.key == "full_name" %} aria-sort="{% if current_ordering == 'user__fullname' %}ascending{% elif current_ordering == '-user__fullname' %}descending{% else %}none{% endif %}"{% endif %}>
                             {% if col.key == "full_name" %}
                                 {% include "teamshifts/_sort_header.html" with label=col.label field="user__fullname" current_ordering=current_ordering %}
                             {% else %}
@@ -66,11 +66,11 @@
                         </th>
                         {% endfor %}
                         {% trans "Status" as status_label %}
-                        <th>
+                        <th aria-sort="{% if current_ordering == 'status' %}ascending{% elif current_ordering == '-status' %}descending{% else %}none{% endif %}">
                             {% include "teamshifts/_sort_header.html" with label=status_label field="status" current_ordering=current_ordering %}
                         </th>
                         {% trans "Applied" as applied_label %}
-                        <th>
+                        <th aria-sort="{% if current_ordering == 'created_at' %}ascending{% elif current_ordering == '-created_at' %}descending{% else %}none{% endif %}">
                             {% include "teamshifts/_sort_header.html" with label=applied_label field="created_at" current_ordering=current_ordering %}
                         </th>
                         <th class="action-col-1"></th>

@@ -39,13 +39,13 @@
   <table class='table'>
     <thead>
       <tr>
-        <th>
+        <th aria-sort="{% if current_ordering == 'subject' %}ascending{% elif current_ordering == '-subject' %}descending{% else %}none{% endif %}">
           {% trans "Subject" as subject_label %}
           {% include "teamshifts/_sort_header.html" with label=subject_label field="subject" current_ordering=current_ordering %}
         </th>
         <th>{% trans "To" %}</th>
         <th>{% trans "Type" %}</th>
-        <th>
+        <th aria-sort="{% if current_ordering == 'sent_at' %}ascending{% elif current_ordering == '-sent_at' %}descending{% else %}none{% endif %}">
           {% trans "Sent at" as sent_label %}
           {% include "teamshifts/_sort_header.html" with label=sent_label field="sent_at" current_ordering=current_ordering %}
         </th>

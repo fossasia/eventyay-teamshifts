@@ -17,6 +17,7 @@ from eventyay.celery_app import app
 from eventyay.multidomain.urlreverse import mainreverse
 from i18nfield.strings import LazyI18nString
 
+from ..mail import MAIL_CONTEXT_KEY
 from ..models import EmailTemplateRoles, ShiftAssignment, ShiftReminder
 from .email import record_sent_email
 
@@ -133,7 +134,7 @@ def _send_reminder(event, user, assignments, template) -> tuple[dict, str]:
     body = LazyI18nString(template.body)
     with language(locale):
         shift_list = format_shift_list(event, assignments, locale, html=_is_html(str(body)))
-    context = get_email_context(event=event, user=user, shift_list=shift_list)
+    context = get_email_context(event=event, user=user, shift_list=shift_list, **{MAIL_CONTEXT_KEY: True})
     mail(
         email=user.email,
         subject=LazyI18nString(template.subject),

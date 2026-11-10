@@ -1,8 +1,10 @@
+import hashlib
 import json
 import mimetypes
 
 from django.contrib import messages
 from django.core.files.base import ContentFile
+from django.db import transaction
 from django.db.models import Count, Q
 from django.http import FileResponse, HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
@@ -19,7 +21,13 @@ from eventyay.control.permissions import EventPermissionRequiredMixin
 from eventyay.control.views.pdf import BaseEditorView
 
 from .forms import CertificateSettingsForm
-from .models import ApplicationStatus, CertificateTrigger, MemberCertificate, TeamMemberApplication
+from .models import (
+    ApplicationStatus,
+    CertificateSettings,
+    CertificateTrigger,
+    MemberCertificate,
+    TeamMemberApplication,
+)
 from .pdf import (
     CERTIFICATE_PLACEHOLDERS,
     default_layout,
@@ -233,6 +241,11 @@ def escape_json_for_html(json_str: str) -> str:
     return json_str.translate(_JSON_SCRIPT_ESCAPES)
 
 
+def get_layout_version(layout: str | None) -> str:
+    """Returns a deterministic revision hash for the given layout content."""
+    return hashlib.sha256((layout or "").encode("utf-8")).hexdigest()[:16]
+
+
 class CertificateEditorView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, BaseEditorView):
     permission = "can_teamshifts_manage_applicants"
     template_name = "teamshifts/certificate_editor.html"
@@ -252,21 +265,43 @@ class CertificateEditorView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin
         ctx = super().get_context_data(**kwargs)
         if "layout" in ctx and isinstance(ctx["layout"], str):
             ctx["layout"] = escape_json_for_html(ctx["layout"])
-        ctx["layout_version"] = str(int(self.certificate_settings.updated_at.timestamp())) if self.certificate_settings.updated_at else "0"
+        ctx["layout_version"] = get_layout_version(self.certificate_settings.layout)
         return ctx
 
     def post(self, request, *args, **kwargs):
-        version = request.POST.get("version") or request.headers.get("If-Match")
-        if version and self.certificate_settings.updated_at:
-            current_version = str(int(self.certificate_settings.updated_at.timestamp()))
-            if version != current_version:
+        if "data" in request.POST and "preview" not in request.POST:
+            version = request.POST.get("version") or request.headers.get("If-Match")
+            if not version:
                 return JsonResponse(
-                    {
-                        "status": "conflict",
-                        "error": _("The certificate layout has been modified by another coordinator. Please reload the page to get the latest version."),
-                    },
-                    status=409,
+                    {"status": "error", "error": _("Layout version is required.")},
+                    status=400,
                 )
+            with transaction.atomic():
+                cert_settings = CertificateSettings.objects.select_for_update().get(pk=self.certificate_settings.pk)
+                current_version = get_layout_version(cert_settings.layout)
+                if version != current_version:
+                    return JsonResponse(
+                        {
+                            "status": "conflict",
+                            "error": _("The certificate layout has been modified by another coordinator. Please reload the page to get the latest version."),
+                        },
+                        status=409,
+                    )
+                cf = self._get_posted_cached_file()
+                if cf:
+                    self.save_background(cf)
+                try:
+                    layout = self._get_posted_layout()
+                except ValueError as exc:
+                    return JsonResponse({"status": "error", "error": str(exc)}, status=400)
+                layout_data = json.dumps(layout)
+                cert_settings.layout = layout_data
+                cert_settings.save(update_fields=["layout", "updated_at"])
+                self.certificate_settings.layout = layout_data
+                self.certificate_settings.updated_at = cert_settings.updated_at
+                new_version = get_layout_version(layout_data)
+                return JsonResponse({"status": "ok", "version": new_version})
+
         return super().post(request, *args, **kwargs)
 
     def get_variables(self):
@@ -296,8 +331,8 @@ class CertificateEditorView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin
         return self.get_default_background()
 
     def save_layout(self, layout_data=None, expected_version=None):
-        if expected_version and self.certificate_settings.updated_at:
-            current_version = str(int(self.certificate_settings.updated_at.timestamp()))
+        if expected_version is not None:
+            current_version = get_layout_version(self.certificate_settings.layout)
             if expected_version != current_version:
                 raise ValueError(_("Layout version conflict"))
         if layout_data is None:

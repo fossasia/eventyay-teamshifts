@@ -370,11 +370,16 @@
     {% endfor %}
     <script type="text/javascript">
         $(document).ajaxSend(function(event, xhr, settings) {
-            if (settings.type === "POST" && settings.data && typeof settings.data === "string" && settings.data.indexOf("data=") !== -1) {
+            if (settings.type === "POST" && settings.data && typeof settings.data === "string" && settings.data.indexOf("data=") !== -1 && settings.data.indexOf("preview=") === -1) {
                 var version = $("#editor-data").data("version");
                 if (version && settings.data.indexOf("version=") === -1) {
                     settings.data += "&version=" + encodeURIComponent(version);
                 }
+            }
+        });
+        $(document).ajaxSuccess(function(event, xhr, settings, data) {
+            if (data && data.version) {
+                $("#editor-data").data("version", data.version).attr("data-version", data.version);
             }
         });
     </script>

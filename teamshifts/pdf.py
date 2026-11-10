@@ -305,30 +305,38 @@ def image_file_to_pdf(uploaded) -> BytesIO:
     return buffer
 
 
+import eventyay.base.pdf
+from pypdf import PdfWriter
+
+_orig_correct_page_media_box = eventyay.base.pdf.correct_page_media_box
+
+
+def _safe_correct_page_media_box(page):
+    try:
+        return _orig_correct_page_media_box(page)
+    except Exception:
+        # In pypdf >= 7.0, replace_contents requires the page to be assigned to a writer
+        writer = PdfWriter()
+        writer_page = writer.add_page(page)
+        _orig_correct_page_media_box(writer_page)
+        return writer_page
+
+
+eventyay.base.pdf.correct_page_media_box = _safe_correct_page_media_box
+
+
 class CertificateRenderer(Renderer):
     def __init__(self, event, layout, background_file, context: dict):
-        super().__init__(event, layout, None)
+        super().__init__(event, layout, background_file)
         self.context = context
         self.variables = {}
         self.images = {}
-        if background_file:
-            from eventyay.base.pdf import correct_page_media_box
-            from pypdf import PdfReader, PdfWriter
-
-            self.bg_bytes = background_file.read() if hasattr(background_file, "read") else background_file
-            if hasattr(background_file, "close"):
-                try:
-                    background_file.close()
-                except OSError:
-                    pass
-            self.bg_pdf = PdfReader(BytesIO(self.bg_bytes), strict=False)
+        if self.bg_pdf:
             bg_writer = PdfWriter()
             bg_page = bg_writer.add_page(self.bg_pdf.pages[0])
-            correct_page_media_box(bg_page)
+            _safe_correct_page_media_box(bg_page)
             self._bg_page = bg_page
         else:
-            self.bg_bytes = None
-            self.bg_pdf = None
             self._bg_page = None
 
     def _get_text_content(self, op, order, o, inner=False):
@@ -420,30 +428,7 @@ class CertificateRenderer(Renderer):
         if title is None:
             title = _("Member certificate")
         if getattr(settings, "PDFTK", None) and self.bg_bytes:
-            import os
-            import subprocess
-            import tempfile
-
-            buffer.seek(0)
-            with tempfile.TemporaryDirectory() as d:
-                with open(os.path.join(d, "back.pdf"), "wb") as f:
-                    f.write(self.bg_bytes)
-                with open(os.path.join(d, "front.pdf"), "wb") as f:
-                    f.write(buffer.read())
-                subprocess.run(
-                    [
-                        settings.PDFTK,
-                        os.path.join(d, "front.pdf"),
-                        "background",
-                        os.path.join(d, "back.pdf"),
-                        "output",
-                        os.path.join(d, "out.pdf"),
-                        "compress",
-                    ],
-                    check=True,
-                )
-                with open(os.path.join(d, "out.pdf"), "rb") as f:
-                    return BytesIO(f.read())
+            return super().render_background(buffer, title=title)
 
         from pypdf import PdfReader, PdfWriter
 

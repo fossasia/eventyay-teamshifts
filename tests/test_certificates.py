@@ -1,3 +1,4 @@
+import json
 from datetime import timedelta
 
 import pytest
@@ -406,8 +407,6 @@ def test_certificate_editor_permission_coordinator_allowed(client, event):
     response = client.get(editor_url)
     assert response.status_code == 200
 
-    import json
-
     layout_data = json.dumps([{"type": "textarea", "content": "member_name"}])
     post_response = client.post(editor_url, {"data": layout_data})
     assert post_response.status_code == 200
@@ -432,8 +431,6 @@ def test_certificate_editor_permission_lead_denied_even_with_event_settings(clie
 
     response = client.get(editor_url)
     assert response.status_code == 403
-
-    import json
 
     layout_data = json.dumps([{"type": "textarea", "content": "member_name"}])
     post_response = client.post(editor_url, {"data": layout_data})
@@ -470,4 +467,3 @@ def test_certificate_editor_permission_unauthenticated_or_unauthorized_denied(cl
     client.force_login(unauthorized)
     response = client.get(editor_url)
     assert response.status_code in (403, 404)
-

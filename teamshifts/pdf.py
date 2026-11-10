@@ -1,6 +1,7 @@
 import json
 from io import BytesIO
 
+from django.conf import settings
 from django.contrib.staticfiles import finders
 from django.templatetags.static import static
 from django.utils.formats import date_format
@@ -306,10 +307,23 @@ def image_file_to_pdf(uploaded) -> BytesIO:
 
 class CertificateRenderer(Renderer):
     def __init__(self, event, layout, background_file, context: dict):
-        super().__init__(event, layout, background_file)
+        super().__init__(event, layout, None)
         self.context = context
         self.variables = {}
         self.images = {}
+        if background_file:
+            from pypdf import PdfReader
+
+            self.bg_bytes = background_file.read() if hasattr(background_file, "read") else background_file
+            if hasattr(background_file, "close"):
+                try:
+                    background_file.close()
+                except OSError:
+                    pass
+            self.bg_pdf = PdfReader(BytesIO(self.bg_bytes), strict=False)
+        else:
+            self.bg_bytes = None
+            self.bg_pdf = None
 
     def _get_text_content(self, op, order, o, inner=False):
         content = o.get("content")
@@ -395,6 +409,37 @@ class CertificateRenderer(Renderer):
                 canvas.showPage()
         finally:
             self.layout = original
+
+    def render_background(self, buffer, title=None):
+        if title is None:
+            title = _("Member certificate")
+        if getattr(settings, "PDFTK", None):
+            return super().render_background(buffer, title=title)
+
+        from pypdf import PdfReader, PdfWriter
+
+        output = PdfWriter()
+        buffer.seek(0)
+        fg_pdf = PdfReader(buffer, strict=False)
+        if not self.bg_pdf:
+            for page in fg_pdf.pages:
+                output.add_page(page)
+        else:
+            bg_page = self.bg_pdf.pages[0]
+            for page in fg_pdf.pages:
+                new_page = output.add_page(page)
+                new_page.merge_page(bg_page, over=False)
+
+        output.add_metadata(
+            {
+                "/Title": str(title),
+                "/Creator": "pretix",
+            }
+        )
+        outbuffer = BytesIO()
+        output.write(outbuffer)
+        outbuffer.seek(0)
+        return outbuffer
 
 
 def render_certificate_pdf(settings: CertificateSettings, context: dict, layout=None, background_file=None) -> bytes:

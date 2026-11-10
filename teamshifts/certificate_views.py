@@ -109,8 +109,10 @@ class CertificateSettingsView(PluginActiveMixin, TeamShiftsPermissionRequiredMix
                 }
             )
         qualifying = [row for row in rows if row["qualifies"]]
-        generate_count = sum(1 for row in qualifying if not row["sent"])
+        # Generating also rebuilds certificates that were already sent, so every qualifying member counts.
+        generate_count = len(qualifying)
         send_count = sum(1 for row in qualifying if row["generated"] and not row["sent"])
+        ungenerated_count = sum(1 for row in qualifying if not row["generated"])
         members_url = reverse("plugins:teamshifts:members", kwargs={"organizer": request.organizer.slug, "event": event.slug})
         return {
             "form": form,
@@ -119,13 +121,13 @@ class CertificateSettingsView(PluginActiveMixin, TeamShiftsPermissionRequiredMix
             "generate_count": generate_count,
             "send_count": send_count,
             "can_download": any(row["generated"] for row in qualifying),
-            "generation_hint": self._generation_hint(event, settings, qualifying, generate_count, send_count, members_url),
+            "generation_hint": self._generation_hint(event, settings, qualifying, ungenerated_count, send_count, members_url),
             "placeholders": CERTIFICATE_PLACEHOLDERS,
             "rows": rows,
             "can_view_email": can_view_email_addresses(request.user, request.organizer, event, request=request),
         }
 
-    def _generation_hint(self, event, settings, qualifying, generate_count, send_count, members_url):
+    def _generation_hint(self, event, settings, qualifying, ungenerated_count, send_count, members_url):
         if settings.require_after_event_end and not event_has_ended(event):
             last_day = date_format(event_last_day(event), "DATE_FORMAT")
             if settings.trigger == CertificateTrigger.AUTO:
@@ -135,16 +137,17 @@ class CertificateSettingsView(PluginActiveMixin, TeamShiftsPermissionRequiredMix
             return _("No member meets the qualification conditions yet.")
         if send_count:
             return ngettext(
-                "%(count)d certificate is ready to send. Generating again updates it, e.g. after a design change.",
-                "%(count)d certificates are ready to send. Generating again updates them, e.g. after a design change.",
+                "%(count)d certificate is ready to send. Generating again updates it and any already sent, e.g. after a design change. No emails are sent.",
+                "%(count)d certificates are ready to send. Generating again updates them and any already sent, e.g. after a design change. No emails are sent.",
                 send_count,
             ) % {"count": send_count}
-        if generate_count:
+        if ungenerated_count:
             return _("Generate certificates first.")
         return format_html(
             ngettext(
-                'The certificate has been sent. To resend it, use the <a href="{url}">Members page</a>.',
-                'All {count} certificates have been sent. To resend to someone, use the <a href="{url}">Members page</a>.',
+                'The certificate has been sent. After a design change, generate again to update it, or resend it from the <a href="{url}">Members page</a>.',
+                "All {count} certificates have been sent. After a design change, generate again to update them, "
+                'or resend to someone from the <a href="{url}">Members page</a>.',
                 len(qualifying),
             ),
             count=len(qualifying),

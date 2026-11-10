@@ -287,13 +287,13 @@ class CertificateEditorView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin
                         },
                         status=409,
                     )
-                cf = self._get_posted_cached_file()
-                if cf:
-                    self.save_background(cf)
                 try:
                     layout = self._get_posted_layout()
                 except ValueError as exc:
                     return JsonResponse({"status": "error", "error": str(exc)}, status=400)
+                cf = self._get_posted_cached_file()
+                if cf:
+                    self.save_background(cf)
                 layout_data = json.dumps(layout)
                 cert_settings.layout = layout_data
                 cert_settings.save(update_fields=["layout", "updated_at"])

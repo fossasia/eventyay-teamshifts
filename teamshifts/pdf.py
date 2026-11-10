@@ -316,10 +316,14 @@ def _safe_correct_page_media_box(page):
         return page
     except Exception:
         # In pypdf >= 7.0, replace_contents requires the page to be assigned to a writer
-        writer = PdfWriter()
-        writer_page = writer.add_page(page)
-        correct_page_media_box(writer_page)
-        return writer_page
+        try:
+            writer = PdfWriter()
+            writer_page = writer.add_page(page)
+            correct_page_media_box(writer_page)
+            return writer_page
+        except Exception:
+            logger.warning("Failed to correct page media box, using original page", exc_info=True)
+            return page
 
 
 class CertificateRenderer(Renderer):

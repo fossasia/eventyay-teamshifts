@@ -312,7 +312,8 @@ class CertificateRenderer(Renderer):
         self.variables = {}
         self.images = {}
         if background_file:
-            from pypdf import PdfReader
+            from eventyay.base.pdf import correct_page_media_box
+            from pypdf import PdfReader, PdfWriter
 
             self.bg_bytes = background_file.read() if hasattr(background_file, "read") else background_file
             if hasattr(background_file, "close"):
@@ -321,9 +322,14 @@ class CertificateRenderer(Renderer):
                 except OSError:
                     pass
             self.bg_pdf = PdfReader(BytesIO(self.bg_bytes), strict=False)
+            bg_writer = PdfWriter()
+            bg_page = bg_writer.add_page(self.bg_pdf.pages[0])
+            correct_page_media_box(bg_page)
+            self._bg_page = bg_page
         else:
             self.bg_bytes = None
             self.bg_pdf = None
+            self._bg_page = None
 
     def _get_text_content(self, op, order, o, inner=False):
         content = o.get("content")
@@ -389,8 +395,8 @@ class CertificateRenderer(Renderer):
         original = self.layout
         self.layout = layout
         try:
-            if self.bg_pdf:
-                bg_page = self.bg_pdf.pages[0]
+            bg_page = getattr(self, "_bg_page", None) or (self.bg_pdf.pages[0] if self.bg_pdf else None)
+            if bg_page:
                 page_size = (
                     bg_page.mediabox[2] - bg_page.mediabox[0],
                     bg_page.mediabox[3] - bg_page.mediabox[1],
@@ -413,21 +419,44 @@ class CertificateRenderer(Renderer):
     def render_background(self, buffer, title=None):
         if title is None:
             title = _("Member certificate")
-        if getattr(settings, "PDFTK", None):
-            return super().render_background(buffer, title=title)
+        if getattr(settings, "PDFTK", None) and self.bg_bytes:
+            import os
+            import subprocess
+            import tempfile
+
+            buffer.seek(0)
+            with tempfile.TemporaryDirectory() as d:
+                with open(os.path.join(d, "back.pdf"), "wb") as f:
+                    f.write(self.bg_bytes)
+                with open(os.path.join(d, "front.pdf"), "wb") as f:
+                    f.write(buffer.read())
+                subprocess.run(
+                    [
+                        settings.PDFTK,
+                        os.path.join(d, "front.pdf"),
+                        "background",
+                        os.path.join(d, "back.pdf"),
+                        "output",
+                        os.path.join(d, "out.pdf"),
+                        "compress",
+                    ],
+                    check=True,
+                )
+                with open(os.path.join(d, "out.pdf"), "rb") as f:
+                    return BytesIO(f.read())
 
         from pypdf import PdfReader, PdfWriter
 
         output = PdfWriter()
         buffer.seek(0)
         fg_pdf = PdfReader(buffer, strict=False)
-        if not self.bg_pdf:
-            for page in fg_pdf.pages:
-                output.add_page(page)
-        else:
+        bg_page = getattr(self, "_bg_page", None)
+        if not bg_page and self.bg_pdf:
             bg_page = self.bg_pdf.pages[0]
-            for page in fg_pdf.pages:
-                new_page = output.add_page(page)
+
+        for page in fg_pdf.pages:
+            new_page = output.add_page(page)
+            if bg_page:
                 new_page.merge_page(bg_page, over=False)
 
         output.add_metadata(

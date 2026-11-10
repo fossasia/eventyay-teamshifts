@@ -1,11 +1,13 @@
 import json
 from datetime import timedelta
+from io import BytesIO
 
 import pytest
 from django.urls import reverse
 from django.utils.timezone import now
 from django_scopes import scope, scopes_disabled
 from eventyay.base.models import Team, User
+from pypdf import PdfWriter
 
 from teamshifts.forms import CertificateSettingsForm
 from teamshifts.models import (
@@ -17,6 +19,7 @@ from teamshifts.models import (
     ShiftLocation,
     TeamMemberApplication,
 )
+from teamshifts.pdf import CertificateRenderer
 from teamshifts.services.certificates import completed_shift_count, member_qualifies
 
 
@@ -467,3 +470,82 @@ def test_certificate_editor_permission_unauthenticated_or_unauthorized_denied(cl
     client.force_login(unauthorized)
     response = client.get(editor_url)
     assert response.status_code in (403, 404)
+
+
+@pytest.mark.django_db
+def test_certificate_editor_stored_script_escaped(client, event):
+    user = User.objects.create_user(email="coord_xss@example.com", password="password")
+    with scopes_disabled():
+        team = Team.objects.create(
+            organizer=event.organizer,
+            name="Coordinators",
+            all_events=True,
+            teamshifts_role="coordinator",
+            can_change_event_settings=False,
+        )
+        team.members.add(user)
+    client.force_login(user)
+    editor_url = _editor_url(event)
+
+    # Post layout with </script> payload
+    xss_payload = json.dumps([{"type": "textarea", "content": "other", "text": "</script><script>alert(1)</script>"}])
+    post_resp = client.post(editor_url, {"data": xss_payload})
+    assert post_resp.status_code == 200
+
+    # GET response must have < and > escaped in JSON
+    get_resp = client.get(editor_url)
+    content = get_resp.content.decode("utf-8")
+    assert "</script><script>alert(1)</script>" not in content
+    assert "\\u003c/script\\u003e" in content
+
+
+@pytest.mark.django_db
+def test_certificate_editor_concurrency_conflict_detected(client, event):
+    user = User.objects.create_user(email="coord_conflict@example.com", password="password")
+    with scopes_disabled():
+        team = Team.objects.create(
+            organizer=event.organizer,
+            name="Coordinators",
+            all_events=True,
+            teamshifts_role="coordinator",
+            can_change_event_settings=False,
+        )
+        team.members.add(user)
+    client.force_login(user)
+    editor_url = _editor_url(event)
+
+    # First save to establish a known state
+    layout_data = json.dumps([{"type": "textarea", "content": "member_name"}])
+    client.post(editor_url, {"data": layout_data})
+
+    # Saving with an outdated version must yield a 409 conflict
+    stale_resp = client.post(editor_url, {"data": layout_data, "version": "12345"})
+    assert stale_resp.status_code == 409
+    assert stale_resp.json()["status"] == "conflict"
+
+
+@pytest.mark.django_db
+def test_certificate_rotated_background_rendering(event):
+    with scopes_disabled():
+        # Generate a background with 90 degree rotation
+        writer = PdfWriter()
+        page = writer.add_blank_page(width=300, height=500)
+        page.rotate(90)
+        bg_buf = BytesIO()
+        writer.write(bg_buf)
+        bg_buf.seek(0)
+
+        renderer = CertificateRenderer(event, [], bg_buf, {})
+        assert renderer._bg_page is not None
+        assert renderer._bg_page.rotation == 0
+
+        # Verify render_background completes successfully without errors
+        fg_writer = PdfWriter()
+        fg_writer.add_blank_page(width=500, height=300)
+        fg_buf = BytesIO()
+        fg_writer.write(fg_buf)
+        fg_buf.seek(0)
+
+        out = renderer.render_background(fg_buf)
+        assert out is not None
+        assert len(out.getvalue()) > 0

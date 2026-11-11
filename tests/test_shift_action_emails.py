@@ -388,6 +388,21 @@ def test_organizer_unassign_queues_default_email(client, event, application, vol
 
 
 @pytest.mark.django_db
+def test_organizer_unassign_queues_unassigned_email_and_summary(client, event, application, volunteer, organizer_user, shift, team_role):
+    with scope(event=event):
+        ShiftAssignment.objects.create(shift=shift, team_member=volunteer, role=team_role)
+    client.force_login(organizer_user)
+
+    _unassign(client, event, shift, team_role, volunteer)
+
+    with scope(event=event):
+        queued = TeamShiftsEmailQueue.objects.filter(event=event, recipients__user=volunteer)
+        assert sorted(queued.values_list("mail_type", flat=True)) == sorted(
+            [EmailTemplateRoles.SHIFT_UNASSIGNED_BY_ORGANIZER, EmailTemplateRoles.SHIFT_SUMMARY]
+        )
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize("method", ["post", "delete"])
 def test_organizer_shift_change_email_is_saved_with_the_change(method, client, event, application, volunteer, organizer_user, shift, team_role):
     if method == "delete":

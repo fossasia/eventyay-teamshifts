@@ -1,3 +1,4 @@
+import json
 from datetime import timedelta
 from unittest.mock import patch
 
@@ -23,6 +24,7 @@ from teamshifts.services.certificates import (
     event_has_ended,
     events_awaiting_certificates,
     generate_certificate,
+    generate_certificates,
     generate_pending_certificates,
     get_certificate_settings,
     issue_certificate,
@@ -86,12 +88,12 @@ def _url(event, name, **kwargs):
     return reverse(f"plugins:teamshifts:{name}", kwargs={"organizer": event.organizer.slug, "event": event.slug, **kwargs})
 
 
-def _fail_for(application):
+def _fail_for(application, error=None):
     real_generate = generate_certificate
 
     def generate(target, *args, **kwargs):
         if target.pk == application.pk:
-            raise OSError("storage unavailable")
+            raise error or OSError("storage unavailable")
         return real_generate(target, *args, **kwargs)
 
     return patch("teamshifts.services.certificates.generate_certificate", side_effect=generate)
@@ -220,17 +222,19 @@ def test_scheduled_issuing_is_not_retroactive(event, application, ended_before_e
 
 
 @pytest.mark.django_db
-def test_send_certificates_skips_non_qualifying_and_resends_without_regenerating(event, application, sent_emails):
+def test_send_certificates_skips_non_qualifying_and_resends_with_a_rebuilt_pdf(event, application, sent_emails):
     not_arrived = _member(event, "absent", arrived=False)
 
     assert send_certificates(event, [application, not_arrived]) == {"sent": 1, "resent": 0, "not_qualified": 1, "no_email": 0, "failed": 0}
     certificate = MemberCertificate.objects.get(application=application)
+    first_file = certificate.file.name
     MemberCertificate.objects.filter(pk=certificate.pk).update(downloaded_at=now())
 
     assert send_certificates(event, [application])["resent"] == 1
     certificate.refresh_from_db()
     assert certificate.status == CertificateStatus.DOWNLOADED
-    assert certificate.file.name == MemberCertificate.objects.get(pk=certificate.pk).file.name
+    assert certificate.file.name != first_file
+    assert not certificate.file.storage.exists(first_file)
     assert not MemberCertificate.objects.filter(application=not_arrived).exists()
     assert sent_emails.call_count == 2
 
@@ -257,8 +261,9 @@ def test_generate_then_send_in_two_steps(orga_client, event, application, sent_e
     orga_client.post(_url(event, "certificates_generate"))
     orga_client.post(_url(event, "certificates_send"))
     certificate.refresh_from_db()
+    # Generating again rebuilds the sent certificate, but "Send" only emails certificates that were never sent.
     assert certificate.status == CertificateStatus.DOWNLOADED
-    assert certificate.file.name == file_name
+    assert certificate.file.name != file_name
     assert sent_emails.call_count == 1
 
 
@@ -282,6 +287,113 @@ def test_bulk_actions_continue_after_a_failure(event, application, bulk_action):
 
     assert not MemberCertificate.objects.filter(application=application).exists()
     assert MemberCertificate.objects.filter(application=other).exists()
+
+
+def _design(color):
+    # A design that is not the stock layout, so the settings are not reset to the default one.
+    return json.dumps([{"type": "textarea", "content": "member_name", "color": color}])
+
+
+@pytest.fixture
+def attached_pdfs(sent_emails):
+    """The PDF each certificate email would attach, read at the moment it is sent.
+
+    The PDF is a stand-in made from the layout alone, so a different design gives different bytes.
+    """
+    pdfs = []
+
+    def record(_application, certificate):
+        with certificate.file.open("rb") as handle:
+            pdfs.append(handle.read())
+
+    sent_emails.side_effect = record
+    with patch("teamshifts.services.certificates.render_certificate_pdf", side_effect=lambda settings, context, *a, **k: settings.layout.encode()):
+        yield pdfs
+
+
+@pytest.mark.django_db
+def test_resending_attaches_a_pdf_built_from_the_current_design(event, application, attached_pdfs):
+    _configure(event, layout=_design("#112233"))
+    send_certificates(event, [application])
+    _configure(event, layout=_design("#445566"))
+
+    assert send_certificates(event, [application])["resent"] == 1
+
+    assert attached_pdfs == [_design("#112233").encode(), _design("#445566").encode()]
+
+
+@pytest.mark.django_db
+def test_generate_rebuilds_certificates_that_were_already_sent_without_emailing(event, application, attached_pdfs):
+    _configure(event, layout=_design("#112233"))
+    send_certificates(event, [application])
+    certificate = MemberCertificate.objects.get(application=application)
+    notified_at = certificate.notified_at
+    _configure(event, layout=_design("#445566"))
+
+    assert generate_certificates(event) == {"generated": 1, "failed": 0}
+
+    certificate.refresh_from_db()
+    with certificate.file.open("rb") as handle:
+        assert handle.read() == _design("#445566").encode()
+    assert certificate.notified_at == notified_at
+    assert len(attached_pdfs) == 1
+
+
+@pytest.mark.django_db
+def test_a_failed_rebuild_stops_the_resend_and_is_reported(event, application, attached_pdfs):
+    _configure(event, layout=_design("#112233"))
+    send_certificates(event, [application])
+    _configure(event, layout=_design("#445566"))
+
+    with _fail_for(application):
+        assert send_certificates(event, [application]) == {"sent": 0, "resent": 0, "not_qualified": 0, "no_email": 0, "failed": 1}
+
+    assert len(attached_pdfs) == 1
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("error", [OSError("storage unavailable"), KeyError("left")])
+def test_a_failed_rebuild_only_fails_that_member_whatever_the_error(event, application, attached_pdfs, error):
+    other = _member(event, "other")
+    _configure(event, layout=_design("#112233"))
+    send_certificates(event, [application, other])
+    _configure(event, layout=_design("#445566"))
+
+    with _fail_for(application, error):
+        result = send_certificates(event, [application, other])
+
+    assert result == {"sent": 0, "resent": 1, "not_qualified": 0, "no_email": 0, "failed": 1}
+    assert attached_pdfs[-1] == _design("#445566").encode()  # the other member still got the new design
+
+
+@pytest.mark.django_db
+def test_a_sent_certificate_whose_file_is_gone_is_rebuilt_and_resent(event, application, attached_pdfs):
+    _configure(event, layout=_design("#112233"))
+    send_certificates(event, [application])
+    MemberCertificate.objects.filter(application=application).update(file="")
+
+    assert send_certificates(event, [application])["resent"] == 1
+
+    assert attached_pdfs[-1] == _design("#112233").encode()
+
+
+@pytest.mark.django_db
+def test_regenerating_leaves_the_notification_state_alone(application):
+    certificate = generate_certificate(application)
+    MemberCertificate.objects.filter(pk=certificate.pk).update(notified_at=now(), downloaded_at=now())
+    real_save = MemberCertificate.save
+
+    def save_after_a_resend_failed(self, *args, **kwargs):
+        # Another job resets the notification between this job loading the certificate and saving it.
+        MemberCertificate.objects.filter(pk=self.pk).update(notified_at=None)
+        return real_save(self, *args, **kwargs)
+
+    with patch.object(MemberCertificate, "save", autospec=True, side_effect=save_after_a_resend_failed):
+        generate_certificate(application)
+
+    refreshed = MemberCertificate.objects.get(pk=certificate.pk)
+    assert refreshed.notified_at is None
+    assert refreshed.downloaded_at is not None
 
 
 @pytest.mark.django_db
@@ -312,7 +424,7 @@ def _actions(response):
         (False, None, (False, False, False), "No member meets the qualification conditions yet."),
         (True, None, (True, False, False), "Generate certificates first."),
         (True, "generated", (True, True, True), "1 certificate is ready to send."),
-        (True, "sent", (False, False, True), "The certificate has been sent."),
+        (True, "sent", (True, False, True), "The certificate has been sent."),
     ],
 )
 def test_settings_page_actions_and_hint(orga_client, event, arrived, state, enabled, hint):

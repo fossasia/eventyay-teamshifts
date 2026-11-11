@@ -3,7 +3,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("teamshifts", "0034_shift_reminders"),
+        ("teamshifts", "0035_shift_summary_email"),
     ]
 
     operations = [
@@ -23,6 +23,7 @@ class Migration(migrations.Migration):
                     ("teamshifts.shift.claimed_by_volunteer", "Shift sign-up confirmation"),
                     ("teamshifts.shift.dropped_by_volunteer", "Shift drop confirmation"),
                     ("teamshifts.shift.dropped_organizer", "Shift dropped (organizer notification)"),
+                    ("teamshifts.shift.summary", "Daily shift summary"),
                     ("teamshifts.voucher.sent", "Voucher sent to volunteer"),
                     ("teamshifts.certificate.generated", "Certificate of participation generated"),
                     ("teamshifts.shift.reminder", "Shift reminder (24 hours before)"),

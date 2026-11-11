@@ -14,7 +14,8 @@ from eventyay.base.services.tasks import ProfiledEventTask
 from eventyay.celery_app import app
 from i18nfield.strings import LazyI18nString
 
-from .models import TeamMemberApplication, TeamShiftsEmailQueue
+from .models import ApplicationStatus, CallForTeamMembers, TeamMemberApplication, TeamShiftsEmailQueue
+from .services.shift_summary import build_shift_summary
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,18 @@ def render_subject(subject, context, locale, event=None) -> str:
 
 
 SCHEDULED_EMAIL_BATCH_SIZE = 50
+
+
+def _summary_recipient_removed(event: Event, queue) -> bool:
+    user_ids = list(queue.recipients.exclude(user=None).values_list("user_id", flat=True))
+    return TeamMemberApplication.objects.filter(event=event, user_id__in=user_ids, status=ApplicationStatus.REMOVED).exists()
+
+
+def _shift_schedule_published(event: Event) -> bool:
+    try:
+        return event.call_for_team_members.shift_schedule_published
+    except CallForTeamMembers.DoesNotExist:
+        return False
 
 
 @app.task(name="teamshifts.dispatch_scheduled_emails")
@@ -104,6 +117,14 @@ def send_queued_email(self, event_id: int, queue_id: int):
             if queue.send_after and queue.send_after > now():
                 logger.debug("[TeamShifts] Queue %s not yet due, skipping", queue_id)
                 return
+            if queue.is_shift_summary and not _shift_schedule_published(event):
+                logger.info("[TeamShifts] Dropping shift summary queue %s: shift schedule is no longer published", queue_id)
+                queue.delete()
+                return
+            if queue.is_shift_summary and _summary_recipient_removed(event, queue):
+                logger.info("[TeamShifts] Dropping shift summary queue %s: the volunteer was removed from the team", queue_id)
+                queue.delete()
+                return
             recipients = list(queue.recipients.select_related("user").all())
 
             if not recipients:
@@ -143,7 +164,15 @@ def send_queued_email(self, event_id: int, queue_id: int):
                     if queue.shift_id:
                         ctx_kwargs["shift"] = queue.shift
                         ctx_kwargs["role"] = queue.shift_role
+                    if queue.is_shift_summary and recipient.user:
+                        ctx_kwargs["shift_summary"] = build_shift_summary(event, recipient.user, locale)
                     context = get_email_context(**ctx_kwargs)
+                    if queue.is_shift_summary and recipient.user:
+                        # Imported here: services.members imports services.email, which imports this module.
+                        from .services.members import my_shifts_page_available
+
+                        if not my_shifts_page_available(recipient.user):
+                            context["my_shifts_url"] = context.get("shift_schedule_url", "")
                     mail(
                         email=recipient.email,
                         subject=subject,

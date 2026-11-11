@@ -4022,6 +4022,12 @@ class VoucherSettingsView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, 
                 return _("All codes in this batch have been used. Add more codes in Tickets → Vouchers.")
         return None
 
+    def _has_voucher_batches(self):
+        from eventyay.base.models import Voucher
+
+        with scopes_disabled():
+            return Voucher.objects.filter(event=self.request.event).exclude(tag="").exists()
+
     def _render(self, form, settings):
         return render(
             self.request,
@@ -4031,6 +4037,7 @@ class VoucherSettingsView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, 
                 "voucher_settings": settings,
                 "send_vouchers_url": self._send_vouchers_url(),
                 "send_vouchers_blocker": self._send_vouchers_blocker(settings),
+                "has_voucher_batches": self._has_voucher_batches(),
             },
         )
 

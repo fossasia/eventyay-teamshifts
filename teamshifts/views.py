@@ -2647,7 +2647,10 @@ class ShiftScheduleTalksAPIView(PluginActiveMixin, TeamShiftsPermissionRequiredM
             for role_data in data.get("roles", []):
                 role_id = role_data.get("id")
                 if role_id:
-                    role_id = int(role_id)
+                    try:
+                        role_id = int(role_id)
+                    except (TypeError, ValueError):
+                        return HttpResponseBadRequest("Invalid role ID.")
                     role = TeamRole.objects.filter(pk=role_id, event=event).first()
                     if not role:
                         return HttpResponseBadRequest("Role ID does not belong to this event.")
@@ -2729,7 +2732,11 @@ class ShiftScheduleTalkAPIView(PluginActiveMixin, TeamShiftsPermissionRequiredMi
                 for role_data in data["roles"]:
                     role_id = role_data.get("id")
                     if role_id:
-                        incoming_roles[int(role_id)] = role_data.get("capacity", 1)
+                        try:
+                            role_id = int(role_id)
+                        except (TypeError, ValueError):
+                            return HttpResponseBadRequest("Invalid role ID.")
+                        incoming_roles[role_id] = role_data.get("capacity", 1)
                 incoming_role_ids = set(incoming_roles.keys())
                 valid_roles = TeamRole.objects.filter(pk__in=incoming_role_ids, event=event)
                 valid_role_ids = set(valid_roles.values_list("pk", flat=True))
@@ -2756,7 +2763,10 @@ class ShiftScheduleTalkAPIView(PluginActiveMixin, TeamShiftsPermissionRequiredMi
             elif "role" in data and "capacity" in data:
                 role_id = data["role"]
                 if role_id:
-                    role_id = int(role_id)
+                    try:
+                        role_id = int(role_id)
+                    except (TypeError, ValueError):
+                        return HttpResponseBadRequest("Invalid role ID.")
                     if not TeamRole.objects.filter(pk=role_id, event=event).exists():
                         return HttpResponseBadRequest("Role ID does not belong to this event.")
                 existing_assignments = {ra.role_id: ra.capacity for ra in shift.role_assignments.all()}

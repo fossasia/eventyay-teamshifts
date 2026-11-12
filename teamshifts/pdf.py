@@ -311,6 +311,9 @@ class CertificateRenderer(Renderer):
         self.variables = {}
         self.images = {}
 
+    def _get_ev(self, op, order):
+        return self.event
+
     def _get_text_content(self, op, order, o, inner=False):
         content = o.get("content")
         if not content:

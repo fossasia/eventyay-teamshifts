@@ -7,6 +7,7 @@
     {{ block.super }}
     {% compress css %}
         <link type="text/css" rel="stylesheet" href="{% static "pretixcontrol/scss/pdfeditor.css" %}">
+        <link type="text/css" rel="stylesheet" href="{% static "teamshifts/teamshifts.css" %}">
     {% endcompress %}
     <link type="text/css" rel="stylesheet" href="{% url "control:pdf.css" %}">
 {% endblock %}
@@ -135,6 +136,10 @@
                                     title="{% trans "Copy" %}">
                                 <span class="fa fa-copy"></span>
                             </button>
+                            <button type="button" class="btn btn-default btn-xs text-pin-button" id="toolbox-pin"
+                                title="{% trans " Pin/Unpin text object" %}">
+                                <span class="fa fa-thumb-tack"></span>
+                            </button>
                             <button type="button" class="btn btn-delete btn-danger btn-xs" id="toolbox-delete"
                                     title="{% trans "Delete" %}">
                                 <span class="fa fa-trash"></span>
@@ -232,7 +237,7 @@
                             </div>
                         </div>
                     </div>
-                    <div class="row control-group text form-group">
+                    <div class="row control-group text form-group certificate-group-color">
                         <div class="col-xs-12">
                             <label>{% trans "Text color" %}</label><br>
                             <input type="text" value="#000000" class="input-block-level form-control colorpickerfield"
@@ -356,6 +361,8 @@
     <script type="text/javascript" src="{% static "pdfjs/pdf.js" %}"></script>
     <script type="text/javascript" src="{% static "fabric/fabric.min.js" %}"></script>
     <script type="text/javascript" src="{% static "pretixcontrol/js/ui/editor.js" %}?v=autofit4"></script>
+    <script type="text/javascript" src="{% static "teamshifts/certificate_editor.js" %}"></script>
+
     <img src="{% static 'pretixpresale/pdf/powered_by_eventyay_dark.png' %}" id="poweredby-dark" class="sr-only">
     <img src="{% static 'pretixpresale/pdf/powered_by_eventyay_white.png' %}" id="poweredby-white" class="sr-only">
     {% for family, styles in fonts.items %}

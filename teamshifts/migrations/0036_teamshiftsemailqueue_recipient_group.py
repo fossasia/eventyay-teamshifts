@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("teamshifts", "0034_shift_reminders"),
+        ("teamshifts", "0035_shift_summary_email"),
     ]
 
     operations = [

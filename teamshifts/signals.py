@@ -22,6 +22,8 @@ from .models import ApplicationStatus, CallForTeamMembers, Shift, ShiftAssignmen
 from .permissions import has_any_teamshifts_permission
 from .services.certificates import events_awaiting_certificates, issue_event_end_certificates_task
 from .services.checkin import handle_volunteer_checkin, handle_volunteer_checkout
+from .services.reminders import my_shifts_url
+from .services.shift_summary import build_shift_summary_sample
 from .tasks import send_queued_email
 
 logger = logging.getLogger(__name__)
@@ -93,6 +95,13 @@ def teamshifts_public_schedule_nav_tab(sender, request=None, **kwargs):
     from django_scopes import scope as _scope
 
     with _scope(event=sender):
+        try:
+            cfm = sender.call_for_team_members
+        except CallForTeamMembers.DoesNotExist:
+            return ""
+        if not cfm.shift_schedule_published:
+            return ""
+
         is_accepted = TeamMemberApplication.objects.filter(
             event=sender,
             user=request.user,
@@ -171,6 +180,24 @@ def teamshifts_mail_placeholders(sender, **kwargs):
             ["shift"],
             _format_shift_time,
             lambda event: "2026-01-15 09:00 – 12:00",
+        ),
+        SimpleFunctionalMailTextPlaceholder(
+            "my_shifts_url",
+            ["event"],
+            lambda event: my_shifts_url(),
+            lambda event: my_shifts_url(),
+        ),
+        SimpleFunctionalMailTextPlaceholder(
+            "shift_summary",
+            ["shift_summary"],
+            lambda shift_summary: shift_summary,
+            build_shift_summary_sample,
+        ),
+        SimpleFunctionalMailTextPlaceholder(
+            "shift_list",
+            ["shift_list"],
+            lambda shift_list: shift_list,
+            "- Sat, Oct 10, 2026, 8 a.m.–12 p.m.: Registration desk (Role: Greeter, Location: Main hall)",
         ),
         SimpleFunctionalMailTextPlaceholder(
             "voucher_code",

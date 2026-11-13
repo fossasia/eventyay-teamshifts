@@ -35,15 +35,20 @@ class TeamShiftsApp(PluginConfig):
     def _ensure_beat_schedule(sender, **kwargs):
         from django_celery_beat.models import IntervalSchedule, PeriodicTask
 
-        try:
-            schedule, _ = IntervalSchedule.objects.get_or_create(every=60, period=IntervalSchedule.SECONDS)
-            PeriodicTask.objects.update_or_create(
-                name="teamshifts-dispatch-scheduled-emails",
-                defaults={
-                    "task": "teamshifts.dispatch_scheduled_emails",
-                    "interval": schedule,
-                    "enabled": True,
-                },
-            )
-        except Exception:
-            logger.exception("[TeamShifts] Failed to register beat schedule for dispatch_scheduled_emails")
+        schedules = (
+            ("teamshifts-dispatch-scheduled-emails", "teamshifts.dispatch_scheduled_emails", 60),
+            ("teamshifts-send-shift-reminders", "teamshifts.send_shift_reminders", 900),
+        )
+        for name, task, every in schedules:
+            try:
+                schedule, _ = IntervalSchedule.objects.get_or_create(every=every, period=IntervalSchedule.SECONDS)
+                PeriodicTask.objects.update_or_create(
+                    name=name,
+                    defaults={
+                        "task": task,
+                        "interval": schedule,
+                        "enabled": True,
+                    },
+                )
+            except Exception:
+                logger.exception("[TeamShifts] Failed to register beat schedule for %s", task)

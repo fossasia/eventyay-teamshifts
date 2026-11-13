@@ -9,6 +9,13 @@ document.addEventListener('DOMContentLoaded', function () {
     return input ? input.value : ''
   }
 
+  // Tiptap fills its hidden textarea without firing an event, so Are-You-Sure must re-check before Reset leaves the page.
+  form.addEventListener('click', function (event) {
+    if (window.jQuery && event.target.closest('[data-template-reset]')) {
+      window.jQuery(form).trigger('checkform.areYouSure')
+    }
+  })
+
   form.querySelectorAll('.email-template-panel').forEach(function (panel) {
     var previewTab = panel.querySelector('[data-template-preview-tab]')
     var previewGroup = panel.querySelector('.mail-preview-group')

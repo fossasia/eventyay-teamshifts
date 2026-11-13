@@ -305,6 +305,11 @@ urlpatterns = [
         name="email_template_edit",
     ),
     path(
+        "teamshifts/event/<orgslug:organizer>/<slug:event>/emails/templates/<str:role>/reset/",
+        views.EmailTemplateResetView.as_view(),
+        name="email_template_reset",
+    ),
+    path(
         "teamshifts/event/<orgslug:organizer>/<slug:event>/emails/templates/custom/add/",
         views.CustomEmailTemplateCreateView.as_view(),
         name="custom_email_template_create",

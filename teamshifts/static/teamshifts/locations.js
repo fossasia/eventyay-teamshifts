@@ -1,6 +1,10 @@
+import { setupAjaxSorting } from "./list_sorting.js";
+
 function gettext(msgid) {
     return typeof window.gettext === "function" ? window.gettext(msgid) : msgid;
 }
+
+setupAjaxSorting(() => {});
 document.addEventListener("DOMContentLoaded", () => {
     const selectAll = document.getElementById("select-all-rooms");
     if (!selectAll) return;

@@ -1,17 +1,23 @@
 import json
+import logging
 from io import BytesIO
 
+from django.conf import settings
 from django.contrib.staticfiles import finders
 from django.templatetags.static import static
 from django.utils.formats import date_format
 from django.utils.translation import gettext_lazy as _
-from eventyay.base.pdf import Renderer
+from eventyay.base.pdf import Renderer, correct_page_media_box
+from pypdf import PdfReader, PdfWriter
+from pypdf.errors import DeprecationError
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.units import mm
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen.canvas import Canvas
 
 from .models import CertificateSettings
+
+logger = logging.getLogger(__name__)
 
 CERTIFICATE_PLACEHOLDERS = (
     ("event_logo", _("Event logo"), ""),
@@ -304,12 +310,44 @@ def image_file_to_pdf(uploaded) -> BytesIO:
     return buffer
 
 
+def _safe_correct_page_media_box(page):
+    """Normalize page rotation and media box safely for pypdf >= 7 compatibility."""
+    try:
+        correct_page_media_box(page)
+        return page
+    except DeprecationError:
+        # In pypdf >= 7.0, replace_contents requires the page to be assigned to a writer
+        try:
+            writer = PdfWriter()
+            writer_page = writer.add_page(page)
+            correct_page_media_box(writer_page)
+            return writer_page
+        except Exception:
+            logger.warning("Failed to correct page media box, using original page", exc_info=True)
+            return page
+
+
 class CertificateRenderer(Renderer):
     def __init__(self, event, layout, background_file, context: dict):
-        super().__init__(event, layout, background_file)
+        super().__init__(event, layout, None)
         self.context = context
         self.variables = {}
         self.images = {}
+        if background_file:
+            self.bg_bytes = background_file.read()
+            try:
+                background_file.close()
+            except OSError:
+                pass
+            bg_reader = PdfReader(BytesIO(self.bg_bytes), strict=False)
+            self.bg_pdf = bg_reader
+            bg_writer = PdfWriter()
+            bg_page = bg_writer.add_page(bg_reader.pages[0])
+            self._bg_page = _safe_correct_page_media_box(bg_page) or bg_page
+        else:
+            self.bg_bytes = None
+            self.bg_pdf = None
+            self._bg_page = None
 
     def _get_text_content(self, op, order, o, inner=False):
         content = o.get("content")
@@ -375,8 +413,8 @@ class CertificateRenderer(Renderer):
         original = self.layout
         self.layout = layout
         try:
-            if self.bg_pdf:
-                bg_page = self.bg_pdf.pages[0]
+            bg_page = getattr(self, "_bg_page", None) or (self.bg_pdf.pages[0] if self.bg_pdf else None)
+            if bg_page:
                 page_size = (
                     bg_page.mediabox[2] - bg_page.mediabox[0],
                     bg_page.mediabox[3] - bg_page.mediabox[1],
@@ -395,6 +433,38 @@ class CertificateRenderer(Renderer):
                 canvas.showPage()
         finally:
             self.layout = original
+
+    def render_background(self, buffer, title=None):
+        if title is None:
+            title = _("Member certificate")
+        if getattr(settings, "PDFTK", None) and self.bg_bytes:
+            try:
+                return super().render_background(buffer, title=title)
+            except Exception:
+                logger.warning("PDFTK rendering failed, falling back to pypdf", exc_info=True)
+
+        output = PdfWriter()
+        buffer.seek(0)
+        fg_pdf = PdfReader(buffer, strict=False)
+        bg_page = getattr(self, "_bg_page", None)
+        if not bg_page and self.bg_pdf:
+            bg_page = self.bg_pdf.pages[0]
+
+        for page in fg_pdf.pages:
+            new_page = output.add_page(page)
+            if bg_page:
+                new_page.merge_page(bg_page, over=False)
+
+        output.add_metadata(
+            {
+                "/Title": str(title),
+                "/Creator": "pretix",
+            }
+        )
+        outbuffer = BytesIO()
+        output.write(outbuffer)
+        outbuffer.seek(0)
+        return outbuffer
 
 
 def render_certificate_pdf(settings: CertificateSettings, context: dict, layout=None, background_file=None) -> bytes:

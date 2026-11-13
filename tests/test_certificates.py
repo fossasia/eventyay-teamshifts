@@ -1,9 +1,15 @@
+import json
+import re
 from datetime import timedelta
+from io import BytesIO
 
 import pytest
+from django.conf import settings as django_settings
+from django.urls import reverse
 from django.utils.timezone import now
-from django_scopes import scope
-from eventyay.base.models import User
+from django_scopes import scope, scopes_disabled
+from eventyay.base.models import Team, User
+from pypdf import PdfReader, PdfWriter
 
 from teamshifts.forms import CertificateSettingsForm
 from teamshifts.models import (
@@ -15,7 +21,13 @@ from teamshifts.models import (
     ShiftLocation,
     TeamMemberApplication,
 )
-from teamshifts.services.certificates import completed_shift_count, member_qualifies
+from teamshifts.pdf import CertificateRenderer
+from teamshifts.services.certificates import completed_shift_count, get_certificate_settings, member_qualifies
+
+
+@pytest.fixture(autouse=True)
+def site_url(settings):
+    settings.SITE_URL = "https://testserver"
 
 
 @pytest.fixture
@@ -372,3 +384,233 @@ def test_certificate_editor_view_get_current_layout(event, rf):
         custom_layout = view.get_current_layout()
         custom_title = next(o for o in custom_layout if o.get("content") == "certificate_title")
         assert custom_title["color"] == custom_color
+
+
+def _editor_url(event):
+    return reverse(
+        "plugins:teamshifts:certificate_editor",
+        kwargs={"organizer": event.organizer.slug, "event": event.slug},
+    )
+
+
+@pytest.mark.django_db
+def test_certificate_editor_permission_coordinator_allowed(client, event):
+    user = User.objects.create_user(email="coord@example.com", password="password")
+    with scopes_disabled():
+        team = Team.objects.create(
+            organizer=event.organizer,
+            name="Coordinators",
+            all_events=True,
+            teamshifts_role="coordinator",
+            can_change_event_settings=False,
+        )
+        team.members.add(user)
+
+    client.force_login(user)
+    editor_url = _editor_url(event)
+
+    response = client.get(editor_url)
+    assert response.status_code == 200
+    match = re.search(r'data-version="([^"]+)"', response.content.decode("utf-8"))
+    assert match is not None
+    version = match.group(1)
+
+    layout_data = json.dumps([{"type": "textarea", "content": "member_name"}])
+    post_response = client.post(editor_url, {"data": layout_data, "version": version})
+    assert post_response.status_code == 200
+    assert post_response.json()["status"] == "ok"
+    assert "version" in post_response.json()
+
+    cert_settings = get_certificate_settings(event)
+    cert_settings.refresh_from_db()
+    assert json.loads(cert_settings.layout) == [{"type": "textarea", "content": "member_name"}]
+
+
+@pytest.mark.django_db
+def test_certificate_editor_permission_lead_denied_even_with_event_settings(client, event):
+    user = User.objects.create_user(email="lead@example.com", password="password")
+    with scopes_disabled():
+        team = Team.objects.create(
+            organizer=event.organizer,
+            name="Leads",
+            all_events=True,
+            teamshifts_role="lead",
+            can_change_event_settings=True,
+        )
+        team.members.add(user)
+
+    client.force_login(user)
+    editor_url = _editor_url(event)
+
+    response = client.get(editor_url)
+    assert response.status_code == 403
+
+    layout_data = json.dumps([{"type": "textarea", "content": "member_name"}])
+    post_response = client.post(editor_url, {"data": layout_data})
+    assert post_response.status_code == 403
+
+
+@pytest.mark.django_db
+def test_certificate_editor_permission_organizer_fallback_allowed(client, event):
+    user = User.objects.create_user(email="orga@example.com", password="password")
+    with scopes_disabled():
+        team = Team.objects.create(
+            organizer=event.organizer,
+            name="Organizers",
+            all_events=True,
+            can_change_event_settings=True,
+        )
+        team.members.add(user)
+
+    client.force_login(user)
+    response = client.get(_editor_url(event))
+    assert response.status_code == 200
+
+
+@pytest.mark.django_db
+def test_certificate_editor_permission_unauthenticated_or_unauthorized_denied(client, event):
+    editor_url = _editor_url(event)
+
+    # Anonymous user is redirected to login or denied
+    response = client.get(editor_url)
+    assert response.status_code in (302, 403)
+
+    # Logged in user with no team permissions
+    unauthorized = User.objects.create_user(email="unauth@example.com", password="password")
+    client.force_login(unauthorized)
+    response = client.get(editor_url)
+    assert response.status_code in (403, 404)
+
+
+@pytest.mark.django_db
+def test_certificate_editor_stored_script_escaped(client, event):
+    user = User.objects.create_user(email="coord_xss@example.com", password="password")
+    with scopes_disabled():
+        team = Team.objects.create(
+            organizer=event.organizer,
+            name="Coordinators",
+            all_events=True,
+            teamshifts_role="coordinator",
+            can_change_event_settings=False,
+        )
+        team.members.add(user)
+    client.force_login(user)
+    editor_url = _editor_url(event)
+
+    get_resp = client.get(editor_url)
+    assert get_resp.status_code == 200
+    match = re.search(r'data-version="([^"]+)"', get_resp.content.decode("utf-8"))
+    assert match is not None
+    version = match.group(1)
+
+    # Post layout with </script> payload
+    xss_payload = json.dumps([{"type": "textarea", "content": "other", "text": "</script><script>alert(1)</script>"}])
+    post_resp = client.post(editor_url, {"data": xss_payload, "version": version})
+    assert post_resp.status_code == 200
+
+    # GET response must have < and > escaped in JSON
+    get_resp = client.get(editor_url)
+    content = get_resp.content.decode("utf-8")
+    assert "</script><script>alert(1)</script>" not in content
+    assert "\\u003c/script\\u003e" in content
+
+
+@pytest.mark.django_db
+def test_certificate_editor_concurrency_conflict_detected(client, event):
+    user = User.objects.create_user(email="coord_conflict@example.com", password="password")
+    with scopes_disabled():
+        team = Team.objects.create(
+            organizer=event.organizer,
+            name="Coordinators",
+            all_events=True,
+            teamshifts_role="coordinator",
+            can_change_event_settings=False,
+        )
+        team.members.add(user)
+    client.force_login(user)
+    editor_url = _editor_url(event)
+
+    # Initial GET to retrieve the current layout version
+    get_resp = client.get(editor_url)
+    assert get_resp.status_code == 200
+    match = re.search(r'data-version="([^"]+)"', get_resp.content.decode("utf-8"))
+    assert match is not None
+    v1 = match.group(1)
+
+    # Missing version is rejected with 400
+    layout_data1 = json.dumps([{"type": "textarea", "content": "member_name"}])
+    no_version_resp = client.post(editor_url, {"data": layout_data1})
+    assert no_version_resp.status_code == 400
+
+    # First save with valid version succeeds and returns a new version
+    save_resp = client.post(editor_url, {"data": layout_data1, "version": v1})
+    assert save_resp.status_code == 200
+    v2 = save_resp.json()["version"]
+    assert v2 != v1
+
+    # Saving with the old (stale) version yields 409 Conflict
+    stale_resp = client.post(editor_url, {"data": layout_data1, "version": v1})
+    assert stale_resp.status_code == 409
+    assert stale_resp.json()["status"] == "conflict"
+
+    # Saving with the new version succeeds without requiring page reload
+    layout_data2 = json.dumps([{"type": "textarea", "content": "event_name"}])
+    save_resp2 = client.post(editor_url, {"data": layout_data2, "version": v2})
+    assert save_resp2.status_code == 200
+    assert save_resp2.json()["status"] == "ok"
+    assert save_resp2.json()["version"] != v2
+
+
+@pytest.mark.django_db
+def test_certificate_rotated_background_rendering(event):
+    with scopes_disabled():
+        # Generate a background with 90 degree rotation
+        writer = PdfWriter()
+        page = writer.add_blank_page(width=300, height=500)
+        page.rotate(90)
+        bg_buf = BytesIO()
+        writer.write(bg_buf)
+        bg_buf.seek(0)
+
+        renderer = CertificateRenderer(event, [], bg_buf, {})
+        assert renderer._bg_page is not None
+        assert renderer._bg_page.rotation == 0
+
+        # Verify render_background completes successfully and produces valid merged PDF
+        fg_writer = PdfWriter()
+        fg_writer.add_blank_page(width=500, height=300)
+        fg_buf = BytesIO()
+        fg_writer.write(fg_buf)
+        fg_buf.seek(0)
+
+        out = renderer.render_background(fg_buf)
+        assert out is not None
+        reader = PdfReader(out)
+        assert len(reader.pages) == 1
+        out_page = reader.pages[0]
+        assert float(out_page.mediabox.width) == 500
+        assert float(out_page.mediabox.height) == 300
+        assert out_page.rotation == 0
+
+
+@pytest.mark.django_db
+def test_certificate_pdftk_failure_fallback_to_pypdf(monkeypatch, event):
+    with scopes_disabled():
+        monkeypatch.setattr(django_settings, "PDFTK", "/nonexistent/pdftk")
+        writer = PdfWriter()
+        writer.add_blank_page(width=300, height=500)
+        bg_buf = BytesIO()
+        writer.write(bg_buf)
+        bg_buf.seek(0)
+
+        renderer = CertificateRenderer(event, [], bg_buf, {})
+        fg_writer = PdfWriter()
+        fg_writer.add_blank_page(width=500, height=300)
+        fg_buf = BytesIO()
+        fg_writer.write(fg_buf)
+        fg_buf.seek(0)
+
+        out = renderer.render_background(fg_buf)
+        assert out is not None
+        reader = PdfReader(out)
+        assert len(reader.pages) == 1

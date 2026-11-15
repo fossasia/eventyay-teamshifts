@@ -654,6 +654,7 @@ class EmailTemplateRoles(models.TextChoices):
     SHIFT_CLAIMED_BY_VOLUNTEER = "teamshifts.shift.claimed_by_volunteer", _("Shift sign-up confirmation")
     SHIFT_DROPPED_BY_VOLUNTEER = "teamshifts.shift.dropped_by_volunteer", _("Shift drop confirmation")
     SHIFT_DROPPED_ORGANIZER = "teamshifts.shift.dropped_organizer", _("Shift dropped (organizer notification)")
+    SHIFT_SUMMARY = "teamshifts.shift.summary", _("Daily shift summary")
     VOUCHER_SENT = "teamshifts.voucher.sent", _("Voucher sent to volunteer")
     CERTIFICATE_GENERATED = "teamshifts.certificate.generated", _("Certificate of participation generated")
     SHIFT_REMINDER = "teamshifts.shift.reminder", _("Shift reminder (24 hours before)")
@@ -670,6 +671,7 @@ EMAIL_TYPE_LABELS = {
     EmailTemplateRoles.SHIFT_CLAIMED_BY_VOLUNTEER: _("Shift sign-up"),
     EmailTemplateRoles.SHIFT_DROPPED_BY_VOLUNTEER: _("Shift dropped"),
     EmailTemplateRoles.SHIFT_DROPPED_ORGANIZER: _("Organizer notification"),
+    EmailTemplateRoles.SHIFT_SUMMARY: _("Shift summary"),
     EmailTemplateRoles.VOUCHER_SENT: _("Voucher"),
     EmailTemplateRoles.CERTIFICATE_GENERATED: _("Certificate"),
     EmailTemplateRoles.SHIFT_REMINDER: _("Shift reminder"),
@@ -727,6 +729,7 @@ class TeamShiftsEmailQueue(models.Model):
         help_text=_("Sent to hand-picked people instead of everyone matching the status filter."),
     )
     mail_type = models.CharField(max_length=40, blank=True, default="")
+    is_shift_summary = models.BooleanField(default=False)
     send_after = models.DateTimeField(null=True, blank=True)
     sent_at = models.DateTimeField(null=True, blank=True)
     is_draft = models.BooleanField(

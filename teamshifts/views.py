@@ -134,7 +134,6 @@ from .services.members import (
     accept_manager_as_member,
     add_member_from_organizer,
     hidden_after_removal_filter,
-    my_shifts_page_available,
     remove_members_from_team,
     upcoming_assignment_filter,
 )
@@ -2159,12 +2158,18 @@ class ShiftListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Pagina
                     pass
 
             loc_val = self.request.GET.get("location", "").strip()
-            if loc_val and loc_val.isdigit():
-                qs = qs.filter(location_id=int(loc_val))
+            if loc_val:
+                try:
+                    qs = qs.filter(location_id=int(loc_val))
+                except ValueError:
+                    pass
 
             role_val = self.request.GET.get("role", "").strip()
-            if role_val and role_val.isdigit():
-                qs = qs.filter(role_assignments__role_id=int(role_val)).distinct()
+            if role_val:
+                try:
+                    qs = qs.filter(role_assignments__role_id=int(role_val)).distinct()
+                except ValueError:
+                    pass
 
             staffing_val = self.request.GET.get("staffing", "").strip()
             if staffing_val in ("open", "full"):
@@ -2177,17 +2182,16 @@ class ShiftListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Pagina
                     .annotate(cnt=Count("id"))
                     .values("cnt")
                 )
-                sras = ShiftRoleAssignment.objects.filter(shift__event=event).annotate(
-                    assigned=Coalesce(Subquery(assignment_count_subquery, output_field=IntegerField()), 0)
+                open_roles_qs = (
+                    ShiftRoleAssignment.objects.filter(shift__event=event)
+                    .annotate(assigned=Coalesce(Subquery(assignment_count_subquery, output_field=IntegerField()), 0))
+                    .filter(assigned__lt=F("capacity"))
                 )
-                open_shift_ids = set(sras.filter(assigned__lt=F("capacity")).values_list("shift_id", flat=True).distinct())
-                shifts_with_roles_ids = set(ShiftRoleAssignment.objects.filter(shift__event=event).values_list("shift_id", flat=True).distinct())
 
                 if staffing_val == "open":
-                    qs = qs.filter(pk__in=open_shift_ids)
+                    qs = qs.filter(role_assignments__in=open_roles_qs).distinct()
                 elif staffing_val == "full":
-                    fully_staffed_ids = shifts_with_roles_ids - open_shift_ids
-                    qs = qs.filter(pk__in=fully_staffed_ids)
+                    qs = qs.filter(role_assignments__isnull=False).exclude(role_assignments__in=open_roles_qs).distinct()
             return self.sort_queryset(qs)
 
     def get_context_data(self, **kwargs):
@@ -2221,27 +2225,53 @@ class ShiftListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Pagina
                     "remove_param": "q",
                 }
             )
-        if day_val and day_val in day_dict:
-            active_filter_chips.append(
-                {
-                    "label": _("Day: %(day)s") % {"day": day_dict[day_val]["date_label"]},
-                    "remove_param": "day",
-                }
-            )
-        if loc_val and loc_val in loc_dict:
-            active_filter_chips.append(
-                {
-                    "label": _("Location: %(loc)s") % {"loc": loc_dict[loc_val].name},
-                    "remove_param": "location",
-                }
-            )
-        if role_val and role_val in role_dict:
-            active_filter_chips.append(
-                {
-                    "label": _("Role: %(role)s") % {"role": role_dict[role_val].name},
-                    "remove_param": "role",
-                }
-            )
+        if day_val:
+            date_label = None
+            if day_val in day_dict:
+                date_label = day_dict[day_val]["date_label"]
+            else:
+                try:
+                    d = datetime.strptime(day_val, "%Y-%m-%d").date()
+                    date_label = f"{d.strftime('%a')}, {d.day} {d.strftime('%b')}"
+                except ValueError:
+                    pass
+            if date_label:
+                active_filter_chips.append(
+                    {
+                        "label": _("Day: %(day)s") % {"day": date_label},
+                        "remove_param": "day",
+                    }
+                )
+        if loc_val:
+            loc_obj = loc_dict.get(loc_val)
+            if not loc_obj:
+                try:
+                    with scope(event=event):
+                        loc_obj = ShiftLocation.objects.filter(event=event, pk=int(loc_val)).first()
+                except (ValueError, TypeError):
+                    pass
+            if loc_obj:
+                active_filter_chips.append(
+                    {
+                        "label": _("Location: %(loc)s") % {"loc": loc_obj.name},
+                        "remove_param": "location",
+                    }
+                )
+        if role_val:
+            role_obj = role_dict.get(role_val)
+            if not role_obj:
+                try:
+                    with scope(event=event):
+                        role_obj = TeamRole.objects.filter(event=event, pk=int(role_val)).first()
+                except (ValueError, TypeError):
+                    pass
+            if role_obj:
+                active_filter_chips.append(
+                    {
+                        "label": _("Role: %(role)s") % {"role": role_obj.name},
+                        "remove_param": "role",
+                    }
+                )
         if staffing_val == "open":
             active_filter_chips.append(
                 {
@@ -2394,11 +2424,17 @@ class ShiftCreateView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Temp
                 messages.success(request, _("%(count)d shifts created successfully.") % {"count": len(shifts_to_create)})
             else:
                 messages.success(request, _("Shift created successfully."))
-            return redirect(
+            redirect_url = reverse(
                 "plugins:teamshifts:shifts",
-                organizer=request.event.organizer.slug,
-                event=request.event.slug,
+                kwargs={
+                    "organizer": request.event.organizer.slug,
+                    "event": request.event.slug,
+                },
             )
+            query_string = request.GET.urlencode()
+            if query_string:
+                redirect_url = f"{redirect_url}?{query_string}"
+            return redirect(redirect_url)
 
         ctx = self.get_context_data(form=form, formset=formset, has_locations=has_locations)
         messages.error(request, _("We could not save your changes. See below for details."))
@@ -2483,7 +2519,18 @@ class ShiftUpdateView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Temp
                     form.save()
                     formset.save()
                     messages.success(request, _("Shift updated successfully."))
-                    return redirect("plugins:teamshifts:shift_edit", organizer=request.event.organizer.slug, event=request.event.slug, pk=self.shift.pk)
+                    redirect_url = reverse(
+                        "plugins:teamshifts:shift_edit",
+                        kwargs={
+                            "organizer": request.event.organizer.slug,
+                            "event": request.event.slug,
+                            "pk": self.shift.pk,
+                        },
+                    )
+                    query_string = request.GET.urlencode()
+                    if query_string:
+                        redirect_url = f"{redirect_url}?{query_string}"
+                    return redirect(redirect_url)
                 else:
                     messages.error(request, _("We could not save your changes. See below for details."))
                     ctx = self.get_context_data(form=form, formset=formset, has_locations=has_locations)

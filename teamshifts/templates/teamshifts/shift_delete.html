@@ -9,7 +9,7 @@
 {% endblock %}
 
 {% block teamshifts_content %}
-    <form action="" method="post" class="form-horizontal">
+    <form action="{% if request.GET.urlencode %}?{{ request.GET.urlencode }}{% endif %}" method="post" class="form-horizontal">
         {% csrf_token %}
         <div class="panel panel-danger">
             <div class="panel-heading">
@@ -27,7 +27,7 @@
             </div>
             <div class="panel-footer">
                 <div class="form-group submit-group">
-                    <a href='{% url "plugins:teamshifts:shifts" organizer=request.organizer.slug event=request.event.slug %}' class="btn btn-default">
+                    <a href='{% url "plugins:teamshifts:shifts" organizer=request.organizer.slug event=request.event.slug %}{% if request.GET.urlencode %}?{{ request.GET.urlencode }}{% endif %}' class="btn btn-default">
                         {% trans "Cancel" %}
                     </a>
                     <button type="submit" class="btn btn-danger btn-save">

@@ -100,6 +100,88 @@ label .optional {
     margin-bottom: 1em;
 }
 
+.teamshifts-filter-control-active {
+    border-color: #1967d2;
+    color: #1967d2;
+    font-weight: 500;
+}
+
+.teamshifts-active-filters {
+    margin-top: 10px;
+    margin-bottom: 12px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+.teamshifts-active-filters-label {
+    font-weight: 600;
+    color: #555;
+    margin-right: 4px;
+}
+
+.teamshifts-filter-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 8px;
+    background-color: #e8f4fc;
+    color: #1967d2;
+    border: 1px solid #c2e0f9;
+    border-radius: 14px;
+    font-size: 13px;
+    text-decoration: none;
+    line-height: 1.4;
+}
+
+.teamshifts-filter-chip:hover,
+.teamshifts-filter-chip:focus {
+    background-color: #d2eaf9;
+    color: #1557b0;
+    text-decoration: none;
+}
+
+.teamshifts-filter-chip-remove {
+    font-weight: bold;
+    font-size: 14px;
+    line-height: 1;
+    color: #1967d2;
+}
+
+.teamshifts-clear-all-link {
+    margin-left: 6px;
+    font-size: 13px;
+}
+
+.teamshifts-filtered-count {
+    margin-top: 10px;
+    margin-bottom: 10px;
+    color: #555;
+}
+
+.teamshifts-sort-arrows {
+    display: inline-flex;
+    margin-left: 4px;
+    gap: 2px;
+    vertical-align: middle;
+}
+
+.teamshifts-sort-link {
+    text-decoration: none;
+    line-height: 1;
+}
+
+.teamshifts-sort-link:hover,
+.teamshifts-sort-link:focus {
+    text-decoration: none;
+}
+
+.teamshifts-sort-link.active,
+.teamshifts-sort-link.text-primary {
+    color: #1967d2;
+}
+
 .teamshifts-list-toolbar {
     display: flex;
     align-items: center;

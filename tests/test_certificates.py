@@ -411,7 +411,9 @@ def test_certificate_editor_permission_coordinator_allowed(client, event):
 
     response = client.get(editor_url)
     assert response.status_code == 200
-    match = re.search(r'data-version="([^"]+)"', response.content.decode("utf-8"))
+    html_content = response.content.decode("utf-8")
+    assert "ajaxError" in html_content
+    match = re.search(r'data-version="([^"]+)"', html_content)
     assert match is not None
     version = match.group(1)
 

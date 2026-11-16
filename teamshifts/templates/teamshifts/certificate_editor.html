@@ -382,5 +382,18 @@
                 $("#editor-data").data("version", data.version).attr("data-version", data.version);
             }
         });
+        $(document).ajaxError(function(event, xhr, settings) {
+            if (xhr.status === 409 && settings.type === "POST" && settings.data && typeof settings.data === "string" && settings.data.indexOf("data=") !== -1 && settings.data.indexOf("preview=") === -1) {
+                var error = xhr.responseJSON && xhr.responseJSON.error;
+                if (!error && xhr.responseText) {
+                    try {
+                        error = JSON.parse(xhr.responseText).error;
+                    } catch (e) {}
+                }
+                if (error) {
+                    alert(error);
+                }
+            }
+        });
     </script>
 {% endblock %}

@@ -156,7 +156,8 @@ def test_team_member_cannot_change_close_time(event, member):
     ("closes_in", "label"),
     [(None, "Sign-up: open"), (timedelta(days=1), "Sign-up: open until"), (-timedelta(minutes=1), "Sign-up: closed")],
 )
-def test_grid_shows_signup_state(event, organizer, closes_in, label):
+def test_grid_shows_signup_state(event, organizer, settings, closes_in, label):
+    settings.VITE_DEV_MODE = True
     _close_signup(event, now() + closes_in if closes_in else None)
 
     response = organizer.get(_url("schedule_grid", event))

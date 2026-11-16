@@ -14,7 +14,22 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied
 from django.db import IntegrityError, transaction
-from django.db.models import Count, DurationField, ExpressionWrapper, F, Max, Prefetch, Q, Sum
+from django.db.models import (
+    CharField,
+    Count,
+    DurationField,
+    ExpressionWrapper,
+    F,
+    Func,
+    JSONField,
+    Max,
+    Prefetch,
+    Q,
+    Sum,
+    Value,
+)
+from django.db.models.fields.json import KeyTextTransform
+from django.db.models.functions import Cast, Coalesce, Lower, NullIf
 from django.forms import inlineformset_factory
 from django.forms.models import model_to_dict
 from django.http import FileResponse, Http404, HttpResponse, HttpResponseBadRequest, HttpResponseRedirect, JsonResponse
@@ -36,6 +51,7 @@ from eventyay.base.templatetags.rich_text import compile_email_body, rich_text
 from eventyay.base.views.tasks import AsyncAction
 from eventyay.common.text.path import safe_filename
 from eventyay.common.text.phrases import phrases
+from eventyay.common.views.mixins import Sortable
 from eventyay.control.forms.orders import ExporterForm
 from eventyay.control.views import PaginationMixin
 from eventyay.multidomain.urlreverse import build_absolute_uri
@@ -340,19 +356,31 @@ class RichTextPreviewView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, 
         return JsonResponse({"html": str(rich_text(html)) if html else ""})
 
 
-class TeamRoleListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):
+class TeamRoleListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Sortable, View):
     permission = None
     template_name = "teamshifts/roles.html"
+    default_sort_field = "name"
+    sortable_fields = ("name", "is_restricted")
+    secondary_sort = {"is_restricted": ["name", "pk"]}
 
     def get(self, request, *args, **kwargs):
         with scope(event=request.event):
-            roles = list(TeamRole.objects.filter(event=request.event))
+            roles = list(self.sort_queryset(TeamRole.objects.filter(event=request.event)))
+            ordering = request.GET.get("sort", "")
+            sort_field = ordering[1:] if ordering.startswith("-") else ordering
+            ordering = ordering if sort_field in self.sortable_fields else self.default_sort_field
         allowed = get_allowed_role_ids(request.user, request.organizer, request.event, request=request)
         can_create = has_teamshifts_permission(request.user, request.organizer, request.event, "can_teamshifts_create_roles", request=request)
         return render(
             request,
             self.template_name,
-            {"roles": roles, "form": TeamRoleForm() if can_create else None, "allowed_role_ids": allowed, "can_create_roles": can_create},
+            {
+                "roles": roles,
+                "form": TeamRoleForm() if can_create else None,
+                "allowed_role_ids": allowed,
+                "can_create_roles": can_create,
+                "current_ordering": ordering,
+            },
         )
 
     def post(self, request, *args, **kwargs):
@@ -367,9 +395,22 @@ class TeamRoleListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Vie
             messages.success(request, _("Role '%s' created.") % role.name)
             return redirect("plugins:teamshifts:roles", organizer=request.organizer.slug, event=request.event.slug)
         with scope(event=request.event):
-            roles = list(TeamRole.objects.filter(event=request.event))
+            ordering = request.GET.get("sort", "")
+            sort_field = ordering[1:] if ordering.startswith("-") else ordering
+            ordering = ordering if sort_field in self.sortable_fields else self.default_sort_field
+            roles = list(self.sort_queryset(TeamRole.objects.filter(event=request.event)))
         allowed = get_allowed_role_ids(request.user, request.organizer, request.event, request=request)
-        return render(request, self.template_name, {"roles": roles, "form": form, "allowed_role_ids": allowed, "can_create_roles": True})
+        return render(
+            request,
+            self.template_name,
+            {
+                "roles": roles,
+                "form": form,
+                "allowed_role_ids": allowed,
+                "can_create_roles": True,
+                "current_ordering": ordering,
+            },
+        )
 
 
 class TeamRoleDeleteView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):
@@ -426,8 +467,6 @@ class EmailTemplateListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin
         with scope(event=event):
             cfm, _created = CallForTeamMembers.objects.get_or_create(event=event)
 
-        from .mail.default_templates import get_default_template
-
         panels = []
         for role in EmailTemplateRoles.values:
             with scope(event=event):
@@ -440,13 +479,13 @@ class EmailTemplateListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin
             )
             is_customised = False
             if template.pk:
-                default_subject, default_body = get_default_template(role)
-                db_subject = str(template.subject).replace("\r\n", "\n").strip()
-                db_body = str(template.body).replace("\r\n", "\n").strip()
-                def_subject = str(default_subject).replace("\r\n", "\n").strip()
-                def_body = str(default_body).replace("\r\n", "\n").strip()
-                if db_subject != def_subject or db_body != def_body:
-                    is_customised = True
+                default_subject, default_body = cfm.default_mail_texts(role)
+                # Check every event language, so an edit in a secondary language still counts.
+                is_customised = any(
+                    _normalised(stored, locale) != _normalised(default, locale)
+                    for locale in event.locales
+                    for stored, default in ((template.subject, default_subject), (template.body, default_body))
+                )
             panels.append(
                 {
                     "role": role,
@@ -625,6 +664,30 @@ class EmailTemplateEditView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin
                 "role_label": EmailTemplateRoles(template.role).label,
                 "email_placeholders": _TEMPLATE_PLACEHOLDERS,
             },
+        )
+
+
+def _normalised(text, locale):
+    value = text.localize(locale) if hasattr(text, "localize") else text
+    return str(value or "").replace("\r\n", "\n").strip()
+
+
+class EmailTemplateResetView(EmailTemplateEditView):
+    template_name = "teamshifts/email_template_reset.html"
+
+    def get(self, request, *args, **kwargs):
+        template = self._get_or_seed(request, kwargs["role"])
+        return render(request, self.template_name, {"role_label": EmailTemplateRoles(template.role).label})
+
+    def post(self, request, *args, **kwargs):
+        template = self._get_or_seed(request, kwargs["role"])
+        with scope(event=request.event):
+            request.event.call_for_team_members.reset_mail_template(template.role)
+        messages.success(request, _("Template reset to the default text."))
+        return redirect(
+            "plugins:teamshifts:email_templates",
+            organizer=request.organizer.slug,
+            event=request.event.slug,
         )
 
 
@@ -854,16 +917,26 @@ class QuestionToggleView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, V
         return JsonResponse({"success": True, "field": field, "value": value})
 
 
-class ApplicationListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, PaginationMixin, ListView):
+class ApplicationListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, PaginationMixin, Sortable, ListView):
     permission = None
     template_name = "teamshifts/applications.html"
     context_object_name = "applications"
+    default_sort_field = "-created_at"
+    sortable_fields = ("user__fullname", "status", "created_at")
+    secondary_sort = {
+        "user__fullname": ["pk"],
+        "status": ["pk"],
+        "created_at": ["pk"],
+    }
 
     def get_queryset(self):
         event = self.request.event
         with scope(event=event):
             qs = (
-                TeamMemberApplication.objects.filter(Q(added_by_organizer=False) | Q(status=ApplicationStatus.REMOVED), event=event)
+                TeamMemberApplication.objects.filter(
+                    Q(added_by_organizer=False) | Q(status=ApplicationStatus.REMOVED),
+                    event=event,
+                )
                 .select_related("user")
                 .prefetch_related("answers__question")
                 .order_by("-created_at")
@@ -881,7 +954,8 @@ class ApplicationListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, 
                     qs = qs.filter(Q(user__email__icontains=search) | Q(user__fullname__icontains=search))
                 else:
                     qs = qs.filter(Q(user__fullname__icontains=search))
-            return qs
+
+            return self.sort_queryset(qs)
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -956,6 +1030,9 @@ class ApplicationListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, 
                 self.request.user, self.request.organizer, event, "can_teamshifts_manage_applicants", request=self.request
             )
             ctx["search"] = search
+            sort = self.request.GET.get("sort", "")
+            sort_field = sort[1:] if sort.startswith("-") else sort
+            ctx["current_ordering"] = sort if sort_field in self.sortable_fields else self.default_sort_field
         return ctx
 
 
@@ -1446,46 +1523,102 @@ class ComposeVolunteersSelect2View(PluginActiveMixin, TeamShiftsPermissionRequir
         return JsonResponse({"results": results, "pagination": {"more": total > offset + self.page_size}})
 
 
-class EmailOutboxView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, TemplateView):
+class EmailOutboxView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Sortable, TemplateView):
     permission = "can_teamshifts_send_emails"
     template_name = "teamshifts/emails/outbox_list.html"
+    default_sort_field = "-created"
+    sortable_fields = ("subject", "recipient_count", "send_after", "created")
+    secondary_sort = {"recipient_count": ["-created", "pk"]}
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         event = self.request.event
         with scope(event=event):
             queues = list(
-                TeamShiftsEmailQueue.objects.filter(event=event, sent_at__isnull=True, is_draft=False, user__isnull=False)
-                .select_related("role_filter", "user")
-                .annotate(recipient_count=Count("recipients"))
-                .order_by("-created")
+                self.sort_queryset(
+                    TeamShiftsEmailQueue.objects.filter(event=event, sent_at__isnull=True, is_draft=False, user__isnull=False)
+                    .select_related("role_filter", "user")
+                    .annotate(recipient_count=Count("recipients"))
+                )
             )
         ctx["mails"] = queues
+        sort = self.request.GET.get("sort", "")
+        sort_field = sort[1:] if sort.startswith("-") else sort
+        ctx["current_ordering"] = sort if sort_field in self.sortable_fields else self.default_sort_field
         ctx["can_view_email"] = can_view_email_addresses(self.request.user, self.request.organizer, event, request=self.request)
         return ctx
 
 
-class EmailDraftsView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, TemplateView):
+class EmailDraftsView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Sortable, TemplateView):
     permission = "can_teamshifts_send_emails"
     template_name = "teamshifts/emails/drafts_list.html"
+    default_sort_field = "-updated"
+    sortable_fields = ("subject", "recipient_count", "updated")
+    secondary_sort = {"recipient_count": ["-created", "pk"]}
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         event = self.request.event
         with scope(event=event):
             ctx["mails"] = list(
-                TeamShiftsEmailQueue.objects.filter(event=event, sent_at__isnull=True, is_draft=True, user__isnull=False)
-                .select_related("user")
-                .annotate(recipient_count=Count("recipients"))
-                .order_by("-updated")
+                self.sort_queryset(
+                    TeamShiftsEmailQueue.objects.filter(event=event, sent_at__isnull=True, is_draft=True, user__isnull=False)
+                    .select_related("user")
+                    .annotate(recipient_count=Count("recipients"))
+                )
             )
+        sort = self.request.GET.get("sort", "")
+        sort_field = sort[1:] if sort.startswith("-") else sort
+        ctx["current_ordering"] = sort if sort_field in self.sortable_fields else self.default_sort_field
+        ctx["can_view_email"] = can_view_email_addresses(
+            self.request.user,
+            self.request.organizer,
+            event,
+            request=self.request,
+        )
         return ctx
 
 
-class EmailSentView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, PaginationMixin, ListView):
+class EmailSentView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, PaginationMixin, Sortable, ListView):
     permission = "can_teamshifts_send_emails"
     template_name = "teamshifts/emails/sent_list.html"
     context_object_name = "mails"
+    default_sort_field = "-sent_at"
+    sortable_fields = ("subject", "sent_at")
+
+    def sort_queryset(self, qs):
+        sort = self.request.GET.get("sort", "")
+        if sort in ("subject", "-subject"):
+            queue_subject = Cast(
+                NullIf("queue__subject", Value("")),
+                JSONField(),
+            )
+            first_translation = Func(
+                Func(
+                    queue_subject,
+                    Value("$.*"),
+                    function="jsonb_path_query_first",
+                    output_field=JSONField(),
+                ),
+                template="(%(expressions)s) #>> '{}'",
+                output_field=CharField(),
+            )
+            qs = qs.annotate(
+                sort_subject=Coalesce(
+                    NullIf("subject", Value("")),
+                    KeyTextTransform(get_language(), queue_subject),
+                    KeyTextTransform("en", queue_subject),
+                    NullIf(first_translation, Value("")),
+                    output_field=CharField(),
+                )
+            )
+            qs = qs.annotate(sort_subject_lower=Lower("sort_subject"))
+            qs = qs.order_by(
+                ("-" if sort.startswith("-") else "") + "sort_subject_lower",
+                "-pk" if sort.startswith("-") else "pk",
+            )
+            return qs
+        return super().sort_queryset(qs)
 
     def get_queryset(self):
         event = self.request.event
@@ -1494,21 +1627,33 @@ class EmailSentView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Pagina
                 TeamShiftsEmailQueueRecipient.objects.filter(queue__event=event, sent_at__isnull=False)
                 .filter(Q(queue__user__isnull=False) | ~Q(queue__mail_type=""))
                 .select_related("queue", "user")
-                .order_by("-sent_at", "-pk")
             )
 
             search = self.request.GET.get("q", "").strip()
             if search:
                 condition = Q(subject__icontains=search) | Q(subject="", queue__subject__icontains=search) | Q(user__fullname__icontains=search)
-                if can_view_email_addresses(self.request.user, self.request.organizer, event, request=self.request):
+                if can_view_email_addresses(
+                    self.request.user,
+                    self.request.organizer,
+                    event,
+                    request=self.request,
+                ):
                     condition |= Q(email__icontains=search)
                 qs = qs.filter(condition)
-        return qs
+        return self.sort_queryset(qs)
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx["search"] = self.request.GET.get("q", "").strip()
-        ctx["can_view_email"] = can_view_email_addresses(self.request.user, self.request.organizer, self.request.event, request=self.request)
+        ctx["can_view_email"] = can_view_email_addresses(
+            self.request.user,
+            self.request.organizer,
+            self.request.event,
+            request=self.request,
+        )
+        sort = self.request.GET.get("sort", "")
+        sort_field = sort[1:] if sort.startswith("-") else sort
+        ctx["current_ordering"] = sort if sort_field in self.sortable_fields else self.default_sort_field
         return ctx
 
 
@@ -1644,23 +1789,48 @@ class EmailQueueSendNowView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin
         )
 
 
-class ShiftLocationListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):
+class ShiftLocationListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Sortable, View):
     permission = "can_teamshifts_create_shifts"
     template_name = "teamshifts/locations.html"
+    default_sort_field = "position"
+    sortable_fields = ("name", "linked_room", "position")
+    secondary_sort = {"position": ["name"]}
 
     def get(self, request, *args, **kwargs):
+        ordering = request.GET.get("sort") or self.default_sort_field
+
         with scope(event=request.event):
-            locations = list(ShiftLocation.objects.filter(event=request.event).select_related("linked_room"))
+            qs = ShiftLocation.objects.filter(event=request.event).select_related("linked_room")
+
+            if ordering in ("name", "-name"):
+                qs = qs.order_by(
+                    Coalesce("linked_room__name", "name").desc() if ordering == "-name" else Coalesce("linked_room__name", "name").asc(),
+                    "-pk" if ordering.startswith("-") else "pk",
+                )
+            elif ordering in ("linked_room", "-linked_room"):
+                desc = ordering.startswith("-")
+                qs = qs.order_by(
+                    F("linked_room_id").desc(nulls_last=True) if desc else F("linked_room_id").asc(nulls_first=True),
+                    "name",
+                    "-pk" if desc else "pk",
+                )
+            else:
+                ordering = self.default_sort_field
+                qs = self.sort_queryset(qs)
+
+            locations = list(qs)
             already_linked_room_ids = {loc.linked_room_id for loc in locations if loc.linked_room_id is not None}
             importable_rooms = list(
                 request.event.rooms.filter(deleted=False, is_unscheduled=False).exclude(pk__in=already_linked_room_ids).order_by("position", "pk")
             )
+
         return render(
             request,
             self.template_name,
             {
                 "locations": locations,
                 "importable_rooms": importable_rooms,
+                "current_ordering": ordering,
             },
         )
 
@@ -1925,16 +2095,26 @@ class ImportTalksRoomsView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin,
         return redirect("plugins:teamshifts:locations", organizer=request.organizer.slug, event=request.event.slug)
 
 
-class ShiftListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, PaginationMixin, ListView):
+class ShiftListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, PaginationMixin, Sortable, ListView):
     permission = "can_teamshifts_create_shifts"
     template_name = "teamshifts/shifts.html"
     context_object_name = "shifts"
     DEFAULT_PAGINATION = 50
+    default_sort_field = "start_time"
+    sortable_fields = ("name", "location__name", "start_time", "end_time")
+    secondary_sort = {
+        "name": ["pk"],
+        "location__name": ["start_time", "pk"],
+        "start_time": ["end_time", "name", "pk"],
+        "end_time": ["pk"],
+    }
 
     def get_queryset(self):
         event = self.request.event
+
         with scope(event=event):
-            return Shift.objects.filter(event=event).select_related("location").prefetch_related("role_assignments__role").order_by("start_time", "pk")
+            qs = Shift.objects.filter(event=event).select_related("location").prefetch_related("role_assignments__role")
+            return self.sort_queryset(qs)
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -1942,6 +2122,9 @@ class ShiftListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Pagina
         ctx["can_manage_shifts"] = has_teamshifts_permission(
             self.request.user, self.request.organizer, event, "can_teamshifts_create_shifts", request=self.request
         )
+        sort = self.request.GET.get("sort", "")
+        sort_field = sort[1:] if sort.startswith("-") else sort
+        ctx["current_ordering"] = sort if sort_field in self.sortable_fields else self.default_sort_field
         return ctx
 
 
@@ -2813,13 +2996,15 @@ def _queue_shift_summary_safely(event, user):
 
 def _notify_shift_change_safely(event, user, shift, role, template_role):
     try:
-        queue_shift_notification_email(
-            event=event,
-            user=user,
-            shift=shift,
-            role=role,
-            template_role=template_role,
-        )
+        # Savepoint, so a failed queue write inside the caller's transaction doesn't roll back the shift change.
+        with transaction.atomic():
+            queue_shift_notification_email(
+                event=event,
+                user=user,
+                shift=shift,
+                role=role,
+                template_role=template_role,
+            )
     except Exception:
         logger.exception(
             "[TeamShifts] Failed to queue %s notification for user %s, shift %s",
@@ -2939,11 +3124,8 @@ class ShiftScheduleAssignmentsAPIView(PluginActiveMixin, TeamShiftsPermissionReq
                 if created or previous_role_id != role_id:
                     shift_role_assignment = shift.role_assignments.select_related("role").filter(role_id=role_id).first() if role_id else None
                     role = shift_role_assignment.role if shift_role_assignment else None
-                    transaction.on_commit(
-                        lambda event=event, user=user, shift=shift, role=role: _notify_shift_change_safely(
-                            event, user, shift, role, EmailTemplateRoles.SHIFT_ASSIGNED_BY_ORGANIZER
-                        )
-                    )
+                    # Queued inside the transaction so the email commits with the change, in commit order.
+                    _notify_shift_change_safely(event, user, shift, role, EmailTemplateRoles.SHIFT_ASSIGNED_BY_ORGANIZER)
                     transaction.on_commit(lambda event=event, user=user: _queue_shift_summary_safely(event, user))
             shift = Shift.objects.prefetch_related(
                 "role_assignments__role",
@@ -2982,11 +3164,19 @@ class ShiftScheduleAssignmentsAPIView(PluginActiveMixin, TeamShiftsPermissionReq
                     {"detail": "You cannot unassign members from this role."},
                     status=400,
                 )
-            assignment = ShiftAssignment.objects.select_related("team_member").filter(shift=shift, team_member_id=user_id, role_id=role_id).first()
-            if assignment:
-                member = assignment.team_member
-                assignment.delete()
-                transaction.on_commit(lambda event=event, user=member: _queue_shift_summary_safely(event, user))
+            with transaction.atomic():
+                # Lock the row so a repeated request waits, then finds nothing and sends no second email.
+                assignment = (
+                    ShiftAssignment.objects.select_for_update(of=("self",))
+                    .select_related("team_member", "role")
+                    .filter(shift=shift, team_member_id=user_id, role_id=role_id)
+                    .first()
+                )
+                if assignment:
+                    user, role = assignment.team_member, assignment.role
+                    assignment.delete()
+                    _notify_shift_change_safely(event, user, shift, role, EmailTemplateRoles.SHIFT_UNASSIGNED_BY_ORGANIZER)
+                    transaction.on_commit(lambda event=event, user=user: _queue_shift_summary_safely(event, user))
             shift = Shift.objects.prefetch_related(
                 "role_assignments__role",
                 "assignments__team_member",

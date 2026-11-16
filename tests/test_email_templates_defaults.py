@@ -30,8 +30,7 @@ def test_new_application_organizer_template_clarity():
     body_str = str(body)
 
     assert subject_str == "Team Shifts: New team member application — {event_name}"
-    assert "A new application has been submitted to join the {event_name} event team." in body_str
-    assert "through Team Shifts" not in body_str
+    assert "A new application has been submitted to join the {event_name} event team through Team Shifts." in body_str
     assert "{applicant_name}" in body_str
     assert "{submitted_at}" in body_str
     assert "{pending_count}" in body_str
@@ -121,12 +120,31 @@ def test_migration_0038_migrates_stock_and_leaves_custom_templates(event):
             subject=LazyI18nString({"en": "Custom Accepted Subject — {event_name}"}),
             body=LazyI18nString({"en": "Custom Accepted Body for {event_name}"}),
         )
+        organizer_template = TeamShiftsEmailTemplate.objects.create(
+            event=event,
+            role=EmailTemplateRoles.NEW_APPLICATION_ORGANIZER,
+            subject=LazyI18nString({"en": "New team member application — {event_name}"}),
+            body=LazyI18nString(
+                {
+                    "en": (
+                        "A new team member application has been submitted for {event_name}.\n\n"
+                        "Applicant: {applicant_name}\n\n"
+                        "Submitted: {submitted_at}\n\n"
+                        "Pending applications: {pending_count}\n\n"
+                        "Review the application here:\n"
+                        "{application_url}\n\n"
+                        "The {event_name} team"
+                    )
+                }
+            ),
+        )
 
     # Run forward migration
     migrate_stock_templates(apps, None)
 
     stock_template.refresh_from_db()
     custom_template.refresh_from_db()
+    organizer_template.refresh_from_db()
 
     assert stock_template.subject.data["en"] == "Team Shifts: We received your application — {event_name}"
     assert stock_template.subject.data["de"] == "Team Shifts: We received your application — {event_name}"
@@ -135,11 +153,15 @@ def test_migration_0038_migrates_stock_and_leaves_custom_templates(event):
     assert custom_template.subject.data["en"] == "Custom Accepted Subject — {event_name}"
     assert custom_template.body.data["en"] == "Custom Accepted Body for {event_name}"
 
+    assert organizer_template.subject.data["en"] == "Team Shifts: New team member application — {event_name}"
+    assert "join the {event_name} event team through Team Shifts." in organizer_template.body.data["en"]
+
     # Run reverse migration
     reverse_migrate_stock_templates(apps, None)
 
     stock_template.refresh_from_db()
     custom_template.refresh_from_db()
+    organizer_template.refresh_from_db()
 
     assert stock_template.subject.data["en"] == "We received your application — {event_name}"
     assert stock_template.subject.data["de"] == "We received your application — {event_name}"
@@ -147,3 +169,6 @@ def test_migration_0038_migrates_stock_and_leaves_custom_templates(event):
 
     assert custom_template.subject.data["en"] == "Custom Accepted Subject — {event_name}"
     assert custom_template.body.data["en"] == "Custom Accepted Body for {event_name}"
+
+    assert organizer_template.subject.data["en"] == "New team member application — {event_name}"
+    assert "A new team member application has been submitted for {event_name}." in organizer_template.body.data["en"]

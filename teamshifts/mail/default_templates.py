@@ -41,7 +41,7 @@ REJECTED_TEXT = LazyI18nString.from_gettext(
 NEW_APPLICATION_ORGANIZER_SUBJECT = LazyI18nString.from_gettext(_("Team Shifts: New team member application — {event_name}"))
 NEW_APPLICATION_ORGANIZER_TEXT = LazyI18nString.from_gettext(
     _(
-        "A new application has been submitted to join the {event_name} event team.\n\n"
+        "A new application has been submitted to join the {event_name} event team through Team Shifts.\n\n"
         "Applicant: {applicant_name}\n\n"
         "Submitted: {submitted_at}\n\n"
         "Pending applications: {pending_count}\n\n"

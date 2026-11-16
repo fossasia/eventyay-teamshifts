@@ -149,9 +149,18 @@ STOCK_UPDATES = {
                     "{application_url}\n\n"
                     "The {event_name} team"
                 ),
+                (
+                    "A new application has been submitted to join the {event_name} event team.\n\n"
+                    "Applicant: {applicant_name}\n\n"
+                    "Submitted: {submitted_at}\n\n"
+                    "Pending applications: {pending_count}\n\n"
+                    "Review the application here:\n"
+                    "{application_url}\n\n"
+                    "The {event_name} team"
+                ),
             ),
             (
-                "A new application has been submitted to join the {event_name} event team.\n\n"
+                "A new application has been submitted to join the {event_name} event team through Team Shifts.\n\n"
                 "Applicant: {applicant_name}\n\n"
                 "Submitted: {submitted_at}\n\n"
                 "Pending applications: {pending_count}\n\n"

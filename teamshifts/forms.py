@@ -1120,8 +1120,6 @@ class VoucherSettingsForm(forms.Form):
 
 class SelfSignupCloseForm(forms.ModelForm):
     class Meta:
-        from .models import CallForTeamMembers
-
         model = CallForTeamMembers
         fields = ("self_signup_closes_at",)
         widgets = {

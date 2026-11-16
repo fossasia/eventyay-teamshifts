@@ -243,6 +243,7 @@ def test_public_schedule_nav_tab_toggles_with_publish_unpublish(event, user):
         cfm.save(update_fields=["shift_schedule_published"])
         assert teamshifts_public_schedule_nav_tab(event, request=volunteer_request) == ""
 
+
 def test_nav_global_my_shifts_not_suppressed_for_admin_request(monkeypatch, user):
     """Admin filtering belongs to core; TeamShifts should always provide its personal nav item."""
     factory = RequestFactory()

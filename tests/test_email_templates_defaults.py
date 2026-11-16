@@ -1,7 +1,16 @@
+import importlib
+
 import pytest
+from django.apps import apps
+from django_scopes import scope
+from i18nfield.strings import LazyI18nString
 
 from teamshifts.mail.default_templates import get_default_template
-from teamshifts.models import EmailTemplateRoles
+from teamshifts.models import EmailTemplateRoles, TeamShiftsEmailTemplate
+
+migration_0037 = importlib.import_module("teamshifts.migrations.0037_update_stock_email_templates_terminology")
+migrate_stock_templates = migration_0037.migrate_stock_templates
+reverse_migrate_stock_templates = migration_0037.reverse_migrate_stock_templates
 
 
 @pytest.mark.parametrize("role", EmailTemplateRoles.values)
@@ -51,3 +60,61 @@ def test_shift_dropped_organizer_template_clarity():
     assert "A Team Shifts team member has dropped a shift at {event_name}." in body_str
     assert "{applicant_name}" in body_str
     assert "{application_url}" in body_str
+
+
+@pytest.mark.django_db
+def test_migration_0037_migrates_stock_and_leaves_custom_templates(event):
+    with scope(event=event):
+        stock_template = TeamShiftsEmailTemplate.objects.create(
+            event=event,
+            role=EmailTemplateRoles.APPLICATION_RECEIVED,
+            subject=LazyI18nString(
+                {
+                    "en": "We received your application — {event_name}",
+                    "de": "We received your application — {event_name}",
+                }
+            ),
+            body=LazyI18nString(
+                {
+                    "en": (
+                        "Hi {full_name},\n\n"
+                        "Thanks for applying to join the team for {event_name}. "
+                        "We have received your application and will get back to you soon.\n\n"
+                        "Best regards,\n"
+                        "The {event_name} team"
+                    )
+                }
+            ),
+        )
+        custom_template = TeamShiftsEmailTemplate.objects.create(
+            event=event,
+            role=EmailTemplateRoles.APPLICATION_ACCEPTED,
+            subject=LazyI18nString({"en": "Custom Accepted Subject — {event_name}"}),
+            body=LazyI18nString({"en": "Custom Accepted Body for {event_name}"}),
+        )
+
+    # Run forward migration
+    migrate_stock_templates(apps, None)
+
+    stock_template.refresh_from_db()
+    custom_template.refresh_from_db()
+
+    assert stock_template.subject.data["en"] == "Team shifts: We received your application — {event_name}"
+    assert stock_template.subject.data["de"] == "Team shifts: We received your application — {event_name}"
+    assert "join the event team through Team Shifts for {event_name}" in stock_template.body.data["en"]
+
+    assert custom_template.subject.data["en"] == "Custom Accepted Subject — {event_name}"
+    assert custom_template.body.data["en"] == "Custom Accepted Body for {event_name}"
+
+    # Run reverse migration
+    reverse_migrate_stock_templates(apps, None)
+
+    stock_template.refresh_from_db()
+    custom_template.refresh_from_db()
+
+    assert stock_template.subject.data["en"] == "We received your application — {event_name}"
+    assert stock_template.subject.data["de"] == "We received your application — {event_name}"
+    assert "join the team for {event_name}" in stock_template.body.data["en"]
+
+    assert custom_template.subject.data["en"] == "Custom Accepted Subject — {event_name}"
+    assert custom_template.body.data["en"] == "Custom Accepted Body for {event_name}"

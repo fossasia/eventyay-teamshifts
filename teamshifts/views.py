@@ -130,7 +130,6 @@ from .services.members import (
     accept_manager_as_member,
     add_member_from_organizer,
     hidden_after_removal_filter,
-    my_shifts_page_available,
     remove_members_from_team,
     upcoming_assignment_filter,
 )

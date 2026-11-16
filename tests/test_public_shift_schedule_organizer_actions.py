@@ -74,8 +74,8 @@ def shift(event, team_role, location):
             event=event,
             name="Morning Shift",
             location=location,
-            start_time=now(),
-            end_time=now() + timedelta(hours=3),
+            start_time=now() + timedelta(hours=1),
+            end_time=now() + timedelta(hours=4),
         )
         ShiftRoleAssignment.objects.create(shift=shift, role=team_role, capacity=2)
         return shift

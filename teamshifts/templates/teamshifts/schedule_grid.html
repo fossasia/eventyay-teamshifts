@@ -11,6 +11,7 @@
     {{ block.super }}
     {% vite_hmr %}
     {% vite_asset "src/main.ts" %}
+    <script type="module" src="{% static 'teamshifts/self_signup.js' %}"></script>
 {% endblock %}
 
 {% block title %}{% trans "Shift Schedule" %} :: {{ request.event.name }}{% endblock %}
@@ -19,6 +20,26 @@
   <form id="ts-publish-form" method="post" action="{% url 'plugins:teamshifts:schedule_toggle_publish' organizer=request.event.organizer.slug event=request.event.slug %}">
     {% csrf_token %}
   </form>
+
+  <dialog id="ts-self-signup-dialog" class="pretix-confirm-dialog" aria-labelledby="ts-self-signup-title">
+    <form method="post" action="{% url 'plugins:teamshifts:schedule_self_signup' organizer=request.event.organizer.slug event=request.event.slug %}">
+      {% csrf_token %}
+      <h4 class="pretix-confirm-dialog__title" id="ts-self-signup-title">{% trans "Self sign-up" %}</h4>
+      <div class="form-group">
+        <label for="{{ self_signup_form.self_signup_closes_at.id_for_label }}">{{ self_signup_form.self_signup_closes_at.label }}</label>
+        {{ self_signup_form.self_signup_closes_at }}
+        <p class="help-block">
+          {% trans "After this time, team members can no longer sign up for shifts themselves. Organizers can still assign people. Leave empty to keep sign-up open." %}
+        </p>
+        <p class="help-block">{{ self_signup_form.self_signup_closes_at.help_text }}</p>
+      </div>
+      <div class="pretix-confirm-dialog__actions text-right">
+        <button type="button" class="btn btn-default" id="ts-self-signup-cancel">{% trans "Cancel" %}</button>
+        <button type="submit" class="btn btn-default" name="action" value="clear" formnovalidate>{% trans "Clear" %}</button>
+        <button type="submit" class="btn btn-primary" name="action" value="save">{% trans "Save" %}</button>
+      </div>
+    </form>
+  </dialog>
 
   <div class="schedule-editor-container">
     <div class="schedule-header">
@@ -33,6 +54,15 @@
             <i class="fa fa-globe"></i> {% trans "Publish" %}
           </button>
         {% endif %}
+        <button type="button" id="ts-self-signup-btn" class="btn btn-sm btn-default" aria-haspopup="dialog">
+          {% if not self_signup_open %}
+            <i class="fa fa-lock"></i> {% trans "Sign-up: closed" %}
+          {% elif self_signup_closes_at %}
+            <i class="fa fa-unlock"></i> {% blocktrans with datetime=self_signup_closes_at|date:"SHORT_DATETIME_FORMAT" %}Sign-up: open until {{ datetime }}{% endblocktrans %}
+          {% else %}
+            <i class="fa fa-unlock"></i> {% trans "Sign-up: open" %}
+          {% endif %}
+        </button>
         <a href="{% url 'plugins:teamshifts:shift_create' organizer=request.event.organizer.slug event=request.event.slug %}" class="btn btn-sm btn-primary">
           <i class="fa fa-plus"></i> {% trans "Create Shift" %}
         </a>

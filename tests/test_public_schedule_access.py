@@ -37,7 +37,9 @@ def shift(event):
     with scopes_disabled():
         CallForTeamMembers.objects.create(event=event, title="Join", active=True, shift_schedule_published=True)
         location = ShiftLocation.objects.create(event=event, name="Main Hall")
-        return Shift.objects.create(event=event, name="Morning Shift", location=location, start_time=now(), end_time=now() + timedelta(hours=3))
+        return Shift.objects.create(
+            event=event, name="Morning Shift", location=location, start_time=now() + timedelta(hours=1), end_time=now() + timedelta(hours=4)
+        )
 
 
 def _login_with_team(client, event, **team_kwargs):

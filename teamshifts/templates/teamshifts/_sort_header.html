@@ -1,0 +1,20 @@
+{% load i18n %}
+{% load urlreplace %}
+
+{{ label }}
+<span class="list-sort">
+    <a data-ajax
+       href="?{% url_replace request 'sort' field 'page' '1' %}"
+       class="{% if current_ordering == field %}text-primary{% else %}text-muted{% endif %}"
+       aria-label="{% if current_ordering == field %}{% blocktrans with column=label %}Sorted by {{ column }} ascending{% endblocktrans %}{% else %}{% blocktrans with column=label %}Sort {{ column }} ascending{% endblocktrans %}{% endif %}"
+       {% if current_ordering == field %}aria-current="true"{% endif %}>
+        <i class="fa fa-caret-up" aria-hidden="true"></i>
+    </a>
+    <a data-ajax
+       href="?{% url_replace request 'sort' '-'|add:field 'page' '1' %}"
+       class="{% if current_ordering == '-'|add:field %}text-primary{% else %}text-muted{% endif %}"
+       aria-label="{% if current_ordering == '-'|add:field %}{% blocktrans with column=label %}Sorted by {{ column }} descending{% endblocktrans %}{% else %}{% blocktrans with column=label %}Sort {{ column }} descending{% endblocktrans %}{% endif %}"
+       {% if current_ordering == '-'|add:field %}aria-current="true"{% endif %}>
+        <i class="fa fa-caret-down" aria-hidden="true"></i>
+    </a>
+</span>

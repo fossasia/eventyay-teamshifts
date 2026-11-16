@@ -354,7 +354,7 @@ def test_organizer_unassign_emails_volunteer_once(client, event, application, vo
             [EmailTemplateRoles.SHIFT_UNASSIGNED_BY_ORGANIZER, EmailTemplateRoles.SHIFT_SUMMARY]
         )
         unassigned = queued.get(mail_type=EmailTemplateRoles.SHIFT_UNASSIGNED_BY_ORGANIZER)
-    assert str(unassigned.subject).startswith("Team shifts: You have been removed from a shift")
+    assert str(unassigned.subject).startswith("Team Shifts: You have been removed from a shift")
     assert unassigned.mail_type_label == "Shift unassigned"
     assert (unassigned.shift, unassigned.shift_role) == (shift, team_role)
 

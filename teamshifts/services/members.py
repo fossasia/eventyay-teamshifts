@@ -5,7 +5,7 @@ from typing import TypedDict
 from django.db import transaction
 from django.db.models import Q
 from django.utils.timezone import now
-from django_scopes import scope
+from django_scopes import scope, scopes_disabled
 from eventyay.base.models import CartPosition, Event, User
 from eventyay.person.services import create_user
 
@@ -15,6 +15,7 @@ from ..models import (
     EmailTemplateRoles,
     MemberVoucher,
     ShiftAssignment,
+    ShiftCalendarToken,
     TeamApplicationAnswer,
     TeamMemberApplication,
 )
@@ -126,6 +127,15 @@ def hidden_after_removal_filter(user) -> Q:
     """Assignments a removed member no longer sees: everything in that event except a shift
     they had already started and not yet checked out of, which they may still close."""
     return Q(shift__event_id__in=removed_event_ids(user)) & ~IN_PROGRESS_ASSIGNMENT
+
+
+def my_shifts_page_available(user) -> bool:
+    """Whether the global My Shifts page loads for this user (it returns 404 otherwise)."""
+    with scopes_disabled():
+        has_visible_shift = (
+            ShiftAssignment.objects.filter(team_member=user, shift__event__plugins__contains="teamshifts").exclude(hidden_after_removal_filter(user)).exists()
+        )
+        return has_visible_shift or ShiftCalendarToken.objects.filter(user=user).exists()
 
 
 def remove_members_from_team(

@@ -18,15 +18,13 @@
 
     <div data-ajax-results-region data-filter-count="{{ advanced_filter_count }}">
     {% if applications and can_manage_applicants %}
-        <div class="teamshifts-list-toolbar clearfix">
-            <div class="pull-right">
-                <button type="submit" form="bulk-action-form" name="action" value="accept" class="btn btn-success teamshifts-bulk-action-btn">
-                    <span class="fa fa-check"></span> {% trans "Bulk Accept" %}
-                </button>
-                <button type="submit" form="bulk-action-form" name="action" value="reject" class="btn btn-danger teamshifts-bulk-action-btn">
-                    <span class="fa fa-times"></span> {% trans "Bulk Reject" %}
-                </button>
-            </div>
+        <div class="teamshifts-list-toolbar">
+            <button type="submit" form="bulk-action-form" name="action" value="accept" class="btn btn-success teamshifts-bulk-action-btn">
+                <span class="fa fa-check"></span> {% trans "Bulk Accept" %}
+            </button>
+            <button type="submit" form="bulk-action-form" name="action" value="reject" class="btn btn-danger teamshifts-bulk-action-btn">
+                <span class="fa fa-times"></span> {% trans "Bulk Reject" %}
+            </button>
         </div>
     {% endif %}
 

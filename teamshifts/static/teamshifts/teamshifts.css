@@ -108,6 +108,12 @@ label .optional {
     margin-bottom: 10px;
 }
 
+.teamshifts-list-toolbar::before,
+.teamshifts-list-toolbar::after {
+    content: none;
+    display: none;
+}
+
 .teamshifts-download-dropdown {
     display: inline-block;
     vertical-align: top;

@@ -40,25 +40,26 @@ def test_new_application_organizer_template_clarity():
 def test_applicant_lifecycle_templates_clarity():
     received_subject, received_body = get_default_template(EmailTemplateRoles.APPLICATION_RECEIVED)
     assert str(received_subject) == "Team Shifts: We received your application — {event_name}"
-    assert "Thanks for applying to join the {event_name} event team." in str(received_body)
+    assert "Thanks for applying to join the {event_name} event team through Team Shifts." in str(received_body)
 
     accepted_subject, accepted_body = get_default_template(EmailTemplateRoles.APPLICATION_ACCEPTED)
     assert str(accepted_subject) == "Team Shifts: Your application was accepted — {event_name}"
-    assert "Great news — your application to join the {event_name} event team has been accepted. Welcome to the team!" in str(accepted_body)
+    assert "Great news — your application to join the {event_name} event team through Team Shifts has been accepted. Welcome to the team!" in str(accepted_body)
 
     rejected_subject, rejected_body = get_default_template(EmailTemplateRoles.APPLICATION_REJECTED)
     assert str(rejected_subject) == "Team Shifts: Update on your application — {event_name}"
-    assert "Thank you for your interest in joining the {event_name} event team." in str(rejected_body)
+    assert "Thank you for your interest in joining the {event_name} event team through Team Shifts." in str(rejected_body)
 
     added_subject, added_body = get_default_template(EmailTemplateRoles.MEMBER_ADDED_BY_ORGANIZER)
     assert str(added_subject) == "Team Shifts: You have been added to the team — {event_name}"
     assert "volunteer" not in str(added_subject).lower()
-    assert "You have been added to the {event_name} event team by the event organizer." in str(added_body)
+    assert "You have been added to the {event_name} event team through Team Shifts by the event organizer." in str(added_body)
 
     removed_subject, removed_body = get_default_template(EmailTemplateRoles.MEMBER_REMOVED)
     assert str(removed_subject) == "Team Shifts: Update on your participation — {event_name}"
-    assert "We wanted to let you know that you are no longer part of the {event_name} event team, and you have been removed from any upcoming shifts." in str(
-        removed_body
+    assert (
+        "We wanted to let you know that you are no longer part of the {event_name} event team through Team Shifts, "
+        "and you have been removed from any upcoming shifts." in str(removed_body)
     )
 
     lifecycle_roles = [
@@ -70,7 +71,7 @@ def test_applicant_lifecycle_templates_clarity():
     ]
     for role in lifecycle_roles:
         _, body = get_default_template(role)
-        assert "through Team Shifts" not in str(body)
+        assert "through Team Shifts" in str(body)
 
 
 def test_shift_dropped_organizer_template_clarity():
@@ -148,7 +149,7 @@ def test_migration_0038_migrates_stock_and_leaves_custom_templates(event):
 
     assert stock_template.subject.data["en"] == "Team Shifts: We received your application — {event_name}"
     assert stock_template.subject.data["de"] == "Team Shifts: We received your application — {event_name}"
-    assert "join the {event_name} event team." in stock_template.body.data["en"]
+    assert "join the {event_name} event team through Team Shifts." in stock_template.body.data["en"]
 
     assert custom_template.subject.data["en"] == "Custom Accepted Subject — {event_name}"
     assert custom_template.body.data["en"] == "Custom Accepted Body for {event_name}"

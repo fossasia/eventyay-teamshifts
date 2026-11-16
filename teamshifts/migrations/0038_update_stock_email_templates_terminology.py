@@ -31,10 +31,17 @@ STOCK_UPDATES = {
                     "Best regards,\n"
                     "The {event_name} team"
                 ),
+                (
+                    "Hi {full_name},\n\n"
+                    "Thanks for applying to join the {event_name} event team. "
+                    "We have received your application and will get back to you soon.\n\n"
+                    "Best regards,\n"
+                    "The {event_name} team"
+                ),
             ),
             (
                 "Hi {full_name},\n\n"
-                "Thanks for applying to join the {event_name} event team. "
+                "Thanks for applying to join the {event_name} event team through Team Shifts. "
                 "We have received your application and will get back to you soon.\n\n"
                 "Best regards,\n"
                 "The {event_name} team"
@@ -69,10 +76,19 @@ STOCK_UPDATES = {
                     "Best regards,\n"
                     "The {event_name} team"
                 ),
+                (
+                    "Hi {full_name},\n\n"
+                    "Great news — your application to join the {event_name} event team has "
+                    "been accepted. Welcome to the team!\n\n"
+                    "You can now browse the shift schedule and claim your shifts here:\n"
+                    "{shift_schedule_url}\n\n"
+                    "Best regards,\n"
+                    "The {event_name} team"
+                ),
             ),
             (
                 "Hi {full_name},\n\n"
-                "Great news — your application to join the {event_name} event team has "
+                "Great news — your application to join the {event_name} event team through Team Shifts has "
                 "been accepted. Welcome to the team!\n\n"
                 "You can now browse the shift schedule and claim your shifts here:\n"
                 "{shift_schedule_url}\n\n"
@@ -109,10 +125,19 @@ STOCK_UPDATES = {
                     "Best regards,\n"
                     "The {event_name} team"
                 ),
+                (
+                    "Hi {full_name},\n\n"
+                    "Thank you for your interest in joining the {event_name} event team. "
+                    "Unfortunately, we are unable to accept your application at this "
+                    "time.\n\n"
+                    "We appreciate your enthusiasm and hope you enjoy the event.\n\n"
+                    "Best regards,\n"
+                    "The {event_name} team"
+                ),
             ),
             (
                 "Hi {full_name},\n\n"
-                "Thank you for your interest in joining the {event_name} event team. "
+                "Thank you for your interest in joining the {event_name} event team through Team Shifts. "
                 "Unfortunately, we are unable to accept your application at this "
                 "time.\n\n"
                 "We appreciate your enthusiasm and hope you enjoy the event.\n\n"
@@ -202,10 +227,21 @@ STOCK_UPDATES = {
                     "See you at the event!\n"
                     "The {event_name} team"
                 ),
+                (
+                    "Hi {full_name},\n\n"
+                    "You have been added to the {event_name} event team by the event organizer.\n\n"
+                    "Event dates: {event_dates}\n"
+                    "Event location: {event_location}\n\n"
+                    "You can now claim your shifts here:\n"
+                    "{shift_schedule_url}\n\n"
+                    "If you have any questions, contact the organiser directly.\n\n"
+                    "See you at the event!\n"
+                    "The {event_name} team"
+                ),
             ),
             (
                 "Hi {full_name},\n\n"
-                "You have been added to the {event_name} event team by the event organizer.\n\n"
+                "You have been added to the {event_name} event team through Team Shifts by the event organizer.\n\n"
                 "Event dates: {event_dates}\n"
                 "Event location: {event_location}\n\n"
                 "You can now claim your shifts here:\n"
@@ -242,10 +278,18 @@ STOCK_UPDATES = {
                     "Best regards,\n"
                     "The {event_name} team"
                 ),
+                (
+                    "Hi {full_name},\n\n"
+                    "We wanted to let you know that you are no longer part of the {event_name} event team, "
+                    "and you have been removed from any upcoming shifts.\n\n"
+                    "If you think this is a mistake or have any questions, please reply to this email.\n\n"
+                    "Best regards,\n"
+                    "The {event_name} team"
+                ),
             ),
             (
                 "Hi {full_name},\n\n"
-                "We wanted to let you know that you are no longer part of the {event_name} event team, "
+                "We wanted to let you know that you are no longer part of the {event_name} event team through Team Shifts, "
                 "and you have been removed from any upcoming shifts.\n\n"
                 "If you think this is a mistake or have any questions, please reply to this email.\n\n"
                 "Best regards,\n"

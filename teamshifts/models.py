@@ -184,17 +184,7 @@ class CallForTeamMembers(models.Model):
                     template.save(update_fields=["subject", "body"])
             return template
         except TeamShiftsEmailTemplate.DoesNotExist:
-            default_subject, default_text = get_default_template(role)
-            fallback_subject = str(default_subject.localize("en") or default_subject)
-            fallback_body = str(default_text.localize("en") or default_text)
-            subject_data = {}
-            body_data = {}
-            for locale in self.event.locales:
-                if locale:
-                    subject_data[locale] = str(default_subject.localize(locale)) or fallback_subject
-                    body_data[locale] = str(default_text.localize(locale)) or fallback_body
-            subject = LazyI18nString(subject_data) if subject_data else default_subject
-            body = LazyI18nString(body_data) if body_data else default_text
+            subject, body = self.default_mail_texts(role)
             with scope(event=self.event):
                 template, _ = TeamShiftsEmailTemplate.objects.get_or_create(
                     event=self.event,
@@ -202,6 +192,32 @@ class CallForTeamMembers(models.Model):
                     defaults={"subject": subject, "body": body},
                 )
             return template
+
+    def reset_mail_template(self, role: str) -> "TeamShiftsEmailTemplate":
+        """Restore the default subject and body, keeping the template's other settings."""
+        template = self.get_mail_template(role)
+        template.subject, template.body = self.default_mail_texts(role)
+        with scope(event=self.event):
+            template.save(update_fields=["subject", "body"])
+        return template
+
+    def default_mail_texts(self, role: str):
+        from i18nfield.strings import LazyI18nString
+
+        from .mail.default_templates import get_default_template
+
+        default_subject, default_text = get_default_template(role)
+        fallback_subject = str(default_subject.localize("en") or default_subject)
+        fallback_body = str(default_text.localize("en") or default_text)
+        subject_data = {}
+        body_data = {}
+        for locale in self.event.locales:
+            if locale:
+                subject_data[locale] = str(default_subject.localize(locale)) or fallback_subject
+                body_data[locale] = str(default_text.localize(locale)) or fallback_body
+        subject = LazyI18nString(subject_data) if subject_data else default_subject
+        body = LazyI18nString(body_data) if body_data else default_text
+        return subject, body
 
     def __str__(self):
         return f"{self.title} — {self.event.slug} ({'active' if self.active else 'inactive'})"
@@ -651,9 +667,11 @@ class EmailTemplateRoles(models.TextChoices):
     MEMBER_ADDED_BY_ORGANIZER = "teamshifts.member.added_by_organizer", _("Added as volunteer by organizer")
     MEMBER_REMOVED = "teamshifts.member.removed", _("Removed from team")
     SHIFT_ASSIGNED_BY_ORGANIZER = "teamshifts.shift.assigned_by_organizer", _("Shift assigned by organizer")
+    SHIFT_UNASSIGNED_BY_ORGANIZER = "teamshifts.shift.unassigned_by_organizer", _("Shift unassigned by organizer")
     SHIFT_CLAIMED_BY_VOLUNTEER = "teamshifts.shift.claimed_by_volunteer", _("Shift sign-up confirmation")
     SHIFT_DROPPED_BY_VOLUNTEER = "teamshifts.shift.dropped_by_volunteer", _("Shift drop confirmation")
     SHIFT_DROPPED_ORGANIZER = "teamshifts.shift.dropped_organizer", _("Shift dropped (organizer notification)")
+    SHIFT_SUMMARY = "teamshifts.shift.summary", _("Daily shift summary")
     VOUCHER_SENT = "teamshifts.voucher.sent", _("Voucher sent to volunteer")
     CERTIFICATE_GENERATED = "teamshifts.certificate.generated", _("Certificate of participation generated")
     SHIFT_REMINDER = "teamshifts.shift.reminder", _("Shift reminder (24 hours before)")
@@ -667,9 +685,11 @@ EMAIL_TYPE_LABELS = {
     EmailTemplateRoles.MEMBER_ADDED_BY_ORGANIZER: _("Added by organizer"),
     EmailTemplateRoles.MEMBER_REMOVED: _("Removed from team"),
     EmailTemplateRoles.SHIFT_ASSIGNED_BY_ORGANIZER: _("Shift assigned"),
+    EmailTemplateRoles.SHIFT_UNASSIGNED_BY_ORGANIZER: _("Shift unassigned"),
     EmailTemplateRoles.SHIFT_CLAIMED_BY_VOLUNTEER: _("Shift sign-up"),
     EmailTemplateRoles.SHIFT_DROPPED_BY_VOLUNTEER: _("Shift dropped"),
     EmailTemplateRoles.SHIFT_DROPPED_ORGANIZER: _("Organizer notification"),
+    EmailTemplateRoles.SHIFT_SUMMARY: _("Shift summary"),
     EmailTemplateRoles.VOUCHER_SENT: _("Voucher"),
     EmailTemplateRoles.CERTIFICATE_GENERATED: _("Certificate"),
     EmailTemplateRoles.SHIFT_REMINDER: _("Shift reminder"),
@@ -727,6 +747,7 @@ class TeamShiftsEmailQueue(models.Model):
         help_text=_("Sent to hand-picked people instead of everyone matching the status filter."),
     )
     mail_type = models.CharField(max_length=40, blank=True, default="")
+    is_shift_summary = models.BooleanField(default=False)
     send_after = models.DateTimeField(null=True, blank=True)
     sent_at = models.DateTimeField(null=True, blank=True)
     is_draft = models.BooleanField(

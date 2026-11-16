@@ -2,11 +2,13 @@ import json
 from unittest.mock import patch
 
 import pytest
+from django.db import connection
 from django.test import TestCase
 from django.urls import reverse
 from django.utils.timezone import now, timedelta
 from django_scopes import scope
 from eventyay.base.models import Event, Team, User
+from i18nfield.strings import LazyI18nString
 
 from teamshifts.mail.default_templates import get_default_template
 from teamshifts.models import (
@@ -177,7 +179,7 @@ def test_drop_opt_out_skips_email(mock_queue, _mock_send, client, event, applica
     with scope(event=event):
         assert not ShiftAssignment.objects.filter(shift=shift, team_member=volunteer).exists()
         # Organizers are still told about the drop.
-        queue = TeamShiftsEmailQueue.objects.get(event=event)
+        queue = TeamShiftsEmailQueue.objects.get(event=event, is_shift_summary=False)
         assert [r.email for r in queue.recipients.all()] == [organizer_user.email]
         assert str(queue.subject) == str(get_default_template(EmailTemplateRoles.SHIFT_DROPPED_ORGANIZER)[0])
         assert (queue.user, queue.shift, queue.shift_role) == (volunteer, shift, team_role)
@@ -329,6 +331,77 @@ def test_organizer_assignment_still_emails_after_opt_out(mock_queue, client, eve
     assert _sent_roles(mock_queue) == [EmailTemplateRoles.SHIFT_ASSIGNED_BY_ORGANIZER]
 
 
+def _unassign(client, event, shift, role, user):
+    url = reverse("plugins:teamshifts:api_assignments", kwargs={"organizer": event.organizer.slug, "event": event.slug})
+    with TestCase.captureOnCommitCallbacks(execute=True):
+        return client.delete(f"{url}?shift_id={shift.pk}&role_id={role.pk}&user_id={user.pk}")
+
+
+@pytest.mark.django_db
+def test_organizer_unassign_emails_volunteer_once(client, event, application, volunteer, organizer_user, shift, team_role):
+    with scope(event=event):
+        ShiftAssignment.objects.create(shift=shift, team_member=volunteer, role=team_role)
+    client.force_login(organizer_user)
+
+    assert _unassign(client, event, shift, team_role, volunteer).status_code == 200
+    # Unassigning a member who is no longer on the shift sends nothing new.
+    assert _unassign(client, event, shift, team_role, volunteer).status_code == 200
+
+    with scope(event=event):
+        assert not ShiftAssignment.objects.filter(shift=shift, team_member=volunteer).exists()
+        queued = TeamShiftsEmailQueue.objects.filter(event=event, recipients__user=volunteer)
+        assert sorted(queued.values_list("mail_type", flat=True)) == sorted(
+            [EmailTemplateRoles.SHIFT_UNASSIGNED_BY_ORGANIZER, EmailTemplateRoles.SHIFT_SUMMARY]
+        )
+        unassigned = queued.get(mail_type=EmailTemplateRoles.SHIFT_UNASSIGNED_BY_ORGANIZER)
+    assert str(unassigned.subject).startswith("Team shifts: You have been removed from a shift")
+    assert unassigned.mail_type_label == "Shift unassigned"
+    assert (unassigned.shift, unassigned.shift_role) == (shift, team_role)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("method", ["post", "delete"])
+def test_organizer_shift_change_email_is_saved_with_the_change(method, client, event, application, volunteer, organizer_user, shift, team_role):
+    if method == "delete":
+        with scope(event=event):
+            ShiftAssignment.objects.create(shift=shift, team_member=volunteer, role=team_role)
+    client.force_login(organizer_user)
+    url = reverse("plugins:teamshifts:api_assignments", kwargs={"organizer": event.organizer.slug, "event": event.slug})
+
+    # Commit callbacks are not run, so the email row must already be part of the transaction.
+    with TestCase.captureOnCommitCallbacks(execute=False):
+        if method == "post":
+            payload = json.dumps({"shift_id": shift.pk, "user_id": volunteer.pk, "role_id": team_role.pk})
+            response = client.post(url, data=payload, content_type="application/json")
+        else:
+            response = client.delete(f"{url}?shift_id={shift.pk}&role_id={team_role.pk}&user_id={volunteer.pk}")
+
+    assert response.status_code == 200
+    expected = EmailTemplateRoles.SHIFT_ASSIGNED_BY_ORGANIZER if method == "post" else EmailTemplateRoles.SHIFT_UNASSIGNED_BY_ORGANIZER
+    with scope(event=event):
+        assert list(TeamShiftsEmailQueue.objects.filter(event=event).values_list("mail_type", flat=True)) == [expected]
+
+
+def _failing_sql(**kwargs):
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT * FROM teamshifts_table_that_does_not_exist")
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("failure", [RuntimeError("mail queue down"), _failing_sql], ids=["error", "database-error"])
+def test_organizer_unassign_succeeds_when_email_fails(failure, client, event, application, volunteer, organizer_user, shift, team_role):
+    with scope(event=event):
+        ShiftAssignment.objects.create(shift=shift, team_member=volunteer, role=team_role)
+    client.force_login(organizer_user)
+
+    with patch("teamshifts.views.queue_shift_notification_email", side_effect=failure):
+        response = _unassign(client, event, shift, team_role, volunteer)
+
+    assert response.status_code == 200
+    with scope(event=event):
+        assert not ShiftAssignment.objects.filter(shift=shift, team_member=volunteer).exists()
+
+
 def test_drop_confirmation_has_default_template():
     subject, body = get_default_template(EmailTemplateRoles.SHIFT_DROPPED_BY_VOLUNTEER)
     assert "{event_name}" in str(subject)
@@ -342,3 +415,87 @@ def test_new_applications_default_to_emails_on(event, cfm):
     with scope(event=event):
         app = TeamMemberApplication.objects.create(event=event, user=user)
     assert app.shift_action_emails is True
+
+
+RESET_ROLE = EmailTemplateRoles.SHIFT_REMINDER
+
+
+def _templates_url(name, event, **extra):
+    return reverse(f"plugins:teamshifts:{name}", kwargs={"organizer": event.organizer.slug, "event": event.slug, **extra})
+
+
+def _is_customised(client, event):
+    response = client.get(_templates_url("email_templates", event))
+    return next(panel for panel in response.context["panels"] if panel["role"] == RESET_ROLE)["is_customised"]
+
+
+@pytest.fixture
+def customised(event, cfm):
+    with scope(event=event):
+        template = cfm.get_mail_template(RESET_ROLE)
+        template.subject = LazyI18nString({"en": "My own subject"})
+        template.body = LazyI18nString({"en": "My own body"})
+        template.send_automatically = False
+        template.save()
+    return template
+
+
+@pytest.mark.django_db
+def test_reset_template_to_default(client, event, organizer_user, customised):
+    client.force_login(organizer_user)
+    reset_url = _templates_url("email_template_reset", event, role=RESET_ROLE)
+
+    # The reset link sits below the panel summary, and only on customised templates.
+    content = client.get(_templates_url("email_templates", event)).content.decode()
+    assert content.index(reset_url) > content.index("</summary>", content.index(str(RESET_ROLE.label)))
+    assert _templates_url("email_template_reset", event, role=EmailTemplateRoles.SHIFT_UNASSIGNED_BY_ORGANIZER) not in content
+
+    # GET only asks for confirmation.
+    response = client.get(reset_url)
+    assert response.status_code == 200
+    assert response.context["role_label"] == RESET_ROLE.label
+    customised.refresh_from_db()
+    assert str(customised.subject) == "My own subject"
+
+    assert client.post(reset_url).status_code == 302
+    customised.refresh_from_db()
+    default_subject, default_body = get_default_template(RESET_ROLE)
+    assert (str(customised.subject), str(customised.body)) == (str(default_subject), str(default_body))
+    assert customised.send_automatically is False
+    assert _is_customised(client, event) is False
+
+
+@pytest.mark.django_db
+def test_change_in_secondary_language_counts_as_customised(client, event, organizer_user, cfm):
+    event.settings.locales = ["en", "de"]
+    client.force_login(organizer_user)
+    assert _is_customised(client, event) is False
+    with scope(event=event):
+        template = cfm.get_mail_template(RESET_ROLE)
+        template.body = LazyI18nString({**template.body.data, "de": "Eigener Text"})
+        template.save()
+
+    assert _is_customised(client, event) is True
+
+    client.post(_templates_url("email_template_reset", event, role=RESET_ROLE))
+
+    template.refresh_from_db()
+    assert template.body.localize("de") != "Eigener Text"
+    assert _is_customised(client, event) is False
+
+
+@pytest.mark.django_db
+def test_reset_rejects_unknown_role_and_users_without_email_permission(client, event, organizer_user, django_user_model, customised):
+    client.force_login(organizer_user)
+    assert client.post(_templates_url("email_template_reset", event, role="teamshifts.not_a_role")).status_code == 404
+
+    # On the organizer's team with event access, but no Team Shifts role.
+    user = django_user_model.objects.create_user(email="orders@example.com", password="x")
+    with scope(event=event):
+        team = Team.objects.create(organizer=event.organizer, name="Orders", all_events=True, can_view_orders=True)
+        team.members.add(user)
+    client.force_login(user)
+
+    assert client.post(_templates_url("email_template_reset", event, role=RESET_ROLE)).status_code == 403
+    customised.refresh_from_db()
+    assert str(customised.subject) == "My own subject"

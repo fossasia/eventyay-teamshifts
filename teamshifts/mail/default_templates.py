@@ -66,6 +66,18 @@ MEMBER_ADDED_BY_ORGANIZER_TEXT = LazyI18nString.from_gettext(
     )
 )
 
+MEMBER_REMOVED_SUBJECT = LazyI18nString.from_gettext(_("Update on your participation — {event_name}"))
+MEMBER_REMOVED_TEXT = LazyI18nString.from_gettext(
+    _(
+        "Hi {full_name},\n\n"
+        "We wanted to let you know that you are no longer part of the {event_name} team, "
+        "and you have been removed from any upcoming shifts.\n\n"
+        "If you think this is a mistake or have any questions, please reply to this email.\n\n"
+        "Best regards,\n"
+        "The {event_name} team"
+    )
+)
+
 VOUCHER_SENT_SUBJECT = LazyI18nString.from_gettext(_("Your ticket voucher — {event_name}"))
 VOUCHER_SENT_TEXT = LazyI18nString.from_gettext(
     _(
@@ -104,6 +116,22 @@ SHIFT_ASSIGNED_BY_ORGANIZER_TEXT = LazyI18nString.from_gettext(
         "Time: {shift_time}\n"
         "Role: {role_name}\n\n"
         "View the full schedule here:\n"
+        "{shift_schedule_url}\n\n"
+        "If you have any questions, contact the organiser directly.\n\n"
+        "Best regards,\n"
+        "The {event_name} team"
+    )
+)
+
+SHIFT_UNASSIGNED_BY_ORGANIZER_SUBJECT = LazyI18nString.from_gettext(_("You have been removed from a shift — {event_name}"))
+SHIFT_UNASSIGNED_BY_ORGANIZER_TEXT = LazyI18nString.from_gettext(
+    _(
+        "Hi {full_name},\n\n"
+        "An organiser has removed you from a shift for {event_name}.\n\n"
+        "Shift: {shift_name}\n"
+        "Time: {shift_time}\n"
+        "Role: {role_name}\n\n"
+        "You don't need to attend this shift. You can view your remaining shifts or sign up for others here:\n"
         "{shift_schedule_url}\n\n"
         "If you have any questions, contact the organiser directly.\n\n"
         "Best regards,\n"
@@ -156,6 +184,37 @@ SHIFT_DROPPED_ORGANIZER_TEXT = LazyI18nString.from_gettext(
     )
 )
 
+SHIFT_SUMMARY_SUBJECT = LazyI18nString.from_gettext(_("Your shifts for {event_name}"))
+SHIFT_SUMMARY_TEXT = LazyI18nString.from_gettext(
+    _(
+        "Hi {full_name},\n\n"
+        "Your shifts for {event_name} changed. Here is a summary of all your current shifts:\n\n"
+        "{shift_summary}\n\n"
+        "You can see and manage your shifts here:\n"
+        "{my_shifts_url}\n\n"
+        "If you can no longer attend a shift, please drop it there as soon as possible "
+        "so the organizing team can find a replacement.\n\n"
+        "Best regards,\n"
+        "The {event_name} team"
+    )
+)
+
+
+SHIFT_REMINDER_SUBJECT = LazyI18nString.from_gettext(_("Reminder: your shift overview for {event_name}"))
+SHIFT_REMINDER_TEXT = LazyI18nString.from_gettext(
+    _(
+        "Hi {full_name},\n\n"
+        "Here's a reminder of your upcoming shift(s) at {event_name}:\n\n"
+        "{shift_list}\n\n"
+        "You can see and manage your shifts here:\n"
+        "{my_shifts_url}\n\n"
+        "If you can no longer make it, please drop the shift there as soon as possible "
+        "so the organizing team can find a replacement.\n\n"
+        "Thank you for being part of the team!\n"
+        "The {event_name} team"
+    )
+)
+
 
 def get_default_template(role: str) -> tuple[LazyI18nString, LazyI18nString]:
     from ..models import EmailTemplateRoles
@@ -165,12 +224,16 @@ def get_default_template(role: str) -> tuple[LazyI18nString, LazyI18nString]:
         EmailTemplateRoles.APPLICATION_ACCEPTED: (ACCEPTED_SUBJECT, ACCEPTED_TEXT),
         EmailTemplateRoles.APPLICATION_REJECTED: (REJECTED_SUBJECT, REJECTED_TEXT),
         EmailTemplateRoles.MEMBER_ADDED_BY_ORGANIZER: (MEMBER_ADDED_BY_ORGANIZER_SUBJECT, MEMBER_ADDED_BY_ORGANIZER_TEXT),
+        EmailTemplateRoles.MEMBER_REMOVED: (MEMBER_REMOVED_SUBJECT, MEMBER_REMOVED_TEXT),
         EmailTemplateRoles.SHIFT_ASSIGNED_BY_ORGANIZER: (SHIFT_ASSIGNED_BY_ORGANIZER_SUBJECT, SHIFT_ASSIGNED_BY_ORGANIZER_TEXT),
+        EmailTemplateRoles.SHIFT_UNASSIGNED_BY_ORGANIZER: (SHIFT_UNASSIGNED_BY_ORGANIZER_SUBJECT, SHIFT_UNASSIGNED_BY_ORGANIZER_TEXT),
         EmailTemplateRoles.SHIFT_CLAIMED_BY_VOLUNTEER: (SHIFT_CLAIMED_BY_VOLUNTEER_SUBJECT, SHIFT_CLAIMED_BY_VOLUNTEER_TEXT),
         EmailTemplateRoles.SHIFT_DROPPED_BY_VOLUNTEER: (SHIFT_DROPPED_BY_VOLUNTEER_SUBJECT, SHIFT_DROPPED_BY_VOLUNTEER_TEXT),
         EmailTemplateRoles.SHIFT_DROPPED_ORGANIZER: (SHIFT_DROPPED_ORGANIZER_SUBJECT, SHIFT_DROPPED_ORGANIZER_TEXT),
+        EmailTemplateRoles.SHIFT_SUMMARY: (SHIFT_SUMMARY_SUBJECT, SHIFT_SUMMARY_TEXT),
         EmailTemplateRoles.VOUCHER_SENT: (VOUCHER_SENT_SUBJECT, VOUCHER_SENT_TEXT),
         EmailTemplateRoles.CERTIFICATE_GENERATED: (CERTIFICATE_GENERATED_SUBJECT, CERTIFICATE_GENERATED_TEXT),
+        EmailTemplateRoles.SHIFT_REMINDER: (SHIFT_REMINDER_SUBJECT, SHIFT_REMINDER_TEXT),
         EmailTemplateRoles.NEW_APPLICATION_ORGANIZER: (
             NEW_APPLICATION_ORGANIZER_SUBJECT,
             NEW_APPLICATION_ORGANIZER_TEXT,

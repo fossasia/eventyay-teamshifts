@@ -1,5 +1,6 @@
 import logging
 from collections.abc import Iterable
+from datetime import datetime, time, timedelta
 
 from django.db import transaction
 from django.utils.timezone import now
@@ -9,6 +10,7 @@ from eventyay.base.models import Event, User
 from ..models import (
     ApplicationStatus,
     CallForTeamMembers,
+    EmailTemplateRoles,
     Shift,
     TeamMemberApplication,
     TeamRole,
@@ -19,6 +21,8 @@ from ..tasks import render_subject, send_queued_email
 
 logger = logging.getLogger(__name__)
 
+SHIFT_SUMMARY_SEND_TIME = time(20, 0)
+
 
 class DraftNoLongerEditable(Exception):
     pass
@@ -28,10 +32,14 @@ def get_recipients(
     event: Event,
     *,
     status: str = ApplicationStatus.ACCEPTED,
+    user_ids: Iterable[int] | None = None,
 ) -> list[User]:
+    user_ids = list(user_ids or ())
     with scope(event=event):
         qs = TeamMemberApplication.objects.filter(event=event)
-        if status:
+        if user_ids:
+            qs = qs.filter(user_id__in=user_ids)
+        elif status:
             qs = qs.filter(status=status)
         user_ids = list(qs.values_list("user_id", flat=True).distinct())
     return list(User.objects.filter(pk__in=user_ids))
@@ -51,10 +59,12 @@ def queue_email(
     shift: Shift | None = None,
     shift_role: TeamRole | None = None,
     status_filter: str = "",
+    individual_recipients: bool = False,
     mail_type: str = "",
     send_after=None,
     dispatch: bool = True,
     is_draft: bool = False,
+    is_shift_summary: bool = False,
 ) -> TeamShiftsEmailQueue:
     with scope(event=event):
         queue = TeamShiftsEmailQueue.objects.create(
@@ -69,9 +79,11 @@ def queue_email(
             shift=shift,
             shift_role=shift_role,
             status_filter=status_filter or "",
+            individual_recipients=individual_recipients,
             mail_type=mail_type,
             send_after=send_after,
             is_draft=is_draft,
+            is_shift_summary=is_shift_summary,
         )
         _set_recipients(queue, recipients)
 
@@ -117,6 +129,7 @@ def update_queued_email(
     message,
     recipients: Iterable[User],
     status_filter: str = "",
+    individual_recipients: bool = False,
     send_after=None,
     is_draft: bool = False,
     dispatch: bool = True,
@@ -128,9 +141,10 @@ def update_queued_email(
         locked.subject = subject
         locked.message = message
         locked.status_filter = status_filter or ""
+        locked.individual_recipients = individual_recipients
         locked.send_after = send_after
         locked.is_draft = is_draft
-        locked.save(update_fields=["subject", "message", "status_filter", "send_after", "is_draft", "updated"])
+        locked.save(update_fields=["subject", "message", "status_filter", "individual_recipients", "send_after", "is_draft", "updated"])
         locked.recipients.all().delete()
         _set_recipients(locked, recipients)
 
@@ -228,3 +242,61 @@ def queue_shift_notification_email(
         shift_role=role,
         mail_type=template_role,
     )
+
+
+def next_shift_summary_time(event: Event, current: datetime) -> datetime:
+    local = current.astimezone(event.tz)
+    target = datetime.combine(local.date(), SHIFT_SUMMARY_SEND_TIME, tzinfo=event.tz)
+    if target <= local:
+        target = datetime.combine(local.date() + timedelta(days=1), SHIFT_SUMMARY_SEND_TIME, tzinfo=event.tz)
+    return target
+
+
+def queue_shift_summary_email(event: Event, user: User) -> TeamShiftsEmailQueue | None:
+    """One summary per volunteer per day; the shift list is rendered when it is sent."""
+    if not user.email:
+        logger.warning("[TeamShifts] Skipping shift summary email: user has no email")
+        return None
+
+    try:
+        cfm = event.call_for_team_members
+    except CallForTeamMembers.DoesNotExist:
+        logger.warning("[TeamShifts] No CFM found for event %s, skipping shift summary email", event.slug)
+        return None
+
+    if not cfm.shift_schedule_published:
+        logger.info("[TeamShifts] Skipping shift summary email: shift schedule not published for event %s", event.slug)
+        return None
+
+    current = now()
+    with scope(event=event), transaction.atomic():
+        # Serialize concurrent changes for one volunteer: there is no pending summary row to lock yet, so lock the
+        # volunteer's application, which exists for anyone who holds a shift. If it is gone, a race can at worst
+        # queue a duplicate summary.
+        # An unsent summary is reused even when overdue, as long as the sender has not claimed the recipient: the
+        # list is built after the claim, so it already includes this change.
+        TeamMemberApplication.objects.select_for_update().filter(event=event, user=user).first()
+        pending = (
+            TeamShiftsEmailQueue.objects.select_for_update()
+            .filter(
+                event=event,
+                is_shift_summary=True,
+                sent_at__isnull=True,
+                recipients__user=user,
+                recipients__sent_at__isnull=True,
+            )
+            .first()
+        )
+        if pending is not None:
+            return pending
+        template = cfm.get_mail_template(EmailTemplateRoles.SHIFT_SUMMARY)
+        return queue_email(
+            event=event,
+            subject=template.subject,
+            message=template.body,
+            recipients=[user],
+            send_after=next_shift_summary_time(event, current),
+            dispatch=False,
+            is_shift_summary=True,
+            mail_type=EmailTemplateRoles.SHIFT_SUMMARY,
+        )

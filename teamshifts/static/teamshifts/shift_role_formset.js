@@ -5,22 +5,24 @@ export function setupDynamicFormset() {
     const addRoleBtn = document.getElementById("add-role-btn");
     const rolesBody = document.getElementById("roles-body");
     const totalFormsInput = document.getElementById("id_roles-TOTAL_FORMS");
+    const rowTemplate = document.getElementById("role-form-template");
 
     if (!addRoleBtn || !rolesBody || !totalFormsInput) {
         return;
     }
 
     addRoleBtn.addEventListener("click", () => {
-        const formCount = parseInt(totalFormsInput.value, 10);
-        const rows = rolesBody.querySelectorAll(".role-form-row");
-        if (rows.length === 0) {
+        const formCount = parseInt(totalFormsInput.value, 10) || 0;
+
+        const templateRow = rowTemplate?.content.firstElementChild;
+        const newRow = templateRow?.cloneNode(true);
+
+        if (!newRow) {
             return;
         }
 
-        const lastRow = rows[rows.length - 1];
-        const newRow = lastRow.cloneNode(true);
-
-        const reindex = (val) => val ? val.replace(/roles-\d+-/, `roles-${formCount}-`) : val;
+        const reindex = (val) =>
+            val ? val.replace(/roles-(?:\d+|__prefix__)-/, `roles-${formCount}-`) : val;
         newRow.querySelectorAll("input, select, label, textarea").forEach((el) => {
             if (el.name) el.name = reindex(el.name);
             if (el.id) el.id = reindex(el.id);

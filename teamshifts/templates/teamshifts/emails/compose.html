@@ -5,7 +5,9 @@
 
 {% block custom_header %}
   {{ block.super }}
+  <script type='module' src='{% static "teamshifts/email_template_picker.js" %}'></script>
   <script type='module' src='{% static "teamshifts/schedule_datetime.js" %}'></script>
+  <script type='module' src='{% static "teamshifts/compose_recipients.js" %}'></script>
 {% endblock %}
 
 {% block title %}{% trans "Compose email" %} :: {{ request.event.name }}{% endblock %}
@@ -17,11 +19,29 @@
 {% block teamshifts_content %}
     <p class='help-block'>
     {% blocktrans trimmed %}
-      Write a message to your team members. You can filter recipients by role
-      and application status. Send immediately, schedule it for later, or save
-      it as a draft to finish another time.
+      Write a message to your team members. You can filter recipients by
+      application status or choose specific people. Send immediately,
+      schedule it for later, or save it as a draft to finish another time.
     {% endblocktrans %}
   </p>
+
+{% if custom_templates %}
+    {{ custom_templates_data|json_script:"custom-email-templates" }}
+    <div class="form-inline custom-template-picker">
+        <label for="id_template_picker" class="control-label">
+            {% trans "Load from template" %}
+        </label>
+        <select id="id_template_picker" class="form-control">
+            <option value="">{% trans "Select a saved template…" %}</option>
+            {% for template in custom_templates %}
+                <option value="{{ template.pk }}">{{ template.name }}</option>
+            {% endfor %}
+        </select>
+        <button type="button" class="btn btn-default" id="load-email-template">
+            {% trans "Load" %}
+        </button>
+    </div>
+{% endif %}
 
   <form action='' method='post' class='form-horizontal'>
     {% csrf_token %}
@@ -30,7 +50,10 @@
 
     <fieldset>
       <legend>{% trans "Recipients" %}</legend>
-      {% bootstrap_field form.status layout='control' %}
+      <div data-compose-status>
+        {% bootstrap_field form.status layout='control' %}
+      </div>
+      {% bootstrap_field form.individual_volunteers layout='control' %}
     </fieldset>
 
     <fieldset>

@@ -25,7 +25,7 @@
             <span class="fa fa-fw fa-cogs"></span>
             <span class="sidebar-text">{% trans "Setup" %}</span>
         </a>
-        <a class="arrow" href="#" data-toggle="collapse" data-target="#collapse-setup">
+        <a class="arrow" href="#">
             <span class="fa arrow"></span>
         </a>
         <ul class="nav nav-second-level {% if url_name == 'roles' or url_name == 'locations' or url_name == 'location_create' or url_name == 'location_edit' or url_name == 'location_delete' or url_name == 'shift_create' %}in{% endif %}"
@@ -57,7 +57,7 @@
             <span class="fa fa-fw fa-bullhorn"></span>
             <span class="sidebar-text">{% trans "Call for Team Members" %}</span>
         </a>
-        <a class="arrow" href="#" data-toggle="collapse" data-target="#collapse-cfm">
+        <a class="arrow" href="#">
             <span class="fa arrow"></span>
         </a>
         <ul class="nav nav-second-level {% if url_name == 'cfm_settings' or url_name == 'cfm_application_form' or url_name == 'question_create' or url_name == 'question_edit' or url_name == 'question_delete' %}in{% endif %}"
@@ -83,7 +83,7 @@
             <span class="fa fa-fw fa-user"></span>
             <span class="sidebar-text">{% trans "People" %}</span>
         </a>
-        <a class="arrow" href="#" data-toggle="collapse" data-target="#collapse-people">
+        <a class="arrow" href="#">
             <span class="fa arrow"></span>
         </a>
         <ul class="nav nav-second-level {% if url_name == 'applications' or url_name == 'members' or url_name == 'application_detail' %}in{% endif %}"
@@ -116,7 +116,7 @@
             <span class="fa fa-fw fa-calendar"></span>
             <span class="sidebar-text">{% trans "Shift schedule" %}</span>
         </a>
-        <a class="arrow" href="#" data-toggle="collapse" data-target="#collapse-schedule">
+        <a class="arrow" href="#">
             <span class="fa arrow"></span>
         </a>
         <ul class="nav nav-second-level {% if url_name == 'schedule_grid' %}in{% endif %}" id="collapse-schedule">
@@ -144,7 +144,7 @@
             <span class="sidebar-text">{% trans "Emails" %}</span>
             {% if oc %}<span class="badge">{{ oc }}</span>{% endif %}
         </a>
-        <a class="arrow" href="#" data-toggle="collapse" data-target="#collapse-emails">
+        <a class="arrow" href="#">
             <span class="fa arrow"></span>
         </a>
         <ul class="nav nav-second-level {% if url_name == 'email_compose' or url_name == 'email_outbox' or url_name == 'email_drafts' or url_name == 'email_sent' or url_name == 'email_edit' or url_name == 'email_delete' or url_name == 'email_templates' or url_name == 'email_template_edit' or url_name == 'custom_email_template_create' or url_name == 'custom_email_template_delete' %}in{% endif %}"

@@ -1,7 +1,11 @@
 import secrets
+from urllib.parse import urljoin, urlparse
+from zoneinfo import ZoneInfo
 
+from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.db import models
+from django.urls import reverse
 from django.utils import timezone
 from django.utils.crypto import get_random_string
 from django.utils.translation import gettext_lazy as _
@@ -12,6 +16,10 @@ from i18nfield.fields import I18nCharField, I18nTextField
 
 def generate_cfm_secret():
     return secrets.token_urlsafe(24)
+
+
+def generate_calendar_token():
+    return secrets.token_urlsafe(32)
 
 
 CFM_BUILTIN_FIELD_KEYS = ("full_name", "email", "phone", "availability")
@@ -40,6 +48,7 @@ class ApplicationStatus(models.TextChoices):
     PENDING = "pending", _("Pending")
     ACCEPTED = "accepted", _("Accepted")
     REJECTED = "rejected", _("Rejected")
+    REMOVED = "removed", _("Removed")
 
 
 class AskChoices(models.TextChoices):
@@ -175,17 +184,7 @@ class CallForTeamMembers(models.Model):
                     template.save(update_fields=["subject", "body"])
             return template
         except TeamShiftsEmailTemplate.DoesNotExist:
-            default_subject, default_text = get_default_template(role)
-            fallback_subject = str(default_subject.localize("en") or default_subject)
-            fallback_body = str(default_text.localize("en") or default_text)
-            subject_data = {}
-            body_data = {}
-            for locale in self.event.locales:
-                if locale:
-                    subject_data[locale] = str(default_subject.localize(locale)) or fallback_subject
-                    body_data[locale] = str(default_text.localize(locale)) or fallback_body
-            subject = LazyI18nString(subject_data) if subject_data else default_subject
-            body = LazyI18nString(body_data) if body_data else default_text
+            subject, body = self.default_mail_texts(role)
             with scope(event=self.event):
                 template, _ = TeamShiftsEmailTemplate.objects.get_or_create(
                     event=self.event,
@@ -193,6 +192,32 @@ class CallForTeamMembers(models.Model):
                     defaults={"subject": subject, "body": body},
                 )
             return template
+
+    def reset_mail_template(self, role: str) -> "TeamShiftsEmailTemplate":
+        """Restore the default subject and body, keeping the template's other settings."""
+        template = self.get_mail_template(role)
+        template.subject, template.body = self.default_mail_texts(role)
+        with scope(event=self.event):
+            template.save(update_fields=["subject", "body"])
+        return template
+
+    def default_mail_texts(self, role: str):
+        from i18nfield.strings import LazyI18nString
+
+        from .mail.default_templates import get_default_template
+
+        default_subject, default_text = get_default_template(role)
+        fallback_subject = str(default_subject.localize("en") or default_subject)
+        fallback_body = str(default_text.localize("en") or default_text)
+        subject_data = {}
+        body_data = {}
+        for locale in self.event.locales:
+            if locale:
+                subject_data[locale] = str(default_subject.localize(locale)) or fallback_subject
+                body_data[locale] = str(default_text.localize(locale)) or fallback_body
+        subject = LazyI18nString(subject_data) if subject_data else default_subject
+        body = LazyI18nString(body_data) if body_data else default_text
+        return subject, body
 
     def __str__(self):
         return f"{self.title} — {self.event.slug} ({'active' if self.active else 'inactive'})"
@@ -456,6 +481,81 @@ class ShiftAssignment(models.Model):
     def __str__(self):
         return f"{self.team_member.email} → {self.shift}"
 
+    def build_ical(self, calendar, creation_time=None, netloc=None):
+        shift = self.shift
+        event = shift.event
+        netloc = netloc or urlparse(settings.SITE_URL).netloc
+        my_shifts_url = urljoin(settings.SITE_URL, reverse("plugins:teamshifts:my_shifts_global"))
+        title = shift.name or (shift.location.name if shift.location_id else str(_("Shift")))
+        location = shift.location.name if shift.location_id else shift.location_text
+
+        vevent = calendar.add("vevent")
+        vevent.add("summary").value = f"{title} – {self.role.name}" if self.role_id else title
+        vevent.add("dtstamp").value = (creation_time or self.assigned_at).astimezone(ZoneInfo("UTC"))
+        if location:
+            vevent.add("location").value = str(location)
+        vevent.add("uid").value = f"teamshifts-{event.slug}-{shift.pk}-{self.team_member_id}@{netloc}"
+
+        vevent.add("dtstart").value = shift.start_time.astimezone(event.tz)
+        vevent.add("dtend").value = shift.end_time.astimezone(event.tz)
+        vevent.add("description").value = f"{event.name}\n{my_shifts_url}"
+        vevent.add("url").value = my_shifts_url
+
+
+class ShiftCalendarToken(models.Model):
+    user = models.OneToOneField(
+        "base.User",
+        on_delete=models.CASCADE,
+        related_name="shift_calendar_token",
+    )
+    token = models.CharField(
+        max_length=64,
+        unique=True,
+        default=generate_calendar_token,
+        verbose_name=_("Calendar token"),
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    regenerated_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = _("Shift calendar token")
+        verbose_name_plural = _("Shift calendar tokens")
+
+    def __str__(self):
+        return f"Calendar token for {self.user.email}"
+
+    def regenerate(self):
+        self.token = generate_calendar_token()
+        self.regenerated_at = timezone.now()
+        self.save(update_fields=["token", "regenerated_at"])
+
+
+class ShiftReminder(models.Model):
+    event = models.ForeignKey(
+        "base.Event",
+        on_delete=models.CASCADE,
+        related_name="teamshifts_shift_reminders",
+    )
+    user = models.ForeignKey(
+        "base.User",
+        on_delete=models.CASCADE,
+        related_name="teamshifts_shift_reminders",
+    )
+    day = models.DateField(help_text=_("Event-local date of the shifts this reminder covered."))
+    claimed_at = models.DateTimeField(auto_now_add=True)
+    attempts = models.PositiveSmallIntegerField(default=1)
+    sent_at = models.DateTimeField(null=True, blank=True)
+
+    objects = ScopedManager(event="event")
+
+    class Meta:
+        verbose_name = _("Shift reminder")
+        verbose_name_plural = _("Shift reminders")
+        unique_together = ("event", "user", "day")
+
+    def __str__(self):
+        return f"{self.user.email} · {self.day}"
+
 
 class QuestionVariant(models.TextChoices):
     STRING = "string", _("Text (one line)")
@@ -565,12 +665,16 @@ class EmailTemplateRoles(models.TextChoices):
     APPLICATION_REJECTED = "teamshifts.application.rejected", _("Application rejected")
     NEW_APPLICATION_ORGANIZER = "teamshifts.application.organizer", _("New application (organizer notification)")
     MEMBER_ADDED_BY_ORGANIZER = "teamshifts.member.added_by_organizer", _("Added as volunteer by organizer")
+    MEMBER_REMOVED = "teamshifts.member.removed", _("Removed from team")
     SHIFT_ASSIGNED_BY_ORGANIZER = "teamshifts.shift.assigned_by_organizer", _("Shift assigned by organizer")
+    SHIFT_UNASSIGNED_BY_ORGANIZER = "teamshifts.shift.unassigned_by_organizer", _("Shift unassigned by organizer")
     SHIFT_CLAIMED_BY_VOLUNTEER = "teamshifts.shift.claimed_by_volunteer", _("Shift sign-up confirmation")
     SHIFT_DROPPED_BY_VOLUNTEER = "teamshifts.shift.dropped_by_volunteer", _("Shift drop confirmation")
     SHIFT_DROPPED_ORGANIZER = "teamshifts.shift.dropped_organizer", _("Shift dropped (organizer notification)")
+    SHIFT_SUMMARY = "teamshifts.shift.summary", _("Daily shift summary")
     VOUCHER_SENT = "teamshifts.voucher.sent", _("Voucher sent to volunteer")
     CERTIFICATE_GENERATED = "teamshifts.certificate.generated", _("Certificate of participation generated")
+    SHIFT_REMINDER = "teamshifts.shift.reminder", _("Shift reminder (24 hours before)")
 
 
 EMAIL_TYPE_LABELS = {
@@ -579,12 +683,16 @@ EMAIL_TYPE_LABELS = {
     EmailTemplateRoles.APPLICATION_REJECTED: _("Application rejected"),
     EmailTemplateRoles.NEW_APPLICATION_ORGANIZER: _("Organizer notification"),
     EmailTemplateRoles.MEMBER_ADDED_BY_ORGANIZER: _("Added by organizer"),
+    EmailTemplateRoles.MEMBER_REMOVED: _("Removed from team"),
     EmailTemplateRoles.SHIFT_ASSIGNED_BY_ORGANIZER: _("Shift assigned"),
+    EmailTemplateRoles.SHIFT_UNASSIGNED_BY_ORGANIZER: _("Shift unassigned"),
     EmailTemplateRoles.SHIFT_CLAIMED_BY_VOLUNTEER: _("Shift sign-up"),
     EmailTemplateRoles.SHIFT_DROPPED_BY_VOLUNTEER: _("Shift dropped"),
     EmailTemplateRoles.SHIFT_DROPPED_ORGANIZER: _("Organizer notification"),
+    EmailTemplateRoles.SHIFT_SUMMARY: _("Shift summary"),
     EmailTemplateRoles.VOUCHER_SENT: _("Voucher"),
     EmailTemplateRoles.CERTIFICATE_GENERATED: _("Certificate"),
+    EmailTemplateRoles.SHIFT_REMINDER: _("Shift reminder"),
 }
 
 
@@ -633,7 +741,13 @@ class TeamShiftsEmailQueue(models.Model):
         blank=True,
         default="",
     )
+    individual_recipients = models.BooleanField(
+        default=False,
+        verbose_name=_("Specific people"),
+        help_text=_("Sent to hand-picked people instead of everyone matching the status filter."),
+    )
     mail_type = models.CharField(max_length=40, blank=True, default="")
+    is_shift_summary = models.BooleanField(default=False)
     send_after = models.DateTimeField(null=True, blank=True)
     sent_at = models.DateTimeField(null=True, blank=True)
     is_draft = models.BooleanField(
@@ -704,6 +818,7 @@ class TeamShiftsEmailTemplate(models.Model):
     role = models.CharField(max_length=40, choices=EmailTemplateRoles.choices)
     subject = I18nTextField()
     body = I18nTextField()
+    send_automatically = models.BooleanField(default=True, db_default=True, verbose_name=_("Send automatically"))
     updated = models.DateTimeField(auto_now=True)
 
     objects = ScopedManager(event="event")

@@ -14,6 +14,7 @@
 {% endblock %}
 
 {% block teamshifts_content %}
+<div data-teamshifts-list>
     <div class="teamshifts-filter-bar clearfix">
         <form method="get" class="form-inline pull-left">
         <div class="form-group">
@@ -46,6 +47,16 @@
         <form method="post" action="{% url 'plugins:teamshifts:application_bulk_action' organizer=request.organizer.slug event=request.event.slug %}" id="bulk-action-form">
             {% csrf_token %}
         </form>
+        {% if can_manage_applicants %}
+           <p class="teamshifts-selected-count text-muted"
+            id="applications-selected-count"
+            data-selected="{% trans 'selected' %}"
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+            hidden></p>
+        {% endif %}
+
         <div class="table-responsive">
             <table class="table table-hover table-quotas">
                 <thead>
@@ -56,10 +67,22 @@
                             {% endif %}
                         </th>
                         {% for col in columns %}
-                            <th>{{ col.label }}</th>
+                        <th{% if col.key == "full_name" %} aria-sort="{% if current_ordering == 'user__fullname' %}ascending{% elif current_ordering == '-user__fullname' %}descending{% else %}none{% endif %}"{% endif %}>
+                            {% if col.key == "full_name" %}
+                                {% include "teamshifts/_sort_header.html" with label=col.label field="user__fullname" current_ordering=current_ordering %}
+                            {% else %}
+                            {{ col.label }}
+                            {% endif %}
+                        </th>
                         {% endfor %}
-                        <th>{% trans "Status" %}</th>
-                        <th>{% trans "Applied" %}</th>
+                        {% trans "Status" as status_label %}
+                        <th aria-sort="{% if current_ordering == 'status' %}ascending{% elif current_ordering == '-status' %}descending{% else %}none{% endif %}">
+                            {% include "teamshifts/_sort_header.html" with label=status_label field="status" current_ordering=current_ordering %}
+                        </th>
+                        {% trans "Applied" as applied_label %}
+                        <th aria-sort="{% if current_ordering == 'created_at' %}ascending{% elif current_ordering == '-created_at' %}descending{% else %}none{% endif %}">
+                            {% include "teamshifts/_sort_header.html" with label=applied_label field="created_at" current_ordering=current_ordering %}
+                        </th>
                         <th class="action-col-1"></th>
                     </tr>
                 </thead>
@@ -79,9 +102,11 @@
                                 <form action="{% url 'plugins:teamshifts:application_status' organizer=request.organizer.slug event=request.event.slug pk=app.pk %}"
                                       method="post" id="status-form-{{ app.pk }}" class="teamshifts-inline-form">
                                     {% csrf_token %}
-                                    <select name="status" aria-label="{% trans 'Change application status' %}" class="form-control teamshifts-status-dropdown {% if app.status == 'pending' %}label-warning{% elif app.status == 'accepted' %}label-success{% else %}label-danger{% endif %}" data-current-status="{{ app.status }}" data-email-statuses="accepted,rejected">
+                                    <select name="status" aria-label="{% trans 'Change application status' %}" class="form-control teamshifts-status-dropdown {% if app.status == 'pending' %}label-warning{% elif app.status == 'accepted' %}label-success{% elif app.status == 'removed' %}label-default{% else %}label-danger{% endif %}" data-current-status="{{ app.status }}" data-email-statuses="accepted,rejected">
                                         {% for value, label in status_choices %}
+                                            {% if value != 'removed' or app.status == 'removed' %}
                                             <option value="{{ value }}" {% if value == app.status %}selected{% endif %}>{{ label }}</option>
+                                            {% endif %}
                                         {% endfor %}
                                     </select>
                                 </form>
@@ -90,6 +115,8 @@
                                     <span class="label label-warning">{% trans "Pending" %}</span>
                                 {% elif app.status == 'accepted' %}
                                     <span class="label label-success">{% trans "Accepted" %}</span>
+                                {% elif app.status == 'removed' %}
+                                    <span class="label label-default">{% trans "Removed" %}</span>
                                 {% else %}
                                     <span class="label label-danger">{% trans "Rejected" %}</span>
                                 {% endif %}
@@ -112,4 +139,5 @@
             <p>{% trans "No applications yet." %}</p>
         </div>
     {% endif %}
+    </div>
 {% endblock %}

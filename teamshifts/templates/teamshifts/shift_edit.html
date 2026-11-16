@@ -105,6 +105,25 @@
             {% endfor %}
           </tbody>
         </table>
+        <template id="role-form-template">
+          {% with form=formset.empty_form %}
+            <tr class="role-form-row">
+              <td>
+                {{ form.id }}
+                {{ form.role }}
+              </td>
+              <td>
+                {{ form.capacity }}
+              </td>
+              <td>
+                <button type="button" class="btn btn-danger btn-sm remove-role-btn">
+                  <i class="fa fa-trash"></i>
+                </button>
+                <span class="delete-checkbox">{{ form.DELETE }}</span>
+              </td>
+            </tr>
+          {% endwith %}
+        </template>
         <button type='button' class='btn btn-success' id='add-role-btn'>
           <i class='fa fa-plus'></i> {% trans "Add Role" %}
         </button>

@@ -1,3 +1,4 @@
+import { setupAjaxSorting } from "./list_sorting.js";
 function gettext(msgid) {
     return typeof window.gettext === "function" ? window.gettext(msgid) : msgid;
 }
@@ -54,9 +55,10 @@ function refreshSelectedCount() {
 
 function setupSelectAll() {
     const selectAll = document.getElementById("select-all");
-    if (!selectAll) {
+    if (!selectAll || selectAll.dataset.bound === "1") {
         return;
     }
+    selectAll.dataset.bound = "1";
 
     selectAll.addEventListener("change", () => {
         document.querySelectorAll(".shift-checkbox").forEach((checkbox) => {
@@ -68,6 +70,8 @@ function setupSelectAll() {
 
 function setupCheckboxes() {
     document.querySelectorAll(".shift-checkbox").forEach((checkbox) => {
+        if (checkbox.dataset.bound === "1") return;
+        checkbox.dataset.bound = "1";
         checkbox.addEventListener("change", refreshSelectedCount);
     });
 }
@@ -109,12 +113,24 @@ function setupBulkDelete() {
     });
 }
 
-function initShifts() {
+function initializeControls() {
     setupSelectAll();
     setupCheckboxes();
     setupBulkDelete();
     refreshSelectedCount();
 }
 
-document.addEventListener("DOMContentLoaded", initShifts);
-document.addEventListener("eventyay:ajax-results-replaced", initShifts);
+function initializeShiftsPage() {
+    initializeControls();
+    setupAjaxSorting(initializeControls);
+}
+
+if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", initializeShiftsPage, {
+        once: true,
+    });
+} else {
+    initializeShiftsPage();
+}
+
+document.addEventListener("eventyay:ajax-results-replaced", initializeControls);

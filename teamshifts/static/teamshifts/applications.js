@@ -1,3 +1,4 @@
+import { setupAjaxSorting } from "./list_sorting.js";
 function gettext(msgid) {
     return typeof window.gettext === "function" ? window.gettext(msgid) : msgid;
 }
@@ -36,6 +37,19 @@ function setupStatusDropdowns() {
     });
 }
 
+function refreshSelectedCount() {
+    const checked = document.querySelectorAll(".app-checkbox:checked").length;
+    const countLabel = document.getElementById("applications-selected-count");
+
+    if (!countLabel) {
+        return;
+    }
+
+    const selectedText = countLabel.dataset.selected || gettext("selected");
+    countLabel.textContent = checked > 0 ? `${checked} ${selectedText}` : "";
+    countLabel.hidden = checked === 0;
+}
+
 function setupSelectAll() {
     const selectAll = document.getElementById("select-all");
     if (!selectAll || selectAll.dataset.bound === "1") {
@@ -47,6 +61,15 @@ function setupSelectAll() {
         document.querySelectorAll(".app-checkbox").forEach((checkbox) => {
             checkbox.checked = selectAll.checked;
         });
+        refreshSelectedCount();
+    });
+}
+
+function setupCheckboxes() {
+    document.querySelectorAll(".app-checkbox").forEach((checkbox) => {
+        if (checkbox.dataset.bound === "1") return;
+        checkbox.dataset.bound = "1";
+        checkbox.addEventListener("change", refreshSelectedCount);
     });
 }
 
@@ -81,11 +104,25 @@ function setupBulkActions() {
     });
 }
 
-function initApplications() {
+function initializeControls() {
     setupStatusDropdowns();
     setupSelectAll();
+    setupCheckboxes();
     setupBulkActions();
+    refreshSelectedCount();
 }
 
-document.addEventListener("DOMContentLoaded", initApplications);
-document.addEventListener("eventyay:ajax-results-replaced", initApplications);
+function initializeApplicationsPage() {
+    initializeControls();
+    setupAjaxSorting(initializeControls);
+}
+
+if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", initializeApplicationsPage, {
+        once: true,
+    });
+} else {
+    initializeApplicationsPage();
+}
+
+document.addEventListener("eventyay:ajax-results-replaced", initializeControls);

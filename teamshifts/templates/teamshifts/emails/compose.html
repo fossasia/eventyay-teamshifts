@@ -5,6 +5,7 @@
 
 {% block custom_header %}
   {{ block.super }}
+  <script type='module' src='{% static "teamshifts/email_template_picker.js" %}'></script>
   <script type='module' src='{% static "teamshifts/schedule_datetime.js" %}'></script>
   <script type='module' src='{% static "teamshifts/compose_recipients.js" %}'></script>
 {% endblock %}
@@ -23,6 +24,24 @@
       schedule it for later, or save it as a draft to finish another time.
     {% endblocktrans %}
   </p>
+
+{% if custom_templates %}
+    {{ custom_templates_data|json_script:"custom-email-templates" }}
+    <div class="form-inline custom-template-picker">
+        <label for="id_template_picker" class="control-label">
+            {% trans "Load from template" %}
+        </label>
+        <select id="id_template_picker" class="form-control">
+            <option value="">{% trans "Select a saved template…" %}</option>
+            {% for template in custom_templates %}
+                <option value="{{ template.pk }}">{{ template.name }}</option>
+            {% endfor %}
+        </select>
+        <button type="button" class="btn btn-default" id="load-email-template">
+            {% trans "Load" %}
+        </button>
+    </div>
+{% endif %}
 
   <form action='' method='post' class='form-horizontal'>
     {% csrf_token %}

@@ -258,7 +258,9 @@ def test_removed_member_loses_shift_schedule_access(mock_queue, client, event, m
     assert b"Rejected" not in apply_page.content
     assert client.get(_url("my_shifts", event)).status_code == 302
     # The past shift stays in the history, but My Shifts no longer lists the event for them.
-    assert client.get(reverse("plugins:teamshifts:my_shifts_global")).status_code == 404
+    my_shifts = client.get(reverse("plugins:teamshifts:my_shifts_global"))
+    assert my_shifts.status_code == 200
+    assert my_shifts.context["assignments"] == []
     claim = client.post(_url("public_shift_claim", event, pk=upcoming_shift.pk), HTTP_ACCEPT="application/json")
     assert claim.status_code == 403
 
@@ -364,9 +366,10 @@ def test_member_removed_mid_shift_can_still_check_out_of_it(mock_queue, client, 
     assert my_shifts.status_code == 200
     assert b"Running shift" in my_shifts.content
     assert past_shift.name.encode() not in my_shifts.content
+    assert b'class="shift-checkout-form"' in my_shifts.content
     assert client.get(_url("public_shift_schedule", event)).status_code == 302
 
-    response = client.post(_url("shift_checkout", event, pk=in_progress_assignment.pk), HTTP_X_REQUESTED_WITH="XMLHttpRequest")
+    response = client.post(reverse("plugins:teamshifts:shift_checkout", kwargs={"pk": in_progress_assignment.pk}), HTTP_X_REQUESTED_WITH="XMLHttpRequest")
 
     assert response.status_code == 200
     with scopes_disabled():
@@ -383,7 +386,7 @@ def test_removed_member_without_a_running_shift_cannot_use_check_out(mock_queue,
     with scopes_disabled():
         past_assignment = ShiftAssignment.objects.get(shift=past_shift, team_member=member.user)
 
-    response = client.post(_url("shift_checkout", event, pk=past_assignment.pk), HTTP_X_REQUESTED_WITH="XMLHttpRequest")
+    response = client.post(reverse("plugins:teamshifts:shift_checkout", kwargs={"pk": past_assignment.pk}), HTTP_X_REQUESTED_WITH="XMLHttpRequest")
 
     assert response.status_code == 403
 

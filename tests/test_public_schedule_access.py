@@ -98,7 +98,10 @@ def test_managers_can_claim_and_withdraw_shifts_without_applying(client, event, 
     with scopes_disabled():
         application = TeamMemberApplication.objects.get(event=event, user__email="user@example.com")
     assert application.status == ApplicationStatus.ACCEPTED
-    assert client.get(_url("my_shifts", event)).status_code == 200
+    redirect_resp = client.get(_url("my_shifts", event))
+    assert redirect_resp.status_code == 302
+    assert redirect_resp.url == reverse("plugins:teamshifts:my_shifts_global")
+    assert client.get(reverse("plugins:teamshifts:my_shifts_global")).status_code == 200
 
     withdraw = client.post(_url("public_shift_withdraw", event, pk=shift.pk), {"role_id": role.pk}, **headers)
     assert withdraw.status_code == 200

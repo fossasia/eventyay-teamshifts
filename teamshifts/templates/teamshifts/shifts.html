@@ -30,7 +30,7 @@
         <input type="text" name="q" value="{{ request.GET.q|default:'' }}" class="form-control" placeholder="{% trans 'Search shift name' %}">
       </div>
       <div class="form-group">
-        <select name="day" class="form-control{% if request.GET.day %} teamshifts-filter-control-active{% endif %}" aria-label="{% trans 'Day' %}">
+        <select name="day" class="form-control" aria-label="{% trans 'Day' %}">
           <option value="">{% trans "All days" %}</option>
           {% for day in days %}
             <option value="{{ day.value }}" {% if request.GET.day == day.value %}selected{% endif %}>{{ day.label }}</option>
@@ -38,7 +38,7 @@
         </select>
       </div>
       <div class="form-group">
-        <select name="location" class="form-control{% if request.GET.location %} teamshifts-filter-control-active{% endif %}" aria-label="{% trans 'Location' %}">
+        <select name="location" class="form-control" aria-label="{% trans 'Location' %}">
           <option value="">{% trans "All locations" %}</option>
           {% for loc in locations %}
             <option value="{{ loc.pk|stringformat:'s' }}" {% if request.GET.location == loc.pk|stringformat:'s' %}selected{% endif %}>{{ loc.name }}</option>
@@ -46,7 +46,7 @@
         </select>
       </div>
       <div class="form-group">
-        <select name="role" class="form-control{% if request.GET.role %} teamshifts-filter-control-active{% endif %}" aria-label="{% trans 'Role' %}">
+        <select name="role" class="form-control" aria-label="{% trans 'Role' %}">
           <option value="">{% trans "All roles" %}</option>
           {% for r in roles %}
             <option value="{{ r.pk|stringformat:'s' }}" {% if request.GET.role == r.pk|stringformat:'s' %}selected{% endif %}>{{ r.name }}</option>
@@ -54,7 +54,7 @@
         </select>
       </div>
       <div class="form-group">
-        <select name="staffing" class="form-control{% if request.GET.staffing %} teamshifts-filter-control-active{% endif %}" aria-label="{% trans 'Staffing' %}">
+        <select name="staffing" class="form-control" aria-label="{% trans 'Staffing' %}">
           <option value="">{% trans "All staffing" %}</option>
           <option value="open" {% if request.GET.staffing == "open" %}selected{% endif %}>{% trans "Has open spots" %}</option>
           <option value="full" {% if request.GET.staffing == "full" %}selected{% endif %}>{% trans "Fully staffed" %}</option>
@@ -68,7 +68,7 @@
     <div class="teamshifts-active-filters">
       <span class="teamshifts-active-filters-label">{% trans "Active filters:" %}</span>
       {% for chip in active_filter_chips %}
-        <a href="?{% url_replace request chip.remove_param '' 'page' '' %}" class="teamshifts-filter-chip">
+        <a href="?{% url_replace request chip.remove_param '' 'page' '' %}" class="label label-info teamshifts-filter-chip">
           {{ chip.label }} <span class="teamshifts-filter-chip-remove" aria-hidden="true">&times;</span>
         </a>
       {% endfor %}

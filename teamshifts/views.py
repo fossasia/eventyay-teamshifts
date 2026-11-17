@@ -2322,20 +2322,27 @@ class ShiftListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Pagina
         return ctx
 
 
+def _shifts_list_url(event, get_params=None, omit_page=False):
+    url = reverse(
+        "plugins:teamshifts:shifts",
+        kwargs={"organizer": event.organizer.slug, "event": event.slug},
+    )
+    if get_params:
+        params = get_params.copy()
+        if omit_page:
+            params.pop("page", None)
+        query = params.urlencode()
+        if query:
+            url = f"{url}?{query}"
+    return url
+
+
 class BulkShiftDeleteView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):
     permission = "can_teamshifts_create_shifts"
 
     def post(self, request, *args, **kwargs):
         event = request.event
-        query_params = request.GET.copy()
-        query_params.pop("page", None)
-        query_string = query_params.urlencode()
-        redirect_url = reverse(
-            "plugins:teamshifts:shifts",
-            kwargs={"organizer": event.organizer.slug, "event": event.slug},
-        )
-        if query_string:
-            redirect_url = f"{redirect_url}?{query_string}"
+        redirect_url = _shifts_list_url(event, request.GET, omit_page=True)
 
         with scope(event=event):
             shift_ids = [int(v) for v in request.POST.getlist("shift_ids") if str(v).strip().isdigit()]
@@ -2438,17 +2445,7 @@ class ShiftCreateView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Temp
                 messages.success(request, _("%(count)d shifts created successfully.") % {"count": len(shifts_to_create)})
             else:
                 messages.success(request, _("Shift created successfully."))
-            redirect_url = reverse(
-                "plugins:teamshifts:shifts",
-                kwargs={
-                    "organizer": request.event.organizer.slug,
-                    "event": request.event.slug,
-                },
-            )
-            query_string = request.GET.urlencode()
-            if query_string:
-                redirect_url = f"{redirect_url}?{query_string}"
-            return redirect(redirect_url)
+            return redirect(_shifts_list_url(request.event, request.GET))
 
         ctx = self.get_context_data(form=form, formset=formset, has_locations=has_locations)
         messages.error(request, _("We could not save your changes. See below for details."))
@@ -2569,19 +2566,7 @@ class ShiftDeleteView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Dele
         return get_object_or_404(Shift, pk=self.kwargs.get("pk"), event=self.request.event)
 
     def get_success_url(self):
-        url = reverse(
-            "plugins:teamshifts:shifts",
-            kwargs={
-                "organizer": self.request.event.organizer.slug,
-                "event": self.request.event.slug,
-            },
-        )
-        query_params = self.request.GET.copy()
-        query_params.pop("page", None)
-        query_string = query_params.urlencode()
-        if query_string:
-            url = f"{url}?{query_string}"
-        return url
+        return _shifts_list_url(self.request.event, self.request.GET, omit_page=True)
 
     def delete(self, request, *args, **kwargs):
         messages.success(request, _("The shift has been deleted."))

@@ -2319,9 +2319,6 @@ class ShiftListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Pagina
         ctx["can_manage_shifts"] = has_teamshifts_permission(
             self.request.user, self.request.organizer, event, "can_teamshifts_create_shifts", request=self.request
         )
-        sort = self.request.GET.get("sort", "")
-        sort_field = sort[1:] if sort.startswith("-") else sort
-        ctx["current_ordering"] = sort if sort_field in self.sortable_fields else self.default_sort_field
         return ctx
 
 
@@ -2330,7 +2327,9 @@ class BulkShiftDeleteView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, 
 
     def post(self, request, *args, **kwargs):
         event = request.event
-        query_string = request.GET.urlencode()
+        query_params = request.GET.copy()
+        query_params.pop("page", None)
+        query_string = query_params.urlencode()
         redirect_url = reverse(
             "plugins:teamshifts:shifts",
             kwargs={"organizer": event.organizer.slug, "event": event.slug},
@@ -2577,7 +2576,9 @@ class ShiftDeleteView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Dele
                 "event": self.request.event.slug,
             },
         )
-        query_string = self.request.GET.urlencode()
+        query_params = self.request.GET.copy()
+        query_params.pop("page", None)
+        query_string = query_params.urlencode()
         if query_string:
             url = f"{url}?{query_string}"
         return url

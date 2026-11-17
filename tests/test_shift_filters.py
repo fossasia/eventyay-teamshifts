@@ -239,7 +239,7 @@ def test_delete_preserves_query_string(orga_client, event, filter_setup):
         "plugins:teamshifts:shift_delete",
         kwargs={"organizer": event.organizer.slug, "event": event.slug, "pk": shift.pk},
     )
-    response = orga_client.post(f"{delete_url}?q=Setup&day=2026-06-15")
+    response = orga_client.post(f"{delete_url}?q=Setup&day=2026-06-15&page=2")
     assert response.status_code == 302
     expected_redirect = reverse(
         "plugins:teamshifts:shifts",
@@ -255,7 +255,7 @@ def test_bulk_delete_preserves_query_string(orga_client, event, filter_setup):
         kwargs={"organizer": event.organizer.slug, "event": event.slug},
     )
     to_delete = [filter_setup["shift2"].pk]
-    response = orga_client.post(f"{bulk_url}?location={filter_setup['loc_b'].pk}&staffing=full", {"shift_ids": to_delete})
+    response = orga_client.post(f"{bulk_url}?location={filter_setup['loc_b'].pk}&staffing=full&page=3", {"shift_ids": to_delete})
     assert response.status_code == 302
     expected_redirect = reverse(
         "plugins:teamshifts:shifts",

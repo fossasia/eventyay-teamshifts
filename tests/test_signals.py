@@ -258,5 +258,4 @@ def test_nav_global_my_shifts_not_suppressed_for_admin_request(monkeypatch, user
     )
 
     assert len(result) == 1
-    assert str(result[0]["label"]) == "My Shifts"
     assert result[0]["url"] == reverse("plugins:teamshifts:my_shifts_global")

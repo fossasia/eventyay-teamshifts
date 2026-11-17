@@ -2265,13 +2265,12 @@ class ShiftListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Pagina
                         loc_obj = ShiftLocation.objects.filter(event=event, pk=int(loc_val)).first()
                 except (ValueError, TypeError):
                     pass
-            if loc_obj:
-                active_filter_chips.append(
-                    {
-                        "label": _("Location: %(loc)s") % {"loc": loc_obj.name},
-                        "remove_param": "location",
-                    }
-                )
+            active_filter_chips.append(
+                {
+                    "label": _("Location: %(loc)s") % {"loc": loc_obj.name if loc_obj else loc_val},
+                    "remove_param": "location",
+                }
+            )
         if role_val:
             role_obj = role_dict.get(role_val)
             if not role_obj:
@@ -2280,13 +2279,12 @@ class ShiftListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Pagina
                         role_obj = TeamRole.objects.filter(event=event, pk=int(role_val)).first()
                 except (ValueError, TypeError):
                     pass
-            if role_obj:
-                active_filter_chips.append(
-                    {
-                        "label": _("Role: %(role)s") % {"role": role_obj.name},
-                        "remove_param": "role",
-                    }
-                )
+            active_filter_chips.append(
+                {
+                    "label": _("Role: %(role)s") % {"role": role_obj.name if role_obj else role_val},
+                    "remove_param": "role",
+                }
+            )
         if staffing_val == "open":
             active_filter_chips.append(
                 {

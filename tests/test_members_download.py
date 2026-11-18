@@ -276,7 +276,8 @@ def test_question_delete_page_warns_answers_are_permanently_deleted(client, even
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("export_format", ["default", "xlsx"])
-def test_export_keeps_unlisted_questions_after_configured_order(client, event, cfm, orga_user, django_user_model, export_format):
+@pytest.mark.parametrize("legacy_string_id", [False, True])
+def test_export_keeps_unlisted_questions_after_configured_order(client, event, cfm, orga_user, django_user_model, export_format, legacy_string_id):
     client.force_login(orga_user)
     route_kwargs = {"organizer": event.organizer.slug, "event": event.slug}
     create_url = reverse("plugins:teamshifts:question_create", kwargs=route_kwargs)
@@ -299,6 +300,9 @@ def test_export_keeps_unlisted_questions_after_configured_order(client, event, c
     assert response.status_code == 204
     with scope(event=event):
         cfm.refresh_from_db()
+        if legacy_string_id:
+            cfm.field_order = [str(item) if item == diet.pk else item for item in cfm.field_order]
+            cfm.save(update_fields=["field_order"])
         member = _member(event, django_user_model, "a@example.com", "Alice")
         for question, answer in [(shirt, "M"), (diet, "Vegan"), (contact, "555-0100")]:
             TeamApplicationAnswer.objects.create(application=member, question=question, answer=answer)

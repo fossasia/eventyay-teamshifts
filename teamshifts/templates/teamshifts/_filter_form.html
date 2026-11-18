@@ -2,7 +2,9 @@
 {% load bootstrap3 %}
 <div class="advanced-filter-search" data-advanced-filter-search>
     <form class="{% if not ajax %}filter-form {% endif %}advanced-filter-search-form" action="" method="get"{% if ajax %} data-ajax{% endif %}>
-        <input type="hidden" name="ordering" value="{{ filter_form.current_ordering }}">
+        {% if "ordering" in filter_form.fields %}
+            <input type="hidden" name="ordering" value="{{ filter_form.current_ordering }}">
+        {% endif %}
         <div class="advanced-filter-search-bar">
             <div class="input-group advanced-filter-search-query-group">
                 {{ filter_form.query }}

@@ -44,6 +44,8 @@ class TeamShiftsFilterForm(FilterForm):
                 data["query"] = data["q"]
             kwargs["data"] = data
         super().__init__(*args, **kwargs)
+        if not self.orders:
+            self.fields.pop("ordering", None)
 
     @property
     def advanced_fields(self):
@@ -51,7 +53,9 @@ class TeamShiftsFilterForm(FilterForm):
 
     @property
     def current_ordering(self):
-        return self["ordering"].value() or ""
+        if "ordering" in self.fields:
+            return self["ordering"].value() or ""
+        return ""
 
     def get_order_by(self):
         o = self.cleaned_data.get("ordering") if hasattr(self, "cleaned_data") else None
@@ -99,12 +103,6 @@ class LenientModelChoiceField(forms.ModelChoiceField):
 
 class ApplicationFilterForm(TeamShiftsFilterForm):
     default_order = ("-created_at", "-pk")
-    orders = {
-        "name": "user__fullname",
-        "email": "user__email",
-        "status": "status",
-        "applied": "created_at",
-    }
 
     query = forms.CharField(
         label=_("Search applications…"),
@@ -281,11 +279,6 @@ class MemberFilterForm(TeamShiftsFilterForm):
 
 class ShiftFilterForm(TeamShiftsFilterForm):
     default_order = ("start_time", "pk")
-    orders = {
-        "start": "start_time",
-        "end": "end_time",
-        "name": "name",
-    }
 
     query = forms.CharField(
         label=_("Search shifts…"),
@@ -374,10 +367,6 @@ class TeamShiftsEmailFilterForm(TeamShiftsFilterForm):
         self.date_field = date_field
         self.hide_emails = hide_emails
         self.default_order = (f"-{date_field}", "-pk")
-        self.orders = {
-            "subject": "subject",
-            "date": date_field,
-        }
         super().__init__(*args, **kwargs)
         if event:
             self.fields["role"].queryset = TeamRole.objects.filter(event=event)
@@ -424,10 +413,6 @@ class TeamShiftsEmailFilterForm(TeamShiftsFilterForm):
 
 class TeamShiftsSentEmailFilterForm(TeamShiftsFilterForm):
     default_order = ("-sent_at", "-pk")
-    orders = {
-        "subject": "subject",
-        "date": "sent_at",
-    }
 
     query = forms.CharField(
         label=_("Search emails…"),

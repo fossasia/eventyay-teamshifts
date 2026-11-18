@@ -5,10 +5,7 @@
 {% load tz %}
 
 {% block title %}{% trans "Sent emails" %} :: {{ request.event.name }}{% endblock %}
-{% block custom_header %}
-  {{ block.super }}
-  <script type="module" src="{% static 'teamshifts/sent_list.js' %}"></script>
-{% endblock %}
+
 {% block teamshifts_header %}
         <h1 data-ajax-sync="mail-count">
           {% blocktrans count mail_count=paginator.count trimmed %}

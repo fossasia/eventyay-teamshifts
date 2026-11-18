@@ -31,7 +31,7 @@ def get_export_questions(event) -> list[TeamApplicationQuestion]:
         except CallForTeamMembers.DoesNotExist:
             field_order = []
     positions = {item: index for index, item in enumerate(field_order) if isinstance(item, int)}
-    fallback = len(positions)
+    fallback = len(field_order)
     return sorted(questions, key=lambda question: (positions.get(question.pk, fallback), question.pk))
 
 

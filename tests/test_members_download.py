@@ -1,4 +1,6 @@
+import csv
 import io
+import json
 from datetime import timedelta
 from zoneinfo import ZoneInfo
 
@@ -10,6 +12,7 @@ from eventyay.base.models import Team
 from openpyxl import load_workbook
 
 from teamshifts.exporters import MembersExporter, format_answer, format_hours
+from teamshifts.forms import TeamMemberApplicationForm
 from teamshifts.models import (
     ApplicationStatus,
     CallForTeamMembers,
@@ -269,3 +272,42 @@ def test_question_delete_page_warns_answers_are_permanently_deleted(client, even
     body = client.get(delete_url).content.decode()
     assert "Answers are permanently deleted." in body
     assert "Deactivate the question instead to stop asking it while keeping its answers." in body
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("export_format", ["default", "xlsx"])
+def test_export_keeps_unlisted_questions_after_configured_order(client, event, cfm, orga_user, django_user_model, export_format):
+    client.force_login(orga_user)
+    route_kwargs = {"organizer": event.organizer.slug, "event": event.slug}
+    create_url = reverse("plugins:teamshifts:question_create", kwargs=route_kwargs)
+    reorder_url = reverse("plugins:teamshifts:question_reorder", kwargs=route_kwargs)
+
+    def add_question(label):
+        response = client.post(create_url, {"question_0": label, "variant": "string", "active": "on"})
+        assert response.status_code == 302
+        with scope(event=event):
+            return TeamApplicationQuestion.objects.filter(event=event).latest("pk")
+
+    shirt = add_question("T-shirt")
+    diet = add_question("Diet")
+    with scope(event=event):
+        cfm.refresh_from_db()
+        stale_order = [key for key in cfm.field_order if not isinstance(key, int)] + [diet.pk, shirt.pk]
+    # Another organizer adds a question after this form's ordering was loaded.
+    contact = add_question("Emergency contact")
+    response = client.post(reorder_url, json.dumps({"ids": stale_order}), content_type="application/json")
+    assert response.status_code == 204
+    with scope(event=event):
+        cfm.refresh_from_db()
+        member = _member(event, django_user_model, "a@example.com", "Alice")
+        for question, answer in [(shirt, "M"), (diet, "Vegan"), (contact, "555-0100")]:
+            TeamApplicationAnswer.objects.create(application=member, question=question, answer=answer)
+    form = TeamMemberApplicationForm(event=event, cfm=cfm)
+    question_labels = [str(field.label) for key, field in form.fields.items() if key.startswith("question_")]
+    assert question_labels == ["Diet", "T-shirt", "Emergency contact"]
+
+    response = client.get(_url(event), {"_format": export_format})
+    assert response.status_code == 200
+    rows = _rows(response) if export_format == "xlsx" else list(csv.reader(io.StringIO(response.content.decode("utf-8-sig"))))
+    assert rows[0][-3:] == question_labels
+    assert rows[1][-3:] == ["Vegan", "M", "555-0100"]

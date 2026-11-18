@@ -18,7 +18,7 @@
         {% endif %}
     </h1>
 
-    <script type="application/json" id="editor-data" data-version="{{ layout_version }}">
+    <script type="application/json" id="editor-data">
         {{ layout|safe }}
     </script>
     <div class="row">
@@ -368,32 +368,4 @@
         {% endif %}
     {% endfor %}
     {% endfor %}
-    <script type="text/javascript">
-        $(document).ajaxSend(function(event, xhr, settings) {
-            if (settings.type === "POST" && settings.data && typeof settings.data === "string" && settings.data.indexOf("data=") !== -1 && settings.data.indexOf("preview=") === -1) {
-                var version = $("#editor-data").data("version");
-                if (version && settings.data.indexOf("version=") === -1) {
-                    settings.data += "&version=" + encodeURIComponent(version);
-                }
-            }
-        });
-        $(document).ajaxSuccess(function(event, xhr, settings, data) {
-            if (data && data.version) {
-                $("#editor-data").data("version", data.version).attr("data-version", data.version);
-            }
-        });
-        $(document).ajaxError(function(event, xhr, settings) {
-            if (xhr.status === 409 && settings.type === "POST" && settings.data && typeof settings.data === "string" && settings.data.indexOf("data=") !== -1 && settings.data.indexOf("preview=") === -1) {
-                var error = xhr.responseJSON && xhr.responseJSON.error;
-                if (!error && xhr.responseText) {
-                    try {
-                        error = JSON.parse(xhr.responseText).error;
-                    } catch (e) {}
-                }
-                if (error) {
-                    alert(error);
-                }
-            }
-        });
-    </script>
 {% endblock %}

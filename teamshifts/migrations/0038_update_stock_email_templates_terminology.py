@@ -33,7 +33,7 @@ STOCK_UPDATES = {
                 ),
                 (
                     "Hi {full_name},\n\n"
-                    "Thanks for applying to join the {event_name} event team. "
+                    "Thanks for applying to join the {event_name} event team through Team Shifts. "
                     "We have received your application and will get back to you soon.\n\n"
                     "Best regards,\n"
                     "The {event_name} team"
@@ -41,7 +41,7 @@ STOCK_UPDATES = {
             ),
             (
                 "Hi {full_name},\n\n"
-                "Thanks for applying to join the {event_name} event team through Team Shifts. "
+                "Thanks for applying to join the {event_name} event team. "
                 "We have received your application and will get back to you soon.\n\n"
                 "Best regards,\n"
                 "The {event_name} team"
@@ -78,7 +78,7 @@ STOCK_UPDATES = {
                 ),
                 (
                     "Hi {full_name},\n\n"
-                    "Great news — your application to join the {event_name} event team has "
+                    "Great news — your application to join the {event_name} event team through Team Shifts has "
                     "been accepted. Welcome to the team!\n\n"
                     "You can now browse the shift schedule and claim your shifts here:\n"
                     "{shift_schedule_url}\n\n"
@@ -88,7 +88,7 @@ STOCK_UPDATES = {
             ),
             (
                 "Hi {full_name},\n\n"
-                "Great news — your application to join the {event_name} event team through Team Shifts has "
+                "Great news — your application to join the {event_name} event team has "
                 "been accepted. Welcome to the team!\n\n"
                 "You can now browse the shift schedule and claim your shifts here:\n"
                 "{shift_schedule_url}\n\n"
@@ -127,7 +127,7 @@ STOCK_UPDATES = {
                 ),
                 (
                     "Hi {full_name},\n\n"
-                    "Thank you for your interest in joining the {event_name} event team. "
+                    "Thank you for your interest in joining the {event_name} event team through Team Shifts. "
                     "Unfortunately, we are unable to accept your application at this "
                     "time.\n\n"
                     "We appreciate your enthusiasm and hope you enjoy the event.\n\n"
@@ -137,7 +137,7 @@ STOCK_UPDATES = {
             ),
             (
                 "Hi {full_name},\n\n"
-                "Thank you for your interest in joining the {event_name} event team through Team Shifts. "
+                "Thank you for your interest in joining the {event_name} event team. "
                 "Unfortunately, we are unable to accept your application at this "
                 "time.\n\n"
                 "We appreciate your enthusiasm and hope you enjoy the event.\n\n"
@@ -175,7 +175,7 @@ STOCK_UPDATES = {
                     "The {event_name} team"
                 ),
                 (
-                    "A new application has been submitted to join the {event_name} event team.\n\n"
+                    "A new application has been submitted to join the {event_name} event team through Team Shifts.\n\n"
                     "Applicant: {applicant_name}\n\n"
                     "Submitted: {submitted_at}\n\n"
                     "Pending applications: {pending_count}\n\n"
@@ -185,7 +185,7 @@ STOCK_UPDATES = {
                 ),
             ),
             (
-                "A new application has been submitted to join the {event_name} event team through Team Shifts.\n\n"
+                "A new application has been submitted to join the {event_name} event team.\n\n"
                 "Applicant: {applicant_name}\n\n"
                 "Submitted: {submitted_at}\n\n"
                 "Pending applications: {pending_count}\n\n"
@@ -229,7 +229,7 @@ STOCK_UPDATES = {
                 ),
                 (
                     "Hi {full_name},\n\n"
-                    "You have been added to the {event_name} event team by the event organizer.\n\n"
+                    "You have been added to the {event_name} event team through Team Shifts by the event organizer.\n\n"
                     "Event dates: {event_dates}\n"
                     "Event location: {event_location}\n\n"
                     "You can now claim your shifts here:\n"
@@ -241,7 +241,7 @@ STOCK_UPDATES = {
             ),
             (
                 "Hi {full_name},\n\n"
-                "You have been added to the {event_name} event team through Team Shifts by the event organizer.\n\n"
+                "You have been added to the {event_name} event team by the event organizer.\n\n"
                 "Event dates: {event_dates}\n"
                 "Event location: {event_location}\n\n"
                 "You can now claim your shifts here:\n"
@@ -280,7 +280,7 @@ STOCK_UPDATES = {
                 ),
                 (
                     "Hi {full_name},\n\n"
-                    "We wanted to let you know that you are no longer part of the {event_name} event team, "
+                    "We wanted to let you know that you are no longer part of the {event_name} event team through Team Shifts, "
                     "and you have been removed from any upcoming shifts.\n\n"
                     "If you think this is a mistake or have any questions, please reply to this email.\n\n"
                     "Best regards,\n"
@@ -289,7 +289,7 @@ STOCK_UPDATES = {
             ),
             (
                 "Hi {full_name},\n\n"
-                "We wanted to let you know that you are no longer part of the {event_name} event team through Team Shifts, "
+                "We wanted to let you know that you are no longer part of the {event_name} event team, "
                 "and you have been removed from any upcoming shifts.\n\n"
                 "If you think this is a mistake or have any questions, please reply to this email.\n\n"
                 "Best regards,\n"
@@ -476,10 +476,6 @@ def reverse_migrate_stock_templates(apps, schema_editor):
 class Migration(migrations.Migration):
     dependencies = [
         ("teamshifts", "0037_teamshiftsemailqueue_recipient_group"),
-    ]
-
-    operations = [
-        migrations.RunPython(migrate_stock_templates, reverse_migrate_stock_templates),
     ]
 
     operations = [

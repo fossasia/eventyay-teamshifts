@@ -25,11 +25,11 @@
       <div id="schedule-action-wrapper">
         <div id="schedule-timezone-mount"></div>
         {% if shift_schedule_published %}
-          <button type="submit" form="ts-publish-form" class="btn btn-sm btn-primary">
+          <button type="submit" form="ts-publish-form" name="action" value="unpublish" class="btn btn-sm btn-primary">
             <i class="fa fa-eye-slash"></i> {% trans "Unpublish" %}
           </button>
         {% else %}
-          <button type="submit" form="ts-publish-form" class="btn btn-sm btn-primary">
+          <button type="submit" form="ts-publish-form" name="action" value="publish" class="btn btn-sm btn-primary">
             <i class="fa fa-globe"></i> {% trans "Publish" %}
           </button>
         {% endif %}

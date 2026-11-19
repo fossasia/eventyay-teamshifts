@@ -2136,9 +2136,9 @@ def _check_shift_role_changes(request, roles, shift=None):
     return allowed
 
 
-def _check_shift_delete_permission(request, shifts):
+def _check_shift_delete_permission(request, shift_ids):
     allowed = get_allowed_role_ids(request.user, request.organizer, request.event, request=request)
-    if allowed is not None and ShiftRoleAssignment.objects.filter(shift__in=shifts).exclude(role_id__in=allowed).exists():
+    if allowed is not None and ShiftRoleAssignment.objects.filter(shift_id__in=shift_ids).exclude(role_id__in=allowed).exists():
         raise PermissionDenied(_("You cannot delete a shift containing roles you do not have permission to manage."))
 
 
@@ -2192,8 +2192,9 @@ class BulkShiftDeleteView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, 
                 )
 
             with transaction.atomic():
-                shifts = Shift.objects.filter(event=event, pk__in=shift_ids)
-                count = shifts.count()
+                # Lock the selected shifts in a consistent order with other bulk deletes.
+                locked_ids = list(Shift.objects.filter(event=event, pk__in=shift_ids).order_by("pk").select_for_update().values_list("pk", flat=True))
+                count = len(locked_ids)
                 if count == 0:
                     messages.warning(request, _("No shifts selected."))
                     return redirect(
@@ -2202,8 +2203,8 @@ class BulkShiftDeleteView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, 
                             kwargs={"organizer": event.organizer.slug, "event": event.slug},
                         )
                     )
-                _check_shift_delete_permission(request, shifts)
-                shifts.delete()
+                _check_shift_delete_permission(request, locked_ids)
+                Shift.objects.filter(event=event, pk__in=locked_ids).delete()
 
             messages.success(
                 request,
@@ -2424,8 +2425,11 @@ class ShiftDeleteView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Dele
     context_object_name = "shift"
 
     def get_object(self, queryset=None):
-        shift = get_object_or_404(Shift, pk=self.kwargs.get("pk"), event=self.request.event)
-        _check_shift_delete_permission(self.request, [shift])
+        shifts = Shift.objects.filter(event=self.request.event)
+        if self.request.method in {"POST", "DELETE"}:
+            shifts = shifts.select_for_update()
+        shift = get_object_or_404(shifts, pk=self.kwargs.get("pk"))
+        _check_shift_delete_permission(self.request, [shift.pk])
         return shift
 
     def get_success_url(self):
@@ -2437,6 +2441,11 @@ class ShiftDeleteView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Dele
             },
         )
 
+    @transaction.atomic
+    def post(self, request, *args, **kwargs):
+        return super().post(request, *args, **kwargs)
+
+    @transaction.atomic
     def delete(self, request, *args, **kwargs):
         messages.success(request, _("The shift has been deleted."))
         return super().delete(request, *args, **kwargs)
@@ -3033,9 +3042,9 @@ class ShiftScheduleTalkAPIView(PluginActiveMixin, TeamShiftsPermissionRequiredMi
 
     def delete(self, request, *args, **kwargs):
         event = request.event
-        with scope(event=event):
-            shift = get_object_or_404(Shift, pk=kwargs["pk"], event=event)
-            _check_shift_delete_permission(request, [shift])
+        with scope(event=event), transaction.atomic():
+            shift = get_object_or_404(Shift.objects.select_for_update(), pk=kwargs["pk"], event=event)
+            _check_shift_delete_permission(request, [shift.pk])
             shift.delete()
             return JsonResponse({"status": "ok"})
 

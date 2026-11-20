@@ -53,6 +53,15 @@ function refreshSelectedCount() {
     }
 }
 
+function updateSelectAllState() {
+    const selectAll = document.getElementById("select-all");
+    const checkboxes = document.querySelectorAll(".shift-checkbox");
+    if (!selectAll || checkboxes.length === 0) {
+        return;
+    }
+    selectAll.checked = Array.from(checkboxes).every((cb) => cb.checked);
+}
+
 function setupSelectAll() {
     const selectAll = document.getElementById("select-all");
     if (!selectAll) {
@@ -69,7 +78,10 @@ function setupSelectAll() {
 
 function setupCheckboxes() {
     document.querySelectorAll(".shift-checkbox").forEach((checkbox) => {
-        checkbox.addEventListener("change", refreshSelectedCount);
+        checkbox.addEventListener("change", () => {
+            updateSelectAllState();
+            refreshSelectedCount();
+        });
     });
 }
 
@@ -112,6 +124,7 @@ function initializeControls() {
     setupSelectAll();
     setupCheckboxes();
     setupBulkDelete();
+    updateSelectAllState();
     refreshSelectedCount();
 }
 

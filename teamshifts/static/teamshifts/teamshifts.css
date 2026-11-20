@@ -100,6 +100,49 @@ label .optional {
     margin-bottom: 1em;
 }
 
+.teamshifts-active-filters {
+    margin-top: 10px;
+    margin-bottom: 12px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+.teamshifts-active-filters-label {
+    font-weight: 600;
+    margin-right: 4px;
+}
+
+.teamshifts-filter-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    font-size: 12px;
+    font-weight: 500;
+    text-decoration: none;
+    line-height: 1.4;
+    vertical-align: middle;
+}
+
+.teamshifts-filter-chip:hover,
+.teamshifts-filter-chip:focus {
+    text-decoration: none;
+    opacity: 0.9;
+}
+
+.teamshifts-filter-chip-remove {
+    font-weight: bold;
+    font-size: 14px;
+    line-height: 1;
+}
+
+.teamshifts-clear-all-link {
+    margin-left: 6px;
+    font-size: 13px;
+}
+
 .teamshifts-list-toolbar {
     display: flex;
     align-items: center;

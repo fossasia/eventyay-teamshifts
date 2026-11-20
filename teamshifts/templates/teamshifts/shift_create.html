@@ -23,7 +23,7 @@
     </div>
   {% endif %}
 
-  <form method='post' action='' class='form-horizontal'>
+  <form method='post' action='{% if request.GET.urlencode %}?{{ request.GET.urlencode }}{% endif %}' class='form-horizontal'>
     {% csrf_token %}
 
     <div class='panel panel-default'>
@@ -153,7 +153,7 @@
       <button type='submit' class='btn btn-primary btn-save' {% if not has_locations %}disabled{% endif %}>
         {% trans "Save" %}
       </button>
-      <a href='{% url "plugins:teamshifts:shifts" request.organizer.slug request.event.slug %}' class='btn btn-default'>
+      <a href='{% url "plugins:teamshifts:shifts" request.organizer.slug request.event.slug %}{% if request.GET.urlencode %}?{{ request.GET.urlencode }}{% endif %}' class='btn btn-default'>
         {% trans "Cancel" %}
       </a>
     </div>

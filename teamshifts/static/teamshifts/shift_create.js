@@ -4,6 +4,10 @@ function gettext(msgid) {
     return typeof window.gettext === "function" ? window.gettext(msgid) : msgid;
 }
 
+function ngettext(singular, plural, count) {
+    return typeof window.ngettext === "function" ? window.ngettext(singular, plural, count) : count === 1 ? singular : plural;
+}
+
 function interpolate(fmt, params) {
     if (typeof window.interpolate === "function") {
         return window.interpolate(fmt, params, true);
@@ -148,7 +152,9 @@ function setupPreviewOccurrences() {
         }
 
         const summary = document.createElement("strong");
-        summary.textContent = `${gettext("Will create")} ${occurrences.length} ${gettext("shifts:")}`;
+        summary.textContent = interpolate(ngettext("Will create %(count)s shift:", "Will create %(count)s shifts:", occurrences.length), {
+            count: occurrences.length,
+        });
         fragment.appendChild(summary);
         occurrences.forEach((text, i) => {
             fragment.appendChild(document.createElement("br"));

@@ -52,6 +52,15 @@ function refreshSelectedCount() {
     }
 }
 
+function updateSelectAllState() {
+    const selectAll = document.getElementById("select-all");
+    const checkboxes = document.querySelectorAll(".shift-checkbox");
+    if (!selectAll || checkboxes.length === 0) {
+        return;
+    }
+    selectAll.checked = Array.from(checkboxes).every((cb) => cb.checked);
+}
+
 function setupSelectAll() {
     const selectAll = document.getElementById("select-all");
     if (!selectAll || selectAll.dataset.bound === "1") {
@@ -71,7 +80,10 @@ function setupCheckboxes() {
     document.querySelectorAll(".shift-checkbox").forEach((checkbox) => {
         if (checkbox.dataset.bound === "1") return;
         checkbox.dataset.bound = "1";
-        checkbox.addEventListener("change", refreshSelectedCount);
+        checkbox.addEventListener("change", () => {
+            updateSelectAllState();
+            refreshSelectedCount();
+        });
     });
 }
 
@@ -116,6 +128,7 @@ function initializeControls() {
     setupSelectAll();
     setupCheckboxes();
     setupBulkDelete();
+    updateSelectAllState();
     refreshSelectedCount();
 }
 

@@ -22,13 +22,13 @@
           <span class="fa fa-trash"></span> {% trans "Delete selected" %}
         </button>
       {% endif %}
-      <a href="{% url 'plugins:teamshifts:shift_create' organizer=request.event.organizer.slug event=request.event.slug %}" class="btn btn-primary">
+      <a href="{% url 'plugins:teamshifts:shift_create' organizer=request.event.organizer.slug event=request.event.slug %}{% if request.GET.urlencode %}?{{ request.GET.urlencode }}{% endif %}" class="btn btn-primary">
         <i class="fa fa-plus"></i> {% trans "Create Shift" %}
       </a>
     </div>
 
   {% if shifts %}
-    <form method="post" action="{% url 'plugins:teamshifts:shift_bulk_delete' organizer=request.organizer.slug event=request.event.slug %}" id="bulk-action-form">
+    <form method="post" action="{% url 'plugins:teamshifts:shift_bulk_delete' organizer=request.organizer.slug event=request.event.slug %}{% if request.GET.urlencode %}?{{ request.GET.urlencode }}{% endif %}" id="bulk-action-form">
       {% csrf_token %}
       <input type="hidden" name="next" value="{{ request.get_full_path }}">
     </form>
@@ -36,7 +36,7 @@
       <p class="teamshifts-selected-count text-muted" data-shift-selected-count hidden></p>
     {% endif %}
     <div class="table-responsive">
-        <table class="table table-hover table-striped">
+        <table class="table table-hover">
             <thead>
             <tr>
                 <th class="teamshifts-select-all-col">
@@ -48,7 +48,7 @@
                 <th aria-sort="{% if current_ordering == 'name' %}ascending{% elif current_ordering == '-name' %}descending{% else %}none{% endif %}">
                     {% include "teamshifts/_sort_header.html" with label=name_label field="name" current_ordering=current_ordering %}
                 </th>
-                    {% trans "Location" as location_label %}
+                {% trans "Location" as location_label %}
                 <th aria-sort="{% if current_ordering == 'location__name' %}ascending{% elif current_ordering == '-location__name' %}descending{% else %}none{% endif %}">
                     {% include "teamshifts/_sort_header.html" with label=location_label field="location__name" current_ordering=current_ordering %}
                 </th>
@@ -92,15 +92,15 @@
                     <td>{{ shift.start_time|date:"SHORT_DATETIME_FORMAT" }}</td>
                     <td>{{ shift.end_time|date:"SHORT_DATETIME_FORMAT" }}</td>
                     <td class="text-right">
-                        <a href="{% url 'plugins:teamshifts:shift_edit' organizer=request.event.organizer.slug event=request.event.slug pk=shift.pk %}" class="btn btn-default btn-sm" data-toggle="tooltip" title="{% trans 'Edit' %}">
+                        <a href="{% url 'plugins:teamshifts:shift_edit' organizer=request.event.organizer.slug event=request.event.slug pk=shift.pk %}{% if request.GET.urlencode %}?{{ request.GET.urlencode }}{% endif %}" class="btn btn-default btn-sm" data-toggle="tooltip" title="{% trans 'Edit' %}">
                             <i class="fa fa-edit"></i>
                         </a>
                         {% if can_manage_shifts %}
-                        <a href="{% url 'plugins:teamshifts:shift_duplicate' organizer=request.event.organizer.slug event=request.event.slug pk=shift.pk %}" class="btn btn-default btn-sm" data-toggle="tooltip" title="{% trans 'Duplicate' %}">
+                        <a href="{% url 'plugins:teamshifts:shift_duplicate' organizer=request.event.organizer.slug event=request.event.slug pk=shift.pk %}{% if request.GET.urlencode %}?{{ request.GET.urlencode }}{% endif %}" class="btn btn-default btn-sm" data-toggle="tooltip" title="{% trans 'Duplicate' %}">
                             <i class="fa fa-copy"></i>
                         </a>
                         {% endif %}
-                        <a href="{% url 'plugins:teamshifts:shift_delete' organizer=request.event.organizer.slug event=request.event.slug pk=shift.pk %}" class="btn btn-danger btn-sm" data-toggle="tooltip" title="{% trans 'Delete' %}">
+                        <a href="{% url 'plugins:teamshifts:shift_delete' organizer=request.event.organizer.slug event=request.event.slug pk=shift.pk %}{% if request.GET.urlencode %}?{{ request.GET.urlencode }}{% endif %}" class="btn btn-danger btn-sm" data-toggle="tooltip" title="{% trans 'Delete' %}">
                             <i class="fa fa-trash"></i>
                         </a>
                     </td>

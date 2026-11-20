@@ -4,8 +4,9 @@ import json
 import logging
 import re
 import secrets
+import zoneinfo
 from collections import defaultdict
-from datetime import timedelta
+from datetime import datetime, time, timedelta
 from urllib.parse import urlencode, urljoin, urlparse, urlunparse
 
 import dateutil.parser
@@ -21,10 +22,13 @@ from django.db.models import (
     ExpressionWrapper,
     F,
     Func,
+    IntegerField,
     JSONField,
     Max,
+    OuterRef,
     Prefetch,
     Q,
+    Subquery,
     Sum,
     Value,
 )
@@ -131,7 +135,6 @@ from .services.members import (
     accept_manager_as_member,
     add_member_from_organizer,
     hidden_after_removal_filter,
-    my_shifts_page_available,
     remove_members_from_team,
     upcoming_assignment_filter,
 )
@@ -2124,23 +2127,212 @@ class ShiftListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Pagina
         "end_time": ["pk"],
     }
 
+    def _get_event_tz(self, event):
+        return getattr(event, "timezone_object", None) or zoneinfo.ZoneInfo(event.timezone)
+
+    def _get_filter_days(self, event, tz):
+        shift_start_times = Shift.objects.filter(event=event).values_list("start_time", flat=True)
+        day_counts = defaultdict(int)
+        for st in shift_start_times:
+            local_dt = st.astimezone(tz)
+            day_counts[local_dt.date()] += 1
+
+        available_days = []
+        for d in sorted(day_counts.keys()):
+            count = day_counts[d]
+            shift_label = ngettext("%(count)d shift", "%(count)d shifts", count) % {"count": count}
+            formatted_date = f"{d.strftime('%a')}, {d.day} {d.strftime('%b')}"
+            available_days.append(
+                {
+                    "value": d.isoformat(),
+                    "label": f"{formatted_date} ({shift_label})",
+                    "date_label": formatted_date,
+                }
+            )
+        return available_days
+
     def get_queryset(self):
         event = self.request.event
 
         with scope(event=event):
             qs = Shift.objects.filter(event=event).select_related("location").prefetch_related("role_assignments__role")
+
+            q = self.request.GET.get("q", "").strip()
+            if q:
+                qs = qs.filter(name__icontains=q)
+
+            day_val = self.request.GET.get("day", "").strip()
+            if day_val:
+                try:
+                    selected_date = datetime.strptime(day_val, "%Y-%m-%d").date()
+                    tz = self._get_event_tz(event)
+                    day_start = datetime.combine(selected_date, time.min, tzinfo=tz)
+                    day_end = datetime.combine(selected_date, time.max, tzinfo=tz)
+                    qs = qs.filter(start_time__gte=day_start, start_time__lte=day_end)
+                except ValueError:
+                    pass
+
+            loc_val = self.request.GET.get("location", "").strip()
+            if loc_val:
+                try:
+                    qs = qs.filter(location_id=int(loc_val))
+                except ValueError:
+                    pass
+
+            role_val = self.request.GET.get("role", "").strip()
+            if role_val:
+                try:
+                    qs = qs.filter(role_assignments__role_id=int(role_val)).distinct()
+                except ValueError:
+                    pass
+
+            staffing_val = self.request.GET.get("staffing", "").strip()
+            if staffing_val in ("open", "full"):
+                assignment_count_subquery = (
+                    ShiftAssignment.objects.filter(
+                        shift=OuterRef("shift"),
+                        role=OuterRef("role"),
+                    )
+                    .values("shift", "role")
+                    .annotate(cnt=Count("id"))
+                    .values("cnt")
+                )
+                open_roles_qs = (
+                    ShiftRoleAssignment.objects.filter(shift__event=event)
+                    .annotate(assigned=Coalesce(Subquery(assignment_count_subquery, output_field=IntegerField()), 0))
+                    .filter(assigned__lt=F("capacity"))
+                )
+
+                if staffing_val == "open":
+                    qs = qs.filter(role_assignments__in=open_roles_qs).distinct()
+                elif staffing_val == "full":
+                    qs = qs.filter(role_assignments__isnull=False).exclude(role_assignments__in=open_roles_qs).distinct()
             return self.sort_queryset(qs)
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         event = self.request.event
-        ctx["can_manage_shifts"] = has_teamshifts_permission(
-            self.request.user, self.request.organizer, event, "can_teamshifts_create_shifts", request=self.request
-        )
+        tz = self._get_event_tz(event)
+
+        with scope(event=event):
+            available_days = self._get_filter_days(event, tz)
+            day_dict = {d["value"]: d for d in available_days}
+
+            locations = list(ShiftLocation.objects.filter(event=event, shifts__isnull=False).distinct().order_by("position", "name"))
+            loc_dict = {str(loc.pk): loc for loc in locations}
+
+            roles = list(TeamRole.objects.filter(event=event).order_by("name"))
+            role_dict = {str(r.pk): r for r in roles}
+
+            total_shifts_count = Shift.objects.filter(event=event).count()
+
+        q = self.request.GET.get("q", "").strip()
+        day_val = self.request.GET.get("day", "").strip()
+        loc_val = self.request.GET.get("location", "").strip()
+        role_val = self.request.GET.get("role", "").strip()
+        staffing_val = self.request.GET.get("staffing", "").strip()
+
+        active_filter_chips = []
+        if q:
+            active_filter_chips.append(
+                {
+                    "label": _('Search: "%(query)s"') % {"query": q},
+                    "remove_param": "q",
+                }
+            )
+        if day_val:
+            date_label = None
+            if day_val in day_dict:
+                date_label = day_dict[day_val]["date_label"]
+            else:
+                try:
+                    d = datetime.strptime(day_val, "%Y-%m-%d").date()
+                    date_label = f"{d.strftime('%a')}, {d.day} {d.strftime('%b')}"
+                except ValueError:
+                    pass
+            if date_label:
+                active_filter_chips.append(
+                    {
+                        "label": _("Day: %(day)s") % {"day": date_label},
+                        "remove_param": "day",
+                    }
+                )
+        if loc_val:
+            loc_obj = loc_dict.get(loc_val)
+            if not loc_obj:
+                try:
+                    with scope(event=event):
+                        loc_obj = ShiftLocation.objects.filter(event=event, pk=int(loc_val)).first()
+                except (ValueError, TypeError):
+                    pass
+            active_filter_chips.append(
+                {
+                    "label": _("Location: %(loc)s") % {"loc": loc_obj.name if loc_obj else loc_val},
+                    "remove_param": "location",
+                }
+            )
+        if role_val:
+            role_obj = role_dict.get(role_val)
+            if not role_obj:
+                try:
+                    with scope(event=event):
+                        role_obj = TeamRole.objects.filter(event=event, pk=int(role_val)).first()
+                except (ValueError, TypeError):
+                    pass
+            active_filter_chips.append(
+                {
+                    "label": _("Role: %(role)s") % {"role": role_obj.name if role_obj else role_val},
+                    "remove_param": "role",
+                }
+            )
+        if staffing_val == "open":
+            active_filter_chips.append(
+                {
+                    "label": _("Staffing: Has open spots"),
+                    "remove_param": "staffing",
+                }
+            )
+        elif staffing_val == "full":
+            active_filter_chips.append(
+                {
+                    "label": _("Staffing: Fully staffed"),
+                    "remove_param": "staffing",
+                }
+            )
+
+        is_filtered = bool(active_filter_chips)
+
+        ctx["days"] = available_days
+        ctx["locations"] = locations
+        ctx["roles"] = roles
+        ctx["active_filter_chips"] = active_filter_chips
+        ctx["is_filtered"] = is_filtered
+        ctx["total_shifts_count"] = total_shifts_count
+        ctx["matching_shifts_count"] = getattr(self, "object_list", Shift.objects.none()).count()
+
         sort = self.request.GET.get("sort", "")
         sort_field = sort[1:] if sort.startswith("-") else sort
         ctx["current_ordering"] = sort if sort_field in self.sortable_fields else self.default_sort_field
+
+        ctx["can_manage_shifts"] = has_teamshifts_permission(
+            self.request.user, self.request.organizer, event, "can_teamshifts_create_shifts", request=self.request
+        )
         return ctx
+
+
+def _shifts_list_url(event, get_params=None, omit_page=False):
+    url = reverse(
+        "plugins:teamshifts:shifts",
+        kwargs={"organizer": event.organizer.slug, "event": event.slug},
+    )
+    if get_params:
+        params = get_params.copy()
+        if omit_page:
+            params.pop("page", None)
+        query = params.urlencode()
+        if query:
+            url = f"{url}?{query}"
+    return url
 
 
 class BulkShiftDeleteView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):
@@ -2148,28 +2340,20 @@ class BulkShiftDeleteView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, 
 
     def post(self, request, *args, **kwargs):
         event = request.event
+        redirect_url = _shifts_list_url(event, request.GET, omit_page=True)
+
         with scope(event=event):
             shift_ids = [int(v) for v in request.POST.getlist("shift_ids") if str(v).strip().isdigit()]
             if not shift_ids:
                 messages.warning(request, _("No shifts selected."))
-                return redirect(
-                    reverse(
-                        "plugins:teamshifts:shifts",
-                        kwargs={"organizer": event.organizer.slug, "event": event.slug},
-                    )
-                )
+                return redirect(redirect_url)
 
             with transaction.atomic():
                 shifts = Shift.objects.filter(event=event, pk__in=shift_ids)
                 count = shifts.count()
                 if count == 0:
                     messages.warning(request, _("No shifts selected."))
-                    return redirect(
-                        reverse(
-                            "plugins:teamshifts:shifts",
-                            kwargs={"organizer": event.organizer.slug, "event": event.slug},
-                        )
-                    )
+                    return redirect(redirect_url)
                 shifts.delete()
 
             messages.success(
@@ -2181,12 +2365,7 @@ class BulkShiftDeleteView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, 
                 )
                 % {"count": count},
             )
-            return redirect(
-                reverse(
-                    "plugins:teamshifts:shifts",
-                    kwargs={"organizer": event.organizer.slug, "event": event.slug},
-                )
-            )
+            return redirect(redirect_url)
 
 
 class ShiftCreateView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, TemplateView):
@@ -2264,11 +2443,7 @@ class ShiftCreateView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Temp
                 messages.success(request, _("%(count)d shifts created successfully.") % {"count": len(shifts_to_create)})
             else:
                 messages.success(request, _("Shift created successfully."))
-            return redirect(
-                "plugins:teamshifts:shifts",
-                organizer=request.event.organizer.slug,
-                event=request.event.slug,
-            )
+            return redirect(_shifts_list_url(request.event, request.GET))
 
         ctx = self.get_context_data(form=form, formset=formset, has_locations=has_locations)
         messages.error(request, _("We could not save your changes. See below for details."))
@@ -2353,7 +2528,18 @@ class ShiftUpdateView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Temp
                     form.save()
                     formset.save()
                     messages.success(request, _("Shift updated successfully."))
-                    return redirect("plugins:teamshifts:shift_edit", organizer=request.event.organizer.slug, event=request.event.slug, pk=self.shift.pk)
+                    redirect_url = reverse(
+                        "plugins:teamshifts:shift_edit",
+                        kwargs={
+                            "organizer": request.event.organizer.slug,
+                            "event": request.event.slug,
+                            "pk": self.shift.pk,
+                        },
+                    )
+                    query_string = request.GET.urlencode()
+                    if query_string:
+                        redirect_url = f"{redirect_url}?{query_string}"
+                    return redirect(redirect_url)
                 else:
                     messages.error(request, _("We could not save your changes. See below for details."))
                     ctx = self.get_context_data(form=form, formset=formset, has_locations=has_locations)
@@ -2378,13 +2564,7 @@ class ShiftDeleteView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Dele
         return get_object_or_404(Shift, pk=self.kwargs.get("pk"), event=self.request.event)
 
     def get_success_url(self):
-        return reverse(
-            "plugins:teamshifts:shifts",
-            kwargs={
-                "organizer": self.request.event.organizer.slug,
-                "event": self.request.event.slug,
-            },
-        )
+        return _shifts_list_url(self.request.event, self.request.GET, omit_page=True)
 
     def delete(self, request, *args, **kwargs):
         messages.success(request, _("The shift has been deleted."))

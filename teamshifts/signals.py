@@ -278,8 +278,6 @@ def teamshifts_user_menu_item(sender, request=None, icon_class="", **kwargs):
 def teamshifts_nav_global_my_shifts(sender, request=None, **kwargs):
     if request is None or not getattr(request, "user", None) or not request.user.is_authenticated:
         return []
-    if "eventyay_admin" in getattr(getattr(request, "resolver_match", None), "namespaces", []):
-        return []
     with scopes_disabled():
         if not _has_shifts_in_active_events(request.user):
             return []

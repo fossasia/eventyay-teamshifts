@@ -6,6 +6,7 @@
 {% block custom_header %}
     {{ block.super }}
     <link rel="stylesheet" type="text/css" href="{% static 'teamshifts/teamshifts.css' %}">
+    <script defer src="{% static 'teamshifts/list-filters.js' %}"></script>
 {% endblock %}
 
 {% block title %}{% trans "TeamShifts" %} :: {{ request.event.name }}{% endblock %}

@@ -3844,7 +3844,9 @@ class ShiftClaimView(PublicShiftScheduleMixin, View):
                 return fail(_("This shift has already started."))
 
             with transaction.atomic():
-                Shift.objects.select_for_update().get(pk=shift.pk, event=event)
+                locked_shift = Shift.objects.select_for_update().get(pk=shift.pk, event=event)
+                if locked_shift.start_time <= now():
+                    return fail(_("This shift has already started."))
                 sra_locked = ShiftRoleAssignment.objects.select_for_update().get(pk=sra.pk)
                 existing = ShiftAssignment.objects.select_for_update().filter(shift=shift, team_member=request.user).first()
                 if existing and existing.role_id and existing.role_id != sra.role_id:

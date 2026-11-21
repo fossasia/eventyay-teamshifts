@@ -4,8 +4,9 @@ import json
 import logging
 import re
 import secrets
+import zoneinfo
 from collections import defaultdict
-from datetime import timedelta
+from datetime import datetime, time, timedelta
 from urllib.parse import urlencode, urljoin, urlparse, urlunparse
 
 import dateutil.parser
@@ -14,7 +15,25 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied
 from django.db import IntegrityError, transaction
-from django.db.models import Count, DurationField, ExpressionWrapper, F, Max, Prefetch, Q, Sum
+from django.db.models import (
+    CharField,
+    Count,
+    DurationField,
+    ExpressionWrapper,
+    F,
+    Func,
+    IntegerField,
+    JSONField,
+    Max,
+    OuterRef,
+    Prefetch,
+    Q,
+    Subquery,
+    Sum,
+    Value,
+)
+from django.db.models.fields.json import KeyTextTransform
+from django.db.models.functions import Cast, Coalesce, Lower, NullIf
 from django.forms import inlineformset_factory
 from django.forms.models import model_to_dict
 from django.http import FileResponse, Http404, HttpResponse, HttpResponseBadRequest, HttpResponseRedirect, JsonResponse
@@ -28,7 +47,7 @@ from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.timezone import now
 from django.utils.translation import get_language, get_language_info, gettext_lazy as _, ngettext
 from django.views.decorators.csrf import ensure_csrf_cookie
-from django.views.generic import DeleteView, FormView, ListView, TemplateView, View
+from django.views.generic import DeleteView, FormView, ListView, RedirectView, TemplateView, View
 from django_scopes import scope, scopes_disabled
 from eventyay.base.i18n import LazyI18nString, language
 from eventyay.base.models import Event, User
@@ -36,6 +55,7 @@ from eventyay.base.templatetags.rich_text import compile_email_body, rich_text
 from eventyay.base.views.tasks import AsyncAction
 from eventyay.common.text.path import safe_filename
 from eventyay.common.text.phrases import phrases
+from eventyay.common.views.mixins import Sortable
 from eventyay.control.forms.orders import ExporterForm
 from eventyay.control.views import PaginationMixin
 
@@ -75,7 +95,6 @@ from .models import (
     MemberVoucher,
     Shift,
     ShiftAssignment,
-    ShiftCalendarToken,
     ShiftLocation,
     ShiftRoleAssignment,
     TeamApplicationAnswer,
@@ -107,10 +126,11 @@ from .services.email import (
     queue_email,
     queue_lifecycle_email,
     queue_shift_notification_email,
+    queue_shift_summary_email,
+    split_send_to,
     update_queued_email,
 )
 from .services.members import (
-    IN_PROGRESS_ASSIGNMENT,
     AlreadyMemberError,
     accept_manager_as_member,
     add_member_from_organizer,
@@ -322,19 +342,31 @@ class RichTextPreviewView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, 
         return JsonResponse({"html": str(rich_text(html)) if html else ""})
 
 
-class TeamRoleListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):
+class TeamRoleListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Sortable, View):
     permission = None
     template_name = "teamshifts/roles.html"
+    default_sort_field = "name"
+    sortable_fields = ("name", "is_restricted")
+    secondary_sort = {"is_restricted": ["name", "pk"]}
 
     def get(self, request, *args, **kwargs):
         with scope(event=request.event):
-            roles = list(TeamRole.objects.filter(event=request.event))
+            roles = list(self.sort_queryset(TeamRole.objects.filter(event=request.event)))
+            ordering = request.GET.get("sort", "")
+            sort_field = ordering[1:] if ordering.startswith("-") else ordering
+            ordering = ordering if sort_field in self.sortable_fields else self.default_sort_field
         allowed = get_allowed_role_ids(request.user, request.organizer, request.event, request=request)
         can_create = has_teamshifts_permission(request.user, request.organizer, request.event, "can_teamshifts_create_roles", request=request)
         return render(
             request,
             self.template_name,
-            {"roles": roles, "form": TeamRoleForm() if can_create else None, "allowed_role_ids": allowed, "can_create_roles": can_create},
+            {
+                "roles": roles,
+                "form": TeamRoleForm() if can_create else None,
+                "allowed_role_ids": allowed,
+                "can_create_roles": can_create,
+                "current_ordering": ordering,
+            },
         )
 
     def post(self, request, *args, **kwargs):
@@ -349,9 +381,22 @@ class TeamRoleListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Vie
             messages.success(request, _("Role '%s' created.") % role.name)
             return redirect("plugins:teamshifts:roles", organizer=request.organizer.slug, event=request.event.slug)
         with scope(event=request.event):
-            roles = list(TeamRole.objects.filter(event=request.event))
+            ordering = request.GET.get("sort", "")
+            sort_field = ordering[1:] if ordering.startswith("-") else ordering
+            ordering = ordering if sort_field in self.sortable_fields else self.default_sort_field
+            roles = list(self.sort_queryset(TeamRole.objects.filter(event=request.event)))
         allowed = get_allowed_role_ids(request.user, request.organizer, request.event, request=request)
-        return render(request, self.template_name, {"roles": roles, "form": form, "allowed_role_ids": allowed, "can_create_roles": True})
+        return render(
+            request,
+            self.template_name,
+            {
+                "roles": roles,
+                "form": form,
+                "allowed_role_ids": allowed,
+                "can_create_roles": True,
+                "current_ordering": ordering,
+            },
+        )
 
 
 class TeamRoleDeleteView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):
@@ -408,8 +453,6 @@ class EmailTemplateListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin
         with scope(event=event):
             cfm, _created = CallForTeamMembers.objects.get_or_create(event=event)
 
-        from .mail.default_templates import get_default_template
-
         panels = []
         for role in EmailTemplateRoles.values:
             with scope(event=event):
@@ -423,13 +466,13 @@ class EmailTemplateListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin
             )
             is_customised = False
             if template.pk:
-                default_subject, default_body = get_default_template(role)
-                db_subject = str(template.subject).replace("\r\n", "\n").strip()
-                db_body = str(template.body).replace("\r\n", "\n").strip()
-                def_subject = str(default_subject).replace("\r\n", "\n").strip()
-                def_body = str(default_body).replace("\r\n", "\n").strip()
-                if db_subject != def_subject or db_body != def_body:
-                    is_customised = True
+                default_subject, default_body = cfm.default_mail_texts(role)
+                # Check every event language, so an edit in a secondary language still counts.
+                is_customised = any(
+                    _normalised(stored, locale) != _normalised(default, locale)
+                    for locale in event.locales
+                    for stored, default in ((template.subject, default_subject), (template.body, default_body))
+                )
             panels.append(
                 {
                     "role": role,
@@ -601,6 +644,30 @@ class EmailTemplateEditView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin
                 "role_label": EmailTemplateRoles(template.role).label,
                 "email_placeholders": placeholder_help(request.event, mail_context(template.role)),
             },
+        )
+
+
+def _normalised(text, locale):
+    value = text.localize(locale) if hasattr(text, "localize") else text
+    return str(value or "").replace("\r\n", "\n").strip()
+
+
+class EmailTemplateResetView(EmailTemplateEditView):
+    template_name = "teamshifts/email_template_reset.html"
+
+    def get(self, request, *args, **kwargs):
+        template = self._get_or_seed(request, kwargs["role"])
+        return render(request, self.template_name, {"role_label": EmailTemplateRoles(template.role).label})
+
+    def post(self, request, *args, **kwargs):
+        template = self._get_or_seed(request, kwargs["role"])
+        with scope(event=request.event):
+            request.event.call_for_team_members.reset_mail_template(template.role)
+        messages.success(request, _("Template reset to the default text."))
+        return redirect(
+            "plugins:teamshifts:email_templates",
+            organizer=request.organizer.slug,
+            event=request.event.slug,
         )
 
 
@@ -830,16 +897,26 @@ class QuestionToggleView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, V
         return JsonResponse({"success": True, "field": field, "value": value})
 
 
-class ApplicationListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, PaginationMixin, ListView):
+class ApplicationListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, PaginationMixin, Sortable, ListView):
     permission = None
     template_name = "teamshifts/applications.html"
     context_object_name = "applications"
+    default_sort_field = "-created_at"
+    sortable_fields = ("user__fullname", "status", "created_at")
+    secondary_sort = {
+        "user__fullname": ["pk"],
+        "status": ["pk"],
+        "created_at": ["pk"],
+    }
 
     def get_queryset(self):
         event = self.request.event
         with scope(event=event):
             qs = (
-                TeamMemberApplication.objects.filter(Q(added_by_organizer=False) | Q(status=ApplicationStatus.REMOVED), event=event)
+                TeamMemberApplication.objects.filter(
+                    Q(added_by_organizer=False) | Q(status=ApplicationStatus.REMOVED),
+                    event=event,
+                )
                 .select_related("user")
                 .prefetch_related("answers__question")
                 .order_by("-created_at")
@@ -857,7 +934,8 @@ class ApplicationListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, 
                     qs = qs.filter(Q(user__email__icontains=search) | Q(user__fullname__icontains=search))
                 else:
                     qs = qs.filter(Q(user__fullname__icontains=search))
-            return qs
+
+            return self.sort_queryset(qs)
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -932,6 +1010,9 @@ class ApplicationListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, 
                 self.request.user, self.request.organizer, event, "can_teamshifts_manage_applicants", request=self.request
             )
             ctx["search"] = search
+            sort = self.request.GET.get("sort", "")
+            sort_field = sort[1:] if sort.startswith("-") else sort
+            ctx["current_ordering"] = sort if sort_field in self.sortable_fields else self.default_sort_field
         return ctx
 
 
@@ -1195,6 +1276,7 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
         kwargs["event"] = self.request.event
         kwargs["show_emails"] = can_view_email_addresses(self.request.user, self.request.organizer, self.request.event, request=self.request)
         kwargs["draft_save"] = self.request.POST.get("action") == "draft"
+        kwargs["require_people"] = getattr(self, "_require_people", False)
         return kwargs
 
     def get_draft(self):
@@ -1226,13 +1308,8 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
         if draft is not None:
             initial["subject"] = draft.subject
             initial["message"] = draft.message
+            self._restore_draft_recipients(draft, initial)
             initial["send_after"] = draft.send_after
-            if draft.individual_recipients:
-                with scope(event=self.request.event):
-                    initial["individual_volunteers"] = list(draft.recipients.filter(user__isnull=False).values_list("user_id", flat=True))
-                initial["status"] = ApplicationStatus.ACCEPTED
-            else:
-                initial["status"] = draft.status_filter or ""
             return initial
         copy_pk = self.request.GET.get("copy")
         if copy_pk and copy_pk.isdigit():
@@ -1243,14 +1320,38 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
                     return initial
             initial["subject"] = source.subject
             initial["message"] = source.message
-            initial["status"] = ApplicationStatus.ACCEPTED if source.individual_recipients else source.status_filter or ""
+            # A copy starts from the "Send to" dropdown; only reopening a draft restores hand-picked people.
+            initial["status"] = ApplicationStatus.ACCEPTED if source.individual_recipients else source.recipient_group or source.status_filter or ""
         return initial
+
+    def _restore_draft_recipients(self, draft, initial):
+        if not draft.individual_recipients:
+            initial["status"] = draft.recipient_group or draft.status_filter or ""
+            return
+        initial["status"] = ApplicationStatus.ACCEPTED
+        with scope(event=self.request.event):
+            initial["individual_volunteers"] = list(
+                draft.recipients.filter(user__team_member_applications__event=self.request.event).values_list("user_id", flat=True)
+            )
+        # A specific-people draft never falls back to the dropdown: with nobody left to restore, a new selection is required.
+        self._require_people = not initial["individual_volunteers"]
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx["preview_recipients"] = getattr(self, "_preview_recipients", None)
         ctx["can_view_email"] = can_view_email_addresses(self.request.user, self.request.organizer, self.request.event, request=self.request)
         ctx["draft"] = self.get_draft()
+        with scope(event=self.request.event):
+            ctx["custom_templates"] = list(TeamShiftsCustomEmailTemplate.objects.filter(event=self.request.event))
+
+        ctx["custom_templates_data"] = [
+            {
+                "id": template.pk,
+                "subject": template.subject.data,
+                "body": template.body.data,
+            }
+            for template in ctx["custom_templates"]
+        ]
         return ctx
 
     def form_invalid(self, form):
@@ -1263,15 +1364,21 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
             status = request.POST.get("status") or ""
             posted_volunteers = request.POST.getlist("individual_volunteers")
             volunteer_ids = [pk for pk in map(valid_user_pk, posted_volunteers) if pk is not None]
-            # An unusable explicit selection must never fall back to the (broader) status filter.
-            recipients = get_recipients(event, status=status, user_ids=volunteer_ids) if volunteer_ids or not posted_volunteers else []
+            if status not in dict(EmailComposeForm(event=event, initial=self.get_initial()).fields["status"].choices):
+                status = ApplicationStatus.ACCEPTED
+            status_filter, recipient_group = split_send_to(status)
+            # An unusable explicit selection must never fall back to the (broader) "Send to" choice.
+            if volunteer_ids or not posted_volunteers:
+                recipients = get_recipients(event, status=status_filter, group=recipient_group, user_ids=volunteer_ids)
+            else:
+                recipients = []
             self._preview_recipients = recipients
             locales = list(event.settings.get("locales") or [event.settings.locale])
             subject_i18n = LazyI18nString({locales[i]: request.POST.get(f"subject_{i}", "") for i in range(len(locales))})
             message_i18n = LazyI18nString({locales[i]: request.POST.get(f"message_{i}", "") for i in range(len(locales))})
             form = EmailComposeForm(
                 event=event,
-                show_emails=self.get_form_kwargs()["show_emails"],
+                show_emails=can_view_email_addresses(request.user, request.organizer, event, request=request),
                 initial={
                     "status": status,
                     "individual_volunteers": volunteer_ids,
@@ -1285,11 +1392,11 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
 
     def form_valid(self, form):
         event = self.request.event
-        volunteer_ids = [volunteer.pk for volunteer in form.cleaned_data.get("individual_volunteers") or ()]
-        status = "" if volunteer_ids else form.cleaned_data.get("status") or ""
+        people = list(form.cleaned_data.get("individual_volunteers") or [])
+        status, recipient_group = ("", "") if people else split_send_to(form.cleaned_data.get("status") or "")
         send_after = form.cleaned_data.get("send_after")
 
-        recipients = get_recipients(event, status=status, user_ids=volunteer_ids)
+        recipients = people or get_recipients(event, status=status, group=recipient_group)
 
         action = self.request.POST.get("action")
         if action == "preview":
@@ -1310,7 +1417,8 @@ class EmailComposeView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, For
             "message": form.cleaned_data.get("message") or LazyI18nString(""),
             "recipients": recipients,
             "status_filter": status,
-            "individual_recipients": bool(volunteer_ids),
+            "individual_recipients": bool(people),
+            "recipient_group": recipient_group,
             "send_after": send_after,
             "is_draft": is_draft,
             "dispatch": action not in ("draft", "outbox"),
@@ -1409,46 +1517,102 @@ class ComposeVolunteersSelect2View(PluginActiveMixin, TeamShiftsPermissionRequir
         return JsonResponse({"results": results, "pagination": {"more": total > offset + self.page_size}})
 
 
-class EmailOutboxView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, TemplateView):
+class EmailOutboxView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Sortable, TemplateView):
     permission = "can_teamshifts_send_emails"
     template_name = "teamshifts/emails/outbox_list.html"
+    default_sort_field = "-created"
+    sortable_fields = ("subject", "recipient_count", "send_after", "created")
+    secondary_sort = {"recipient_count": ["-created", "pk"]}
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         event = self.request.event
         with scope(event=event):
             queues = list(
-                TeamShiftsEmailQueue.objects.filter(event=event, sent_at__isnull=True, is_draft=False, user__isnull=False)
-                .select_related("role_filter", "user")
-                .annotate(recipient_count=Count("recipients"))
-                .order_by("-created")
+                self.sort_queryset(
+                    TeamShiftsEmailQueue.objects.filter(event=event, sent_at__isnull=True, is_draft=False, user__isnull=False)
+                    .select_related("role_filter", "user")
+                    .annotate(recipient_count=Count("recipients"))
+                )
             )
         ctx["mails"] = queues
+        sort = self.request.GET.get("sort", "")
+        sort_field = sort[1:] if sort.startswith("-") else sort
+        ctx["current_ordering"] = sort if sort_field in self.sortable_fields else self.default_sort_field
         ctx["can_view_email"] = can_view_email_addresses(self.request.user, self.request.organizer, event, request=self.request)
         return ctx
 
 
-class EmailDraftsView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, TemplateView):
+class EmailDraftsView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Sortable, TemplateView):
     permission = "can_teamshifts_send_emails"
     template_name = "teamshifts/emails/drafts_list.html"
+    default_sort_field = "-updated"
+    sortable_fields = ("subject", "recipient_count", "updated")
+    secondary_sort = {"recipient_count": ["-created", "pk"]}
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         event = self.request.event
         with scope(event=event):
             ctx["mails"] = list(
-                TeamShiftsEmailQueue.objects.filter(event=event, sent_at__isnull=True, is_draft=True, user__isnull=False)
-                .select_related("user")
-                .annotate(recipient_count=Count("recipients"))
-                .order_by("-updated")
+                self.sort_queryset(
+                    TeamShiftsEmailQueue.objects.filter(event=event, sent_at__isnull=True, is_draft=True, user__isnull=False)
+                    .select_related("user")
+                    .annotate(recipient_count=Count("recipients"))
+                )
             )
+        sort = self.request.GET.get("sort", "")
+        sort_field = sort[1:] if sort.startswith("-") else sort
+        ctx["current_ordering"] = sort if sort_field in self.sortable_fields else self.default_sort_field
+        ctx["can_view_email"] = can_view_email_addresses(
+            self.request.user,
+            self.request.organizer,
+            event,
+            request=self.request,
+        )
         return ctx
 
 
-class EmailSentView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, PaginationMixin, ListView):
+class EmailSentView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, PaginationMixin, Sortable, ListView):
     permission = "can_teamshifts_send_emails"
     template_name = "teamshifts/emails/sent_list.html"
     context_object_name = "mails"
+    default_sort_field = "-sent_at"
+    sortable_fields = ("subject", "sent_at")
+
+    def sort_queryset(self, qs):
+        sort = self.request.GET.get("sort", "")
+        if sort in ("subject", "-subject"):
+            queue_subject = Cast(
+                NullIf("queue__subject", Value("")),
+                JSONField(),
+            )
+            first_translation = Func(
+                Func(
+                    queue_subject,
+                    Value("$.*"),
+                    function="jsonb_path_query_first",
+                    output_field=JSONField(),
+                ),
+                template="(%(expressions)s) #>> '{}'",
+                output_field=CharField(),
+            )
+            qs = qs.annotate(
+                sort_subject=Coalesce(
+                    NullIf("subject", Value("")),
+                    KeyTextTransform(get_language(), queue_subject),
+                    KeyTextTransform("en", queue_subject),
+                    NullIf(first_translation, Value("")),
+                    output_field=CharField(),
+                )
+            )
+            qs = qs.annotate(sort_subject_lower=Lower("sort_subject"))
+            qs = qs.order_by(
+                ("-" if sort.startswith("-") else "") + "sort_subject_lower",
+                "-pk" if sort.startswith("-") else "pk",
+            )
+            return qs
+        return super().sort_queryset(qs)
 
     def get_queryset(self):
         event = self.request.event
@@ -1457,21 +1621,33 @@ class EmailSentView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Pagina
                 TeamShiftsEmailQueueRecipient.objects.filter(queue__event=event, sent_at__isnull=False)
                 .filter(Q(queue__user__isnull=False) | ~Q(queue__mail_type=""))
                 .select_related("queue", "user")
-                .order_by("-sent_at", "-pk")
             )
 
             search = self.request.GET.get("q", "").strip()
             if search:
                 condition = Q(subject__icontains=search) | Q(subject="", queue__subject__icontains=search) | Q(user__fullname__icontains=search)
-                if can_view_email_addresses(self.request.user, self.request.organizer, event, request=self.request):
+                if can_view_email_addresses(
+                    self.request.user,
+                    self.request.organizer,
+                    event,
+                    request=self.request,
+                ):
                     condition |= Q(email__icontains=search)
                 qs = qs.filter(condition)
-        return qs
+        return self.sort_queryset(qs)
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx["search"] = self.request.GET.get("q", "").strip()
-        ctx["can_view_email"] = can_view_email_addresses(self.request.user, self.request.organizer, self.request.event, request=self.request)
+        ctx["can_view_email"] = can_view_email_addresses(
+            self.request.user,
+            self.request.organizer,
+            self.request.event,
+            request=self.request,
+        )
+        sort = self.request.GET.get("sort", "")
+        sort_field = sort[1:] if sort.startswith("-") else sort
+        ctx["current_ordering"] = sort if sort_field in self.sortable_fields else self.default_sort_field
         return ctx
 
 
@@ -1607,23 +1783,48 @@ class EmailQueueSendNowView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin
         )
 
 
-class ShiftLocationListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):
+class ShiftLocationListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Sortable, View):
     permission = "can_teamshifts_create_shifts"
     template_name = "teamshifts/locations.html"
+    default_sort_field = "position"
+    sortable_fields = ("name", "linked_room", "position")
+    secondary_sort = {"position": ["name"]}
 
     def get(self, request, *args, **kwargs):
+        ordering = request.GET.get("sort") or self.default_sort_field
+
         with scope(event=request.event):
-            locations = list(ShiftLocation.objects.filter(event=request.event).select_related("linked_room"))
+            qs = ShiftLocation.objects.filter(event=request.event).select_related("linked_room")
+
+            if ordering in ("name", "-name"):
+                qs = qs.order_by(
+                    Coalesce("linked_room__name", "name").desc() if ordering == "-name" else Coalesce("linked_room__name", "name").asc(),
+                    "-pk" if ordering.startswith("-") else "pk",
+                )
+            elif ordering in ("linked_room", "-linked_room"):
+                desc = ordering.startswith("-")
+                qs = qs.order_by(
+                    F("linked_room_id").desc(nulls_last=True) if desc else F("linked_room_id").asc(nulls_first=True),
+                    "name",
+                    "-pk" if desc else "pk",
+                )
+            else:
+                ordering = self.default_sort_field
+                qs = self.sort_queryset(qs)
+
+            locations = list(qs)
             already_linked_room_ids = {loc.linked_room_id for loc in locations if loc.linked_room_id is not None}
             importable_rooms = list(
                 request.event.rooms.filter(deleted=False, is_unscheduled=False).exclude(pk__in=already_linked_room_ids).order_by("position", "pk")
             )
+
         return render(
             request,
             self.template_name,
             {
                 "locations": locations,
                 "importable_rooms": importable_rooms,
+                "current_ordering": ordering,
             },
         )
 
@@ -1888,24 +2089,226 @@ class ImportTalksRoomsView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin,
         return redirect("plugins:teamshifts:locations", organizer=request.organizer.slug, event=request.event.slug)
 
 
-class ShiftListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, PaginationMixin, ListView):
+class ShiftListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, PaginationMixin, Sortable, ListView):
     permission = "can_teamshifts_create_shifts"
     template_name = "teamshifts/shifts.html"
     context_object_name = "shifts"
     DEFAULT_PAGINATION = 50
+    default_sort_field = "start_time"
+    sortable_fields = ("name", "location__name", "start_time", "end_time")
+    secondary_sort = {
+        "name": ["pk"],
+        "location__name": ["start_time", "pk"],
+        "start_time": ["end_time", "name", "pk"],
+        "end_time": ["pk"],
+    }
+
+    def _get_event_tz(self, event):
+        return getattr(event, "timezone_object", None) or zoneinfo.ZoneInfo(event.timezone)
+
+    def _get_filter_days(self, event, tz):
+        shift_start_times = Shift.objects.filter(event=event).values_list("start_time", flat=True)
+        day_counts = defaultdict(int)
+        for st in shift_start_times:
+            local_dt = st.astimezone(tz)
+            day_counts[local_dt.date()] += 1
+
+        available_days = []
+        for d in sorted(day_counts.keys()):
+            count = day_counts[d]
+            shift_label = ngettext("%(count)d shift", "%(count)d shifts", count) % {"count": count}
+            formatted_date = f"{d.strftime('%a')}, {d.day} {d.strftime('%b')}"
+            available_days.append(
+                {
+                    "value": d.isoformat(),
+                    "label": f"{formatted_date} ({shift_label})",
+                    "date_label": formatted_date,
+                }
+            )
+        return available_days
 
     def get_queryset(self):
         event = self.request.event
+
         with scope(event=event):
-            return Shift.objects.filter(event=event).select_related("location").prefetch_related("role_assignments__role").order_by("start_time", "pk")
+            qs = Shift.objects.filter(event=event).select_related("location").prefetch_related("role_assignments__role")
+
+            q = self.request.GET.get("q", "").strip()
+            if q:
+                qs = qs.filter(name__icontains=q)
+
+            day_val = self.request.GET.get("day", "").strip()
+            if day_val:
+                try:
+                    selected_date = datetime.strptime(day_val, "%Y-%m-%d").date()
+                    tz = self._get_event_tz(event)
+                    day_start = datetime.combine(selected_date, time.min, tzinfo=tz)
+                    day_end = datetime.combine(selected_date, time.max, tzinfo=tz)
+                    qs = qs.filter(start_time__gte=day_start, start_time__lte=day_end)
+                except ValueError:
+                    pass
+
+            loc_val = self.request.GET.get("location", "").strip()
+            if loc_val:
+                try:
+                    qs = qs.filter(location_id=int(loc_val))
+                except ValueError:
+                    pass
+
+            role_val = self.request.GET.get("role", "").strip()
+            if role_val:
+                try:
+                    qs = qs.filter(role_assignments__role_id=int(role_val)).distinct()
+                except ValueError:
+                    pass
+
+            staffing_val = self.request.GET.get("staffing", "").strip()
+            if staffing_val in ("open", "full"):
+                assignment_count_subquery = (
+                    ShiftAssignment.objects.filter(
+                        shift=OuterRef("shift"),
+                        role=OuterRef("role"),
+                    )
+                    .values("shift", "role")
+                    .annotate(cnt=Count("id"))
+                    .values("cnt")
+                )
+                open_roles_qs = (
+                    ShiftRoleAssignment.objects.filter(shift__event=event)
+                    .annotate(assigned=Coalesce(Subquery(assignment_count_subquery, output_field=IntegerField()), 0))
+                    .filter(assigned__lt=F("capacity"))
+                )
+
+                if staffing_val == "open":
+                    qs = qs.filter(role_assignments__in=open_roles_qs).distinct()
+                elif staffing_val == "full":
+                    qs = qs.filter(role_assignments__isnull=False).exclude(role_assignments__in=open_roles_qs).distinct()
+            return self.sort_queryset(qs)
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         event = self.request.event
+        tz = self._get_event_tz(event)
+
+        with scope(event=event):
+            available_days = self._get_filter_days(event, tz)
+            day_dict = {d["value"]: d for d in available_days}
+
+            locations = list(ShiftLocation.objects.filter(event=event, shifts__isnull=False).distinct().order_by("position", "name"))
+            loc_dict = {str(loc.pk): loc for loc in locations}
+
+            roles = list(TeamRole.objects.filter(event=event).order_by("name"))
+            role_dict = {str(r.pk): r for r in roles}
+
+            total_shifts_count = Shift.objects.filter(event=event).count()
+
+        q = self.request.GET.get("q", "").strip()
+        day_val = self.request.GET.get("day", "").strip()
+        loc_val = self.request.GET.get("location", "").strip()
+        role_val = self.request.GET.get("role", "").strip()
+        staffing_val = self.request.GET.get("staffing", "").strip()
+
+        active_filter_chips = []
+        if q:
+            active_filter_chips.append(
+                {
+                    "label": _('Search: "%(query)s"') % {"query": q},
+                    "remove_param": "q",
+                }
+            )
+        if day_val:
+            date_label = None
+            if day_val in day_dict:
+                date_label = day_dict[day_val]["date_label"]
+            else:
+                try:
+                    d = datetime.strptime(day_val, "%Y-%m-%d").date()
+                    date_label = f"{d.strftime('%a')}, {d.day} {d.strftime('%b')}"
+                except ValueError:
+                    pass
+            if date_label:
+                active_filter_chips.append(
+                    {
+                        "label": _("Day: %(day)s") % {"day": date_label},
+                        "remove_param": "day",
+                    }
+                )
+        if loc_val:
+            loc_obj = loc_dict.get(loc_val)
+            if not loc_obj:
+                try:
+                    with scope(event=event):
+                        loc_obj = ShiftLocation.objects.filter(event=event, pk=int(loc_val)).first()
+                except (ValueError, TypeError):
+                    pass
+            active_filter_chips.append(
+                {
+                    "label": _("Location: %(loc)s") % {"loc": loc_obj.name if loc_obj else loc_val},
+                    "remove_param": "location",
+                }
+            )
+        if role_val:
+            role_obj = role_dict.get(role_val)
+            if not role_obj:
+                try:
+                    with scope(event=event):
+                        role_obj = TeamRole.objects.filter(event=event, pk=int(role_val)).first()
+                except (ValueError, TypeError):
+                    pass
+            active_filter_chips.append(
+                {
+                    "label": _("Role: %(role)s") % {"role": role_obj.name if role_obj else role_val},
+                    "remove_param": "role",
+                }
+            )
+        if staffing_val == "open":
+            active_filter_chips.append(
+                {
+                    "label": _("Staffing: Has open spots"),
+                    "remove_param": "staffing",
+                }
+            )
+        elif staffing_val == "full":
+            active_filter_chips.append(
+                {
+                    "label": _("Staffing: Fully staffed"),
+                    "remove_param": "staffing",
+                }
+            )
+
+        is_filtered = bool(active_filter_chips)
+
+        ctx["days"] = available_days
+        ctx["locations"] = locations
+        ctx["roles"] = roles
+        ctx["active_filter_chips"] = active_filter_chips
+        ctx["is_filtered"] = is_filtered
+        ctx["total_shifts_count"] = total_shifts_count
+        ctx["matching_shifts_count"] = getattr(self, "object_list", Shift.objects.none()).count()
+
+        sort = self.request.GET.get("sort", "")
+        sort_field = sort[1:] if sort.startswith("-") else sort
+        ctx["current_ordering"] = sort if sort_field in self.sortable_fields else self.default_sort_field
+
         ctx["can_manage_shifts"] = has_teamshifts_permission(
             self.request.user, self.request.organizer, event, "can_teamshifts_create_shifts", request=self.request
         )
         return ctx
+
+
+def _shifts_list_url(event, get_params=None, omit_page=False):
+    url = reverse(
+        "plugins:teamshifts:shifts",
+        kwargs={"organizer": event.organizer.slug, "event": event.slug},
+    )
+    if get_params:
+        params = get_params.copy()
+        if omit_page:
+            params.pop("page", None)
+        query = params.urlencode()
+        if query:
+            url = f"{url}?{query}"
+    return url
 
 
 class BulkShiftDeleteView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):
@@ -1913,28 +2316,20 @@ class BulkShiftDeleteView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, 
 
     def post(self, request, *args, **kwargs):
         event = request.event
+        redirect_url = _shifts_list_url(event, request.GET, omit_page=True)
+
         with scope(event=event):
             shift_ids = [int(v) for v in request.POST.getlist("shift_ids") if str(v).strip().isdigit()]
             if not shift_ids:
                 messages.warning(request, _("No shifts selected."))
-                return redirect(
-                    reverse(
-                        "plugins:teamshifts:shifts",
-                        kwargs={"organizer": event.organizer.slug, "event": event.slug},
-                    )
-                )
+                return redirect(redirect_url)
 
             with transaction.atomic():
                 shifts = Shift.objects.filter(event=event, pk__in=shift_ids)
                 count = shifts.count()
                 if count == 0:
                     messages.warning(request, _("No shifts selected."))
-                    return redirect(
-                        reverse(
-                            "plugins:teamshifts:shifts",
-                            kwargs={"organizer": event.organizer.slug, "event": event.slug},
-                        )
-                    )
+                    return redirect(redirect_url)
                 shifts.delete()
 
             messages.success(
@@ -1946,12 +2341,7 @@ class BulkShiftDeleteView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, 
                 )
                 % {"count": count},
             )
-            return redirect(
-                reverse(
-                    "plugins:teamshifts:shifts",
-                    kwargs={"organizer": event.organizer.slug, "event": event.slug},
-                )
-            )
+            return redirect(redirect_url)
 
 
 class ShiftCreateView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, TemplateView):
@@ -2029,11 +2419,7 @@ class ShiftCreateView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Temp
                 messages.success(request, _("%(count)d shifts created successfully.") % {"count": len(shifts_to_create)})
             else:
                 messages.success(request, _("Shift created successfully."))
-            return redirect(
-                "plugins:teamshifts:shifts",
-                organizer=request.event.organizer.slug,
-                event=request.event.slug,
-            )
+            return redirect(_shifts_list_url(request.event, request.GET))
 
         ctx = self.get_context_data(form=form, formset=formset, has_locations=has_locations)
         messages.error(request, _("We could not save your changes. See below for details."))
@@ -2118,7 +2504,18 @@ class ShiftUpdateView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Temp
                     form.save()
                     formset.save()
                     messages.success(request, _("Shift updated successfully."))
-                    return redirect("plugins:teamshifts:shift_edit", organizer=request.event.organizer.slug, event=request.event.slug, pk=self.shift.pk)
+                    redirect_url = reverse(
+                        "plugins:teamshifts:shift_edit",
+                        kwargs={
+                            "organizer": request.event.organizer.slug,
+                            "event": request.event.slug,
+                            "pk": self.shift.pk,
+                        },
+                    )
+                    query_string = request.GET.urlencode()
+                    if query_string:
+                        redirect_url = f"{redirect_url}?{query_string}"
+                    return redirect(redirect_url)
                 else:
                     messages.error(request, _("We could not save your changes. See below for details."))
                     ctx = self.get_context_data(form=form, formset=formset, has_locations=has_locations)
@@ -2143,13 +2540,7 @@ class ShiftDeleteView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Dele
         return get_object_or_404(Shift, pk=self.kwargs.get("pk"), event=self.request.event)
 
     def get_success_url(self):
-        return reverse(
-            "plugins:teamshifts:shifts",
-            kwargs={
-                "organizer": self.request.event.organizer.slug,
-                "event": self.request.event.slug,
-            },
-        )
+        return _shifts_list_url(self.request.event, self.request.GET, omit_page=True)
 
     def delete(self, request, *args, **kwargs):
         messages.success(request, _("The shift has been deleted."))
@@ -2774,15 +3165,24 @@ def _queue_lifecycle_email_safely(application, template_role):
         )
 
 
+def _queue_shift_summary_safely(event, user):
+    try:
+        queue_shift_summary_email(event=event, user=user)
+    except Exception:
+        logger.exception("[TeamShifts] Failed to queue shift summary for user %s", user.pk)
+
+
 def _notify_shift_change_safely(event, user, shift, role, template_role):
     try:
-        queue_shift_notification_email(
-            event=event,
-            user=user,
-            shift=shift,
-            role=role,
-            template_role=template_role,
-        )
+        # Savepoint, so a failed queue write inside the caller's transaction doesn't roll back the shift change.
+        with transaction.atomic():
+            queue_shift_notification_email(
+                event=event,
+                user=user,
+                shift=shift,
+                role=role,
+                template_role=template_role,
+            )
     except Exception:
         logger.exception(
             "[TeamShifts] Failed to queue %s notification for user %s, shift %s",
@@ -2902,11 +3302,9 @@ class ShiftScheduleAssignmentsAPIView(PluginActiveMixin, TeamShiftsPermissionReq
                 if created or previous_role_id != role_id:
                     shift_role_assignment = shift.role_assignments.select_related("role").filter(role_id=role_id).first() if role_id else None
                     role = shift_role_assignment.role if shift_role_assignment else None
-                    transaction.on_commit(
-                        lambda event=event, user=user, shift=shift, role=role: _notify_shift_change_safely(
-                            event, user, shift, role, EmailTemplateRoles.SHIFT_ASSIGNED_BY_ORGANIZER
-                        )
-                    )
+                    # Queued inside the transaction so the email commits with the change, in commit order.
+                    _notify_shift_change_safely(event, user, shift, role, EmailTemplateRoles.SHIFT_ASSIGNED_BY_ORGANIZER)
+                    transaction.on_commit(lambda event=event, user=user: _queue_shift_summary_safely(event, user))
             shift = Shift.objects.prefetch_related(
                 "role_assignments__role",
                 "assignments__team_member",
@@ -2944,9 +3342,19 @@ class ShiftScheduleAssignmentsAPIView(PluginActiveMixin, TeamShiftsPermissionReq
                     {"detail": "You cannot unassign members from this role."},
                     status=400,
                 )
-            assignment = ShiftAssignment.objects.filter(shift=shift, team_member_id=user_id, role_id=role_id).first()
-            if assignment:
-                assignment.delete()
+            with transaction.atomic():
+                # Lock the row so a repeated request waits, then finds nothing and sends no second email.
+                assignment = (
+                    ShiftAssignment.objects.select_for_update(of=("self",))
+                    .select_related("team_member", "role")
+                    .filter(shift=shift, team_member_id=user_id, role_id=role_id)
+                    .first()
+                )
+                if assignment:
+                    user, role = assignment.team_member, assignment.role
+                    assignment.delete()
+                    _notify_shift_change_safely(event, user, shift, role, EmailTemplateRoles.SHIFT_UNASSIGNED_BY_ORGANIZER)
+                    transaction.on_commit(lambda event=event, user=user: _queue_shift_summary_safely(event, user))
             shift = Shift.objects.prefetch_related(
                 "role_assignments__role",
                 "assignments__team_member",
@@ -3417,6 +3825,8 @@ class ShiftClaimView(PublicShiftScheduleMixin, View):
                     defaults={"role_id": sra.role_id, "assigned_by": None},
                 )
             send_email = _resolve_shift_action_emails(self.member_application, requested_send_email)
+            if created or previous_role_id != sra.role_id:
+                transaction.on_commit(lambda event=event, user=request.user: _queue_shift_summary_safely(event, user))
             if send_email and (created or previous_role_id != sra.role_id):
                 transaction.on_commit(
                     lambda event=event, user=request.user, shift=shift, role=sra.role: _notify_shift_change_safely(
@@ -3515,6 +3925,7 @@ class ShiftWithdrawView(PublicShiftScheduleMixin, View):
             if not deleted:
                 return fail(_("You are not signed up for this shift."))
             send_email = _resolve_shift_action_emails(self._email_choice_application(), requested_send_email)
+            transaction.on_commit(lambda event=event, user=request.user: _queue_shift_summary_safely(event, user))
             if send_email:
                 transaction.on_commit(
                     lambda event=event, user=request.user, shift=shift, role=role: _notify_shift_change_safely(
@@ -3638,72 +4049,68 @@ def _notify_organizers_new_application(event, application):
     )
 
 
-class MyShiftsView(PublicShiftScheduleMixin, TemplateView):
-    template_name = "teamshifts/my_shifts.html"
-    redirect_unpublished_to_schedule = False
-    allow_teamshifts_managers = True
+class MyShiftsRedirectView(RedirectView):
+    permanent = False
+    query_string = False
 
-    def get_context_data(self, **kwargs):
-        ctx = super().get_context_data(**kwargs)
-        event = self.event
-        with scopes_disabled():
-            assignments = (
-                ShiftAssignment.objects.filter(
-                    team_member=self.request.user,
-                    shift__event=event,
-                    shift__event__plugins__contains="teamshifts",
-                )
-                .select_related(
-                    "shift",
-                    "shift__event",
-                    "shift__event__organizer",
-                    "shift__location",
-                    "role",
-                    "assigned_by",
-                )
-                .order_by("shift__start_time")
-            )
-        shifts_by_day = defaultdict(list)
-        for assignment in assignments:
-            local_start = assignment.shift.start_time.astimezone(assignment.shift.event.tz)
-            day = local_start.date()
-            shifts_by_day[day].append(assignment)
-        ctx["shifts_by_day"] = dict(shifts_by_day)
-        ctx["event"] = event
-        ctx["now"] = now()
-        return ctx
+    def get_redirect_url(self, *args, **kwargs):
+        url = reverse("plugins:teamshifts:my_shifts_global")
+        query = self.request.META.get("QUERY_STRING", "")
+        if query:
+            url = f"{url}?{query}"
+        return url
 
 
-class ShiftCheckOutView(PublicShiftScheduleMixin, View):
-    redirect_unpublished_to_schedule = False
+class ShiftCheckOutRedirectView(View):
+    def dispatch(self, request, *args, **kwargs):
+        query = request.META.get("QUERY_STRING", "")
+        if request.method == "POST":
+            url = reverse("plugins:teamshifts:shift_checkout", kwargs={"pk": kwargs["pk"]})
+            if query:
+                url = f"{url}?{query}"
+            response = HttpResponseRedirect(url)
+            response.status_code = 307
+            return response
+        url = reverse("plugins:teamshifts:my_shifts_global")
+        if query:
+            url = f"{url}?{query}"
+        return redirect(url)
 
-    def _can_access_schedule(self, request):
-        if super()._can_access_schedule(request):
-            return True
-        # Someone removed from the team mid-shift may still close the shift they had started,
-        # so its hours count. Nothing else is opened up for them.
-        with scope(event=self.event):
-            removed = TeamMemberApplication.objects.filter(event=self.event, user=request.user, status=ApplicationStatus.REMOVED).exists()
-            return removed and ShiftAssignment.objects.filter(IN_PROGRESS_ASSIGNMENT, team_member=request.user, shift__event=self.event).exists()
 
+class ShiftCheckOutView(LoginRequiredMixin, View):
     def post(self, request, *args, **kwargs):
-        event = self.event
         assignment_pk = kwargs["pk"]
 
-        with scope(event=event), transaction.atomic():
+        with scopes_disabled(), transaction.atomic():
             assignment = (
                 ShiftAssignment.objects.select_for_update()
                 .filter(
                     pk=assignment_pk,
                     team_member=request.user,
-                    shift__event=event,
+                    shift__event__plugins__contains="teamshifts",
                 )
-                .select_related("shift")
+                .select_related("shift", "shift__event")
                 .first()
             )
 
             if assignment is None:
                 return JsonResponse({"status": "error", "error": str(_("Shift assignment not found."))}, status=404)
+
+            # Someone removed from the team mid-shift may still close the shift they had started,
+            # so its hours count. Nothing else is opened up for them.
+            allowed_statuses = [ApplicationStatus.ACCEPTED]
+            if assignment.started_at and not assignment.ended_at:
+                allowed_statuses.append(ApplicationStatus.REMOVED)
+            may_check_out = TeamMemberApplication.objects.filter(
+                user=request.user,
+                event=assignment.shift.event,
+                status__in=allowed_statuses,
+            ).exists()
+            if not may_check_out:
+                return JsonResponse(
+                    {"status": "error", "error": str(_("You need to be an accepted team member to check out of this shift."))},
+                    status=403,
+                )
 
             current_time = now()
 
@@ -3726,20 +4133,6 @@ class ShiftCheckOutView(PublicShiftScheduleMixin, View):
 class MyShiftsGlobalView(LoginRequiredMixin, TemplateView):
     template_name = "teamshifts/my_shifts_global.html"
 
-    def dispatch(self, request, *args, **kwargs):
-        if not request.user.is_authenticated:
-            return super().dispatch(request, *args, **kwargs)
-        with scopes_disabled():
-            has_active = (
-                ShiftAssignment.objects.filter(team_member=request.user, shift__event__plugins__contains="teamshifts")
-                .exclude(hidden_after_removal_filter(request.user))
-                .exists()
-            )
-            has_calendar_token = ShiftCalendarToken.objects.filter(user=request.user).exists()
-        if not has_active and not has_calendar_token:
-            raise Http404
-        return super().dispatch(request, *args, **kwargs)
-
     def get_context_data(self, **kwargs):
         from .forms import MyShiftsFilterForm
 
@@ -3760,7 +4153,7 @@ class MyShiftsGlobalView(LoginRequiredMixin, TemplateView):
                     "role",
                     "assigned_by",
                 )
-                .order_by("shift__event__name", "shift__start_time")
+                .order_by("shift__event__name", "shift__event_id", "shift__start_time")
             )
 
             if filter_form.is_valid():
@@ -3771,13 +4164,11 @@ class MyShiftsGlobalView(LoginRequiredMixin, TemplateView):
                 if search:
                     qs = qs.filter(shift__name__icontains=search)
 
-        shifts_by_event = defaultdict(list)
-        for assignment in qs:
-            shifts_by_event[assignment.shift.event].append(assignment)
-        ctx["shifts_by_event"] = dict(shifts_by_event)
+        assignments = list(qs)
+        ctx["assignments"] = assignments
         ctx["filter_form"] = filter_form
 
-        event_ids = {e.pk for e in shifts_by_event}
+        event_ids = {assignment.shift.event_id for assignment in assignments}
         with scopes_disabled():
             from .models import MemberCertificate
 
@@ -3791,16 +4182,26 @@ class MyShiftsGlobalView(LoginRequiredMixin, TemplateView):
                 .exclude(file="")
                 .values_list("application__event_id", flat=True)
             )
+            # Events from which a member was removed only list the shift still in progress there,
+            # which they may still check out of.
+            checkout_event_ids = set(
+                TeamMemberApplication.objects.filter(
+                    user=self.request.user,
+                    event_id__in=event_ids,
+                    status__in=[ApplicationStatus.ACCEPTED, ApplicationStatus.REMOVED],
+                ).values_list("event_id", flat=True)
+            )
             published_event_ids = set(
                 CallForTeamMembers.objects.filter(event_id__in=event_ids, shift_schedule_published=True).values_list("event_id", flat=True)
             )
         ctx["cert_event_ids"] = cert_event_ids
+        ctx["checkout_event_ids"] = checkout_event_ids
         ctx["published_event_ids"] = published_event_ids
         ctx["now"] = now()
 
         token = get_or_create_calendar_token(self.request.user)
         ctx["calendar_links"] = _my_shifts_calendar_links(token.token)
-        ctx["event_calendar_links"] = {event.pk: _my_shifts_calendar_links(token.token, event.pk) for event in shifts_by_event}
+        ctx["event_calendar_links"] = {event_id: _my_shifts_calendar_links(token.token, event_id) for event_id in event_ids}
         return ctx
 
 

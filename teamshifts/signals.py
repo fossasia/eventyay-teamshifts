@@ -24,6 +24,7 @@ from .permissions import has_any_teamshifts_permission
 from .services.certificates import events_awaiting_certificates, issue_event_end_certificates_task
 from .services.checkin import handle_volunteer_checkin, handle_volunteer_checkout
 from .services.reminders import my_shifts_url
+from .services.shift_summary import build_shift_summary_sample
 from .tasks import send_queued_email
 
 logger = logging.getLogger(__name__)
@@ -182,8 +183,15 @@ def teamshifts_mail_placeholders(sender, **kwargs):
             "my_shifts_url",
             ["event"],
             lambda event: my_shifts_url(),
-            lambda event: "https://example.com/common/my-shifts/",
+            lambda event: my_shifts_url(),
             _("Link to the volunteer's My Shifts page"),
+        ),
+        TeamShiftsMailPlaceholder(
+            "shift_summary",
+            ["shift_summary"],
+            lambda shift_summary: shift_summary,
+            build_shift_summary_sample,
+            _("The volunteer's current shifts (daily shift summary only)"),
         ),
         TeamShiftsMailPlaceholder(
             "shift_list",
@@ -270,7 +278,7 @@ def teamshifts_nav_global_my_shifts(sender, request=None, **kwargs):
             return []
     return [
         {
-            "label": _("My Shifts"),
+            "label": _("My shifts"),
             "url": reverse("plugins:teamshifts:my_shifts_global"),
             "active": "/common/my-shifts/" in getattr(request, "path_info", ""),
             "icon": "calendar-check-o",
@@ -283,7 +291,7 @@ try:
 
     @receiver(user_dashboard_links, dispatch_uid="teamshifts_user_dashboard_link")
     def teamshifts_user_dashboard_link(sender, **kwargs):
-        """Add 'My Shifts' to the global dashboard dropdown for users with any shift assignment."""
+        """Add 'My shifts' to the global dashboard dropdown for users with any shift assignment."""
         request = sender
         if not getattr(request, "user", None) or not request.user.is_authenticated:
             return ""

@@ -1,3 +1,4 @@
+import { setupAjaxSorting } from "./list_sorting.js";
 function gettext(msgid) {
     return typeof window.gettext === "function" ? window.gettext(msgid) : msgid;
 }
@@ -52,6 +53,15 @@ function refreshSelectedCount() {
     }
 }
 
+function updateSelectAllState() {
+    const selectAll = document.getElementById("select-all");
+    const checkboxes = document.querySelectorAll(".shift-checkbox");
+    if (!selectAll || checkboxes.length === 0) {
+        return;
+    }
+    selectAll.checked = Array.from(checkboxes).every((cb) => cb.checked);
+}
+
 function setupSelectAll() {
     const selectAll = document.getElementById("select-all");
     if (!selectAll) {
@@ -68,7 +78,10 @@ function setupSelectAll() {
 
 function setupCheckboxes() {
     document.querySelectorAll(".shift-checkbox").forEach((checkbox) => {
-        checkbox.addEventListener("change", refreshSelectedCount);
+        checkbox.addEventListener("change", () => {
+            updateSelectAllState();
+            refreshSelectedCount();
+        });
     });
 }
 
@@ -107,9 +120,15 @@ function setupBulkDelete() {
     });
 }
 
-document.addEventListener("DOMContentLoaded", () => {
+function initializeControls() {
     setupSelectAll();
     setupCheckboxes();
     setupBulkDelete();
+    updateSelectAllState();
     refreshSelectedCount();
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+    initializeControls();
+    setupAjaxSorting(initializeControls);
 });

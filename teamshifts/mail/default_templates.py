@@ -84,7 +84,7 @@ VOUCHER_SENT_TEXT = LazyI18nString.from_gettext(
         "Hi {full_name},\n\n"
         "Here is your ticket voucher for {event_name}.\n\n"
         "Voucher code: {voucher_code}\n"
-        "Claim your ticket here: {ticket_claim_url}\n\n"
+        "Claim your ticket here: {voucher_redeem_url}\n\n"
         "This voucher is valid for one ticket and can only be used once.\n\n"
         "If you haven't yet claimed your shifts, please visit the shift "
         "schedule to sign up:\n"

@@ -8,9 +8,9 @@ from django_scopes import scope, scopes_disabled
 from eventyay.base.email import get_email_context
 from eventyay.base.models import Event, Voucher
 from eventyay.base.services.mail import SendMailException, mail
-from eventyay.multidomain.urlreverse import build_absolute_uri
 from i18nfield.strings import LazyI18nString
 
+from ..mail import MAIL_CONTEXT_KEY
 from ..models import (
     ApplicationStatus,
     CallForTeamMembers,
@@ -25,7 +25,7 @@ from .email import record_sent_email
 
 logger = logging.getLogger(__name__)
 
-VOUCHER_CREDENTIAL_CONTEXT_KEYS = frozenset({"voucher_code", "ticket_claim_url"})
+VOUCHER_CREDENTIAL_CONTEXT_KEYS = frozenset({"voucher_code", "voucher_redeem_url"})
 
 
 class SendResult(TypedDict):
@@ -153,12 +153,7 @@ def _claim_next_voucher(settings: VolunteerVoucherSettings) -> Voucher | None:
 
 
 def _send_voucher_email(event, user, voucher, template, locale) -> bool:
-    redeem_base = build_absolute_uri(event, "presale:event.redeem")
-    ticket_claim_url = f"{redeem_base}?voucher={voucher.code}"
-
-    context = get_email_context(event=event, user=user)
-    context["voucher_code"] = voucher.code
-    context["ticket_claim_url"] = ticket_claim_url
+    context = get_email_context(event=event, user=user, voucher=voucher, **{MAIL_CONTEXT_KEY: True})
 
     subject = LazyI18nString(template.subject)
     body = MarkdownBreakString(LazyI18nString(template.body))

@@ -14,6 +14,7 @@ from eventyay.base.services.tasks import ProfiledEventTask
 from eventyay.celery_app import app
 from i18nfield.strings import LazyI18nString
 
+from .mail import MAIL_CONTEXT_KEY
 from .models import ApplicationStatus, CallForTeamMembers, RecipientGroup, TeamMemberApplication, TeamShiftsEmailQueue
 from .services.shift_summary import build_shift_summary
 
@@ -158,7 +159,7 @@ def send_queued_email(self, event_id: int, queue_id: int):
                     continue
 
                 try:
-                    ctx_kwargs = {"event": event}
+                    ctx_kwargs = {"event": event, MAIL_CONTEXT_KEY: True}
                     if recipient.user:
                         ctx_kwargs["user"] = recipient.user
                     if queue.role_filter_id:

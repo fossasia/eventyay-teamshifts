@@ -126,6 +126,14 @@ class CallForTeamMembers(models.Model):
         verbose_name=_("Shift schedule published"),
         help_text=_("When enabled, accepted team members can view the shift schedule. Changes are live after the first publish."),
     )
+    self_signup_closes_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name=_("Self sign-up closes at"),
+        help_text=_(
+            "After this time, team members can no longer sign up for shifts themselves. Organizers can still assign people. Leave empty to keep sign-up open."
+        ),
+    )
 
     objects = ScopedManager(event="event")
 
@@ -144,6 +152,10 @@ class CallForTeamMembers(models.Model):
         if self.deadline and timezone.now() > self.deadline:
             return False
         return True
+
+    @property
+    def self_signup_open(self) -> bool:
+        return self.self_signup_closes_at is None or timezone.now() < self.self_signup_closes_at
 
     def regenerate_secret(self):
         self.cfm_secret = generate_cfm_secret()

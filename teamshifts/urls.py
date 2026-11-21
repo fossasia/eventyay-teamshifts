@@ -406,6 +406,11 @@ urlpatterns = [
         name="schedule_toggle_publish",
     ),
     path(
+        "teamshifts/event/<orgslug:organizer>/<slug:event>/schedule/self-signup/",
+        views.ShiftScheduleSelfSignupView.as_view(),
+        name="schedule_self_signup",
+    ),
+    path(
         "teamshifts/event/<orgslug:organizer>/<slug:event>/emails/<int:pk>/send/",
         views.EmailQueueSendNowView.as_view(),
         name="email_send_now",

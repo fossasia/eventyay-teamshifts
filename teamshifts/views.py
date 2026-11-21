@@ -71,6 +71,7 @@ from .forms import (
     EmailComposeForm,
     EmailQueueEditForm,
     EmailTemplateForm,
+    SelfSignupCloseForm,
     ShiftForm,
     ShiftLocationForm,
     ShiftRoleAssignmentForm,
@@ -3410,6 +3411,9 @@ class ShiftScheduleGridEditorView(PluginActiveMixin, TeamShiftsPermissionRequire
         with scope(event=self.request.event):
             cfm = getattr(self.request.event, "call_for_team_members", None)
             ctx["shift_schedule_published"] = cfm.shift_schedule_published if cfm else False
+            ctx["self_signup_closes_at"] = cfm.self_signup_closes_at if cfm else None
+            ctx["self_signup_open"] = cfm.self_signup_open if cfm else True
+            ctx["self_signup_form"] = SelfSignupCloseForm(instance=cfm, event=self.request.event)
         return ctx
 
 
@@ -3432,6 +3436,33 @@ class ShiftScheduleTogglePublishView(PluginActiveMixin, TeamShiftsPermissionRequ
                 messages.success(request, _("Shift schedule has been published. Team members can now view it."))
             else:
                 messages.success(request, _("Shift schedule has been unpublished. Team members can no longer view it."))
+        return redirect(
+            reverse(
+                "plugins:teamshifts:schedule_grid",
+                kwargs={"organizer": request.organizer.slug, "event": event.slug},
+            )
+        )
+
+
+class ShiftScheduleSelfSignupView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):
+    permission = "can_teamshifts_create_shifts"
+
+    def post(self, request, *args, **kwargs):
+        event = request.event
+        with scope(event=event), transaction.atomic():
+            cfm, _created = CallForTeamMembers.objects.select_for_update().get_or_create(event=event)
+            if request.POST.get("action") == "clear":
+                cfm.self_signup_closes_at = None
+                cfm.save(update_fields=["self_signup_closes_at"])
+                messages.success(request, _("Settings saved."))
+            else:
+                form = SelfSignupCloseForm(data=request.POST, instance=cfm, event=event)
+                if form.is_valid():
+                    form.save()
+                    messages.success(request, _("Settings saved."))
+                else:
+                    for error in form.errors.get("self_signup_closes_at", []):
+                        messages.error(request, error)
         return redirect(
             reverse(
                 "plugins:teamshifts:schedule_grid",
@@ -3660,6 +3691,8 @@ class PublicShiftScheduleMixin:
         with scope(event=self.event):
             cfm = getattr(self.event, "call_for_team_members", None)
             self.shift_schedule_published = bool(cfm and cfm.shift_schedule_published)
+            self.self_signup_closes_at = cfm.self_signup_closes_at if cfm else None
+            self.self_signup_open = cfm.self_signup_open if cfm else True
         if not self.shift_schedule_published and self.redirect_unpublished_to_schedule:
             messages.info(
                 request,
@@ -3688,6 +3721,7 @@ class PublicShiftScheduleAPIView(PublicShiftScheduleMixin, View):
                 "current_user_name": request.user.get_full_name() or request.user.email,
                 "can_manage_shifts": has_teamshifts_permission(request.user, request.organizer, event, "can_teamshifts_create_shifts", request=request),
                 "shift_action_emails": _saved_shift_action_emails(self._email_choice_application()),
+                "can_self_signup": self.self_signup_open or has_any_teamshifts_permission(request.user, request.organizer, event, request=request),
                 "event_start": event.date_from.isoformat() if event.date_from else "",
                 "event_end": event.date_to.isoformat() if event.date_to else "",
                 "timezone": str(event.timezone),
@@ -3736,6 +3770,7 @@ class PublicShiftScheduleView(PublicShiftScheduleMixin, TemplateView):
             shifts = list(_public_shifts_queryset(event))
             roles = [{"id": role.id, "name": {"en": role.name}, "is_restricted": role.is_restricted} for role in event.team_roles.all()]
             can_manage_shifts = has_teamshifts_permission(self.request.user, self.organizer, event, "can_teamshifts_create_shifts", request=self.request)
+            is_teamshifts_manager = has_any_teamshifts_permission(self.request.user, self.organizer, event, request=self.request)
 
         rooms = [_serialize_location_room(loc) for loc in locations if _location_is_available(loc)]
 
@@ -3745,6 +3780,7 @@ class PublicShiftScheduleView(PublicShiftScheduleMixin, TemplateView):
             "current_user_name": self.request.user.get_full_name() or self.request.user.email,
             "can_manage_shifts": can_manage_shifts,
             "shift_action_emails": _saved_shift_action_emails(self._email_choice_application()),
+            "can_self_signup": self.self_signup_open or is_teamshifts_manager,
             "talks": [_shift_talk_payload(shift) for shift in shifts],
             "rooms": rooms,
             "roles": roles,
@@ -3765,6 +3801,9 @@ class PublicShiftScheduleView(PublicShiftScheduleMixin, TemplateView):
                 "schedule_data_json": _schedule_json(schedule_data),
                 "schedule_meta_json": _schedule_json({"exporters": build_shift_schedule_exporters(event)}),
                 "shift_schedule_published": True,
+                "self_signup_open": self.self_signup_open,
+                "self_signup_closes_at": self.self_signup_closes_at,
+                "show_self_signup_notice": not is_teamshifts_manager,
             }
         )
         return ctx
@@ -3799,9 +3838,15 @@ class ShiftClaimView(PublicShiftScheduleMixin, View):
                 return fail(_("This role is not configured for the shift."))
             if sra.role.is_restricted:
                 return fail(_("This role requires organizer assignment — you cannot sign up directly."))
+            if not self.self_signup_open and not has_any_teamshifts_permission(request.user, self.organizer, event, request=request):
+                return fail(_("Sign-up for shifts has closed. Please contact the organizers if you'd like to help."))
+            if shift.start_time <= now():
+                return fail(_("This shift has already started."))
 
             with transaction.atomic():
-                Shift.objects.select_for_update().get(pk=shift.pk, event=event)
+                locked_shift = Shift.objects.select_for_update().get(pk=shift.pk, event=event)
+                if locked_shift.start_time <= now():
+                    return fail(_("This shift has already started."))
                 sra_locked = ShiftRoleAssignment.objects.select_for_update().get(pk=sra.pk)
                 existing = ShiftAssignment.objects.select_for_update().filter(shift=shift, team_member=request.user).first()
                 if existing and existing.role_id and existing.role_id != sra.role_id:

@@ -19,6 +19,13 @@
   {% trans "The shift schedule has not been published yet. Please check back later." %}
 </div>
 {% else %}
+{% if show_self_signup_notice %}
+  {% if not self_signup_open %}
+<div class="alert alert-info m-4">{% trans "Sign-up for shifts has closed. Please contact the organizers if you'd like to help." %}</div>
+  {% elif self_signup_closes_at %}
+<div class="alert alert-info m-4">{% blocktrans with datetime=self_signup_closes_at|date:"SHORT_DATETIME_FORMAT" %}Sign-up for shifts closes on {{ datetime }}.{% endblocktrans %}</div>
+  {% endif %}
+{% endif %}
 <div id="fahrplan" class="grid">
   <script id="pretalx-schedule-data" type="application/json">{{ schedule_data_json|safe }}</script>
   <script id="pretalx-schedule-meta" type="application/json">{{ schedule_meta_json|safe }}</script>

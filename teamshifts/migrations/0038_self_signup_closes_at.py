@@ -3,7 +3,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("teamshifts", "0035_shift_summary_email"),
+        ("teamshifts", "0037_teamshiftsemailqueue_recipient_group"),
     ]
 
     operations = [

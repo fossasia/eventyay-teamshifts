@@ -22,11 +22,12 @@
                 </div>
             </div>
             <div class="form-group">
-                <label class="col-md-3 control-label">{% trans "Placeholder reference" %}</label>
+                <label class="col-md-3 control-label" id="certificate-placeholder-reference">{% trans "Placeholder reference" %}</label>
                 <div class="col-md-9">
                     <p class="help-block">
                         {% trans "Use these fields in the layout editor. They are filled with member data when a certificate is generated." %}
                     </p>
+                    <div class="table-responsive" role="region" aria-labelledby="certificate-placeholder-reference" tabindex="0">
                     <table class="table table-condensed">
                         <thead>
                             <tr>
@@ -45,6 +46,7 @@
                             {% endfor %}
                         </tbody>
                     </table>
+                    </div>
                 </div>
             </div>
         </fieldset>

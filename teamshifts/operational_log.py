@@ -12,7 +12,6 @@ from __future__ import annotations
 import functools
 import logging
 import re
-import time
 
 OUTCOME_SUCCESS = "success"
 OUTCOME_FAILURE = "failure"
@@ -22,12 +21,8 @@ _LOGGER = logging.getLogger("eventyay.plugins")
 _INT_FIELDS = frozenset(
     {
         "event_id",
-        "order_id",
         "user_id",
-        "status",
-        "duration_ms",
         "retry_count",
-        "webhook_id",
         "recipient_count",
     }
 )
@@ -36,12 +31,14 @@ _IDENTIFIER_FIELDS = frozenset(
         "error_code",
         "backend",
         "job_name",
-        "payment_provider",
-        "model",
-        "order_code",
+        "mail_type",
     }
 )
-_REQUEST_VERBS = frozenset({"get", "post", "put", "patch", "delete", "head", "options"})
+
+try:
+    from eventyay.base.operational_logging import log_event as _HOST_LOG_EVENT
+except Exception:
+    _HOST_LOG_EVENT = None
 
 
 def _safe_identifier(value):
@@ -86,14 +83,12 @@ def log_operation(action, outcome, **fields):
             outcome = OUTCOME_FAILURE
         level = logging.WARNING if outcome == OUTCOME_FAILURE else logging.INFO
         payload = _clean(fields)
-        emitter = None
-        try:
-            from eventyay.base.operational_logging import log_event as emitter
-        except Exception:
-            emitter = None
-        if emitter is not None:
-            emitter("plugins", action, outcome, level=level, **payload)
-            return
+        if _HOST_LOG_EVENT is not None:
+            try:
+                _HOST_LOG_EVENT("plugins", action, outcome, level=level, **payload)
+                return
+            except Exception:
+                pass
         extra = {
             "component": "plugins",
             "outcome": outcome,
@@ -109,77 +104,34 @@ def log_plugin_loaded(backend):
     log_operation("plugin.loaded", OUTCOME_SUCCESS, backend=backend)
 
 
-def _elapsed_ms(started):
-    return int((time.monotonic() - started) * 1000)
-
-
-def _send_request(method, url, **kwargs):
-    """Call requests without changing mocks or redirect defaults.
-
-    A patched ``requests.get`` or ``requests.post`` wins. Otherwise a patched
-    ``requests.request`` wins. Unpatched calls use the verb helper.
-    """
-    import requests
-    import requests.api as requests_api
-
-    verb_name = str(method).lower()
-    if verb_name in _REQUEST_VERBS:
-        patched = getattr(requests, verb_name, None)
-        real = getattr(requests_api, verb_name, None)
-        if patched is not None and patched is not real:
-            return patched(url, **kwargs)  # codeql[py/full-ssrf]
-    if requests.request is not requests_api.request:
-        return requests.request(method, url, **kwargs)  # codeql[py/full-ssrf]
-    if verb_name in _REQUEST_VERBS:
-        real = getattr(requests_api, verb_name)
-        return real(url, **kwargs)  # codeql[py/full-ssrf]
-    return requests_api.request(method, url, **kwargs)  # codeql[py/full-ssrf]
-
-
-def logged_request(backend, method, url, **kwargs):
-    """Log status and duration for one HTTP call.
-
-    ``ok_statuses`` is not sent to the server. Use it when the caller already
-    treats a 4xx response as success. The same exception is re-raised.
-    The URL and body are not logged.
-    """
-    import requests
-
-    ok_statuses = kwargs.pop("ok_statuses", ())
-    started = time.monotonic()
-    try:
-        response = _send_request(method, url, **kwargs)
-    except requests.Timeout:
-        log_operation(
-            "connection.request",
-            OUTCOME_FAILURE,
-            backend=backend,
-            error_code="timeout",
-            duration_ms=_elapsed_ms(started),
-        )
-        raise
-    except requests.RequestException:
-        log_operation(
-            "connection.request",
-            OUTCOME_FAILURE,
-            backend=backend,
-            error_code="request_error",
-            duration_ms=_elapsed_ms(started),
-        )
-        raise
-    status = getattr(response, "status_code", None)
-    status_ok = isinstance(status, int) and not isinstance(status, bool)
-    tolerated = status_ok and status in set(ok_statuses)
-    failed = status_ok and status >= 400 and not tolerated
+def log_permission_denied(request, error_code):
+    """Record a denial for an authenticated user with ids only. Never changes the exception that follows."""
+    user = getattr(request, "user", None)
+    if not getattr(user, "is_authenticated", False):
+        return
+    event = getattr(request, "event", None)
     log_operation(
-        "connection.request",
-        OUTCOME_FAILURE if failed else OUTCOME_SUCCESS,
-        backend=backend,
-        status=status if status_ok else None,
-        duration_ms=_elapsed_ms(started),
-        error_code="http_error" if failed else None,
+        "permission.denied",
+        OUTCOME_FAILURE,
+        backend="teamshifts",
+        error_code=error_code,
+        event_id=getattr(event, "pk", None),
+        user_id=getattr(user, "pk", None),
     )
-    return response
+
+
+def log_job(action, outcome, job_name, *, event_id=None, object_id=None, error_code=None):
+    """Emit one privacy-safe Celery job lifecycle line."""
+    event_pk = getattr(event_id, "pk", event_id)
+    log_operation(
+        action,
+        outcome,
+        backend="teamshifts",
+        job_name=job_name,
+        event_id=event_pk,
+        object_id=object_id,
+        error_code=error_code,
+    )
 
 
 def traced_job(job_name):
@@ -188,19 +140,24 @@ def traced_job(job_name):
     def decorator(fn):
         @functools.wraps(fn)
         def wrapper(*args, **kwargs):
-            log_operation("job.start", OUTCOME_SUCCESS, job_name=job_name)
+            event_arg = kwargs.get("event") if "event" in kwargs else (args[0] if args else None)
+            event_id = getattr(event_arg, "pk", event_arg)
+            if isinstance(event_id, bool) or not isinstance(event_id, int):
+                event_id = None
+            log_job("job.start", OUTCOME_SUCCESS, job_name, event_id=event_id)
             try:
                 result = fn(*args, **kwargs)
             except Exception as exc:
                 retried = type(exc).__name__ == "Retry"
-                log_operation(
+                log_job(
                     "job.retry" if retried else "job.fail",
                     OUTCOME_FAILURE,
-                    job_name=job_name,
+                    job_name,
+                    event_id=event_id,
                     error_code="retry" if retried else type(exc).__name__,
                 )
                 raise
-            log_operation("job.finish", OUTCOME_SUCCESS, job_name=job_name)
+            log_job("job.finish", OUTCOME_SUCCESS, job_name, event_id=event_id)
             return result
 
         return wrapper

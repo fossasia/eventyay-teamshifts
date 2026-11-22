@@ -4,6 +4,7 @@ from datetime import timedelta
 from django_scopes import scope, scopes_disabled
 
 from ..models import ApplicationStatus, MemberVoucher, ShiftAssignment, TeamMemberApplication
+from ..operational_log import OUTCOME_SUCCESS, log_operation
 from .certificates import maybe_auto_issue_certificate
 
 logger = logging.getLogger(__name__)
@@ -127,9 +128,17 @@ def handle_volunteer_checkin(checkin):
 
     if just_arrived or stamped:
         maybe_auto_issue_certificate(application)
+        log_operation(
+            "checkin.volunteer",
+            OUTCOME_SUCCESS,
+            backend="teamshifts",
+            event_id=event.pk,
+            user_id=application.user_id,
+            object_id=application.pk,
+        )
         logger.info(
-            "[TeamShifts] Volunteer %s marked arrived via ticket check-in for event %s",
-            application.user.email,
+            "[TeamShifts] Volunteer user %s marked arrived via ticket check-in for event %s",
+            application.user_id,
             event.slug,
         )
 
@@ -148,9 +157,17 @@ def handle_volunteer_checkout(checkin):
 
     if closed and application.status == ApplicationStatus.ACCEPTED:
         maybe_auto_issue_certificate(application)
+        log_operation(
+            "checkout.volunteer",
+            OUTCOME_SUCCESS,
+            backend="teamshifts",
+            event_id=event.pk,
+            user_id=application.user_id,
+            object_id=application.pk,
+        )
         logger.info(
-            "[TeamShifts] Volunteer %s shift closed via ticket check-out for event %s",
-            application.user.email,
+            "[TeamShifts] Volunteer user %s shift closed via ticket check-out for event %s",
+            application.user_id,
             event.slug,
         )
 

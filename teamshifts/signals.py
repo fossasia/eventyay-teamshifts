@@ -19,6 +19,7 @@ from eventyay.multidomain.urlreverse import build_absolute_uri
 from eventyay.presale.signals import header_nav_tabs
 
 from .models import ApplicationStatus, CallForTeamMembers, Shift, ShiftAssignment, TeamMemberApplication, TeamRole, TeamShiftsEmailQueue
+from .operational_log import OUTCOME_SUCCESS, log_operation
 from .permissions import has_any_teamshifts_permission
 from .services.certificates import events_awaiting_certificates, issue_event_end_certificates_task
 from .services.checkin import handle_volunteer_checkin, handle_volunteer_checkout
@@ -335,6 +336,7 @@ def dispatch_scheduled_emails(sender, **kwargs):
         cache_key = f"teamshifts_mail_queue_{queue_pk}_enqueued"
         if cache.add(cache_key, True, timeout=300):
             send_queued_email.delay(event_id, queue_pk)
+            log_operation("job.enqueue", OUTCOME_SUCCESS, backend="teamshifts", job_name="teamshifts.send_queued_email", event_id=event_id, object_id=queue_pk)
             logger.info("[TeamShifts] Dispatched scheduled email queue %s", queue_pk)
 
 
@@ -343,6 +345,7 @@ def dispatch_scheduled_emails(sender, **kwargs):
 def dispatch_event_end_certificates(sender, **kwargs):
     for event_id in events_awaiting_certificates():
         issue_event_end_certificates_task.apply_async(args=(event_id,))
+        log_operation("job.enqueue", OUTCOME_SUCCESS, backend="teamshifts", job_name="teamshifts.issue_event_end_certificates", event_id=event_id)
 
 
 @receiver(checkin_created, dispatch_uid="teamshifts_volunteer_checkin")

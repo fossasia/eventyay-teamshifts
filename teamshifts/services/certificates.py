@@ -30,6 +30,7 @@ from ..models import (
     ShiftAssignment,
     TeamMemberApplication,
 )
+from ..operational_log import OUTCOME_FAILURE, OUTCOME_SUCCESS, log_operation, traced_job
 from ..pdf import default_layout, format_event_date_from, format_event_date_to, format_event_dates, layout_is_initial_overlay, render_certificate_pdf
 from ..tasks import MarkdownBreakString
 from .email import record_sent_email
@@ -236,11 +237,30 @@ def _send_certificate_email(application: TeamMemberApplication, certificate: Mem
             auto_email=False,
         )
         record_sent_email(event, user, template.subject, template.body, context, locale, EmailTemplateRoles.CERTIFICATE_GENERATED)
+        log_operation(
+            "mail.send",
+            OUTCOME_SUCCESS,
+            backend="teamshifts",
+            event_id=event.pk,
+            user_id=user.pk,
+            object_id=application.pk,
+            mail_type=EmailTemplateRoles.CERTIFICATE_GENERATED,
+        )
         logger.info("[TeamShifts] Certificate email queued for application %s", application.pk)
-    except (OSError, SendMailException):
+    except (OSError, SendMailException) as exc:
         with scope(event=event):
             MemberCertificate.objects.filter(application=application).update(notified_at=None)
-        logger.exception("[TeamShifts] Failed to queue certificate email for application %s", application.pk)
+        logger.error("[TeamShifts] Failed to queue certificate email for application %s (%s)", application.pk, type(exc).__name__)
+        log_operation(
+            "mail.send",
+            OUTCOME_FAILURE,
+            backend="teamshifts",
+            error_code=type(exc).__name__,
+            event_id=event.pk,
+            user_id=user.pk,
+            object_id=application.pk,
+            mail_type=EmailTemplateRoles.CERTIFICATE_GENERATED,
+        )
 
 
 def maybe_auto_issue_certificate(application: TeamMemberApplication) -> MemberCertificate | None:
@@ -357,16 +377,19 @@ def send_certificates(event, applications) -> dict:
 
 
 @app.task(base=ProfiledEventTask, name="teamshifts.generate_certificates")
+@traced_job("teamshifts.generate_certificates")
 def generate_certificates_task(event: Event) -> dict:
     return generate_certificates(event)
 
 
 @app.task(base=ProfiledEventTask, name="teamshifts.send_generated_certificates")
+@traced_job("teamshifts.send_generated_certificates")
 def send_generated_certificates_task(event: Event) -> dict:
     return send_generated_certificates(event)
 
 
 @app.task(base=ProfiledEventTask, name="teamshifts.send_selected_certificates")
+@traced_job("teamshifts.send_selected_certificates")
 def send_selected_certificates_task(event: Event, application_ids: list[int]) -> dict:
     with scope(event=event):
         applications = list(TeamMemberApplication.objects.filter(event=event, pk__in=application_ids, status=ApplicationStatus.ACCEPTED).select_related("user"))
@@ -422,6 +445,7 @@ def events_awaiting_certificates() -> list[int]:
 
 
 @app.task(base=ProfiledEventTask, name="teamshifts.issue_event_end_certificates")
+@traced_job("teamshifts.issue_event_end_certificates")
 def issue_event_end_certificates_task(event: Event):
     count = generate_pending_certificates(event)
     if count:

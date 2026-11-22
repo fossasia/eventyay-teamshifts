@@ -18,6 +18,7 @@ from eventyay.multidomain.urlreverse import mainreverse
 from i18nfield.strings import LazyI18nString
 
 from ..models import EmailTemplateRoles, ShiftAssignment, ShiftReminder
+from ..operational_log import OUTCOME_FAILURE, OUTCOME_SUCCESS, log_operation, traced_job
 from .email import record_sent_email
 
 logger = logging.getLogger(__name__)
@@ -171,17 +172,35 @@ def send_due_shift_reminders(current=None) -> int:
         upcoming = [a for a in assignments if a.shift.start_time > current]
         try:
             context, locale = _send_reminder(event, user, upcoming, template)
-        except Exception:
-            logger.exception("[TeamShifts] Failed to send shift reminder to %s for %s", user.email, day)
+        except Exception as exc:
+            logger.error("[TeamShifts] Failed to send shift reminder to user %s for %s (%s)", user.pk, day, type(exc).__name__)
+            log_operation(
+                "mail.send",
+                OUTCOME_FAILURE,
+                backend="teamshifts",
+                error_code=type(exc).__name__,
+                event_id=event.pk,
+                user_id=user.pk,
+                mail_type=EmailTemplateRoles.SHIFT_REMINDER,
+            )
             continue
         _mark_sent(reminder)
         record_sent_email(event, user, template.subject, template.body, context, locale, EmailTemplateRoles.SHIFT_REMINDER)
         sent += 1
+        log_operation(
+            "mail.send",
+            OUTCOME_SUCCESS,
+            backend="teamshifts",
+            event_id=event.pk,
+            user_id=user.pk,
+            mail_type=EmailTemplateRoles.SHIFT_REMINDER,
+        )
         logger.info("[TeamShifts] Shift reminder sent to user %s for event %s on %s", user.pk, event.slug, day)
     return sent
 
 
 @app.task(name="teamshifts.send_shift_reminders")
+@traced_job("teamshifts.send_shift_reminders")
 def send_shift_reminders_task():
     sent = send_due_shift_reminders()
     logger.info("[TeamShifts] Sent %s shift reminder emails", sent)

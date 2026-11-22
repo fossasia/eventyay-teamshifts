@@ -4,6 +4,7 @@ from django.db.models.signals import post_migrate
 from django.utils.translation import gettext_lazy as _
 
 from . import __version__
+from .operational_log import log_plugin_loaded
 
 logger = logging.getLogger(__name__)
 
@@ -27,8 +28,6 @@ class TeamShiftsApp(PluginConfig):
         category = "FEATURE"
 
     def ready(self):
-        from .operational_log import log_plugin_loaded
-
         log_plugin_loaded("teamshifts")
         from . import signals, tasks  # noqa: F401 — registers signal receivers and celery tasks
 

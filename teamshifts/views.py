@@ -109,6 +109,7 @@ from .models import (
     VoucherStatus,
     normalize_field_order,
 )
+from .operational_log import OUTCOME_SUCCESS, log_operation, log_permission_denied
 from .permissions import (
     TeamShiftsPermissionRequiredMixin,
     can_act_on_role,
@@ -116,7 +117,6 @@ from .permissions import (
     get_allowed_role_ids,
     has_any_teamshifts_permission,
     has_teamshifts_permission,
-    log_permission_denied,
 )
 from .services.calendar import get_calendar_token_user, get_member_assignments, get_or_create_calendar_token
 from .services.certificates import maybe_auto_issue_certificate, send_selected_certificates_task
@@ -1784,6 +1784,18 @@ class EmailQueueDeleteView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin,
         )
 
 
+def _enqueue_queued_email(event_id: int, queue_id: int) -> None:
+    send_queued_email.delay(event_id, queue_id)
+    log_operation(
+        "job.enqueue",
+        OUTCOME_SUCCESS,
+        backend="teamshifts",
+        job_name="teamshifts.send_queued_email",
+        event_id=event_id,
+        object_id=queue_id,
+    )
+
+
 class EmailQueueSendNowView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):
     permission = "can_teamshifts_send_emails"
 
@@ -1803,7 +1815,7 @@ class EmailQueueSendNowView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin
             else:
                 queue.send_after = None
                 queue.save(update_fields=["send_after", "updated"])
-                transaction.on_commit(lambda: send_queued_email.delay(event.pk, queue.pk))
+                transaction.on_commit(lambda: _enqueue_queued_email(event.pk, queue.pk))
                 messages.success(request, _("Email queued for sending."))
         return redirect(
             "plugins:teamshifts:email_outbox",
@@ -3260,6 +3272,7 @@ class ShiftScheduleAssignmentsAPIView(PluginActiveMixin, TeamShiftsPermissionReq
                 role_id,
                 request=request,
             ):
+                log_permission_denied(request, "manage_role")
                 return JsonResponse(
                     {"detail": "You cannot assign members to this role."},
                     status=400,
@@ -3360,6 +3373,7 @@ class ShiftScheduleAssignmentsAPIView(PluginActiveMixin, TeamShiftsPermissionReq
                 role_id,
                 request=request,
             ):
+                log_permission_denied(request, "manage_role")
                 return JsonResponse(
                     {"detail": "You cannot unassign members from this role."},
                     status=400,
@@ -3647,6 +3661,7 @@ class PublicShiftScheduleMixin:
         self.organizer = request.organizer
         self.member_application = _get_accepted_application(request, self.event)
         if not self._can_access_schedule(request):
+            log_permission_denied(request, "schedule_access_denied")
             if _wants_json(request):
                 return JsonResponse(
                     {"status": "error", "error": str(_("You need to be an accepted team member to view the shift schedule."))},

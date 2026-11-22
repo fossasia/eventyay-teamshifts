@@ -20,6 +20,7 @@ from ..models import (
     VolunteerVoucherSettings,
     VoucherStatus,
 )
+from ..operational_log import OUTCOME_FAILURE, OUTCOME_SUCCESS, log_operation
 from ..tasks import MarkdownBreakString
 from .email import record_sent_email
 
@@ -175,10 +176,27 @@ def _send_voucher_email(event, user, voucher, template, locale) -> bool:
             auto_email=False,
             sync_send=True,
         )
-    except SendMailException:
-        logger.exception("[TeamShifts] Failed to send voucher email to %s", user.email)
+    except SendMailException as exc:
+        logger.error("[TeamShifts] Failed to send voucher email to user %s (%s)", user.pk, type(exc).__name__)
+        log_operation(
+            "mail.send",
+            OUTCOME_FAILURE,
+            backend="teamshifts",
+            error_code="send_failed",
+            event_id=event.pk,
+            user_id=user.pk,
+            mail_type=EmailTemplateRoles.VOUCHER_SENT,
+        )
         return False
 
     listing_context = {key: "[redacted]" if key in VOUCHER_CREDENTIAL_CONTEXT_KEYS else value for key, value in context.items()}
     record_sent_email(event, user, template.subject, template.body, listing_context, locale, EmailTemplateRoles.VOUCHER_SENT)
+    log_operation(
+        "mail.send",
+        OUTCOME_SUCCESS,
+        backend="teamshifts",
+        event_id=event.pk,
+        user_id=user.pk,
+        mail_type=EmailTemplateRoles.VOUCHER_SENT,
+    )
     return True

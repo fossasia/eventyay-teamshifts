@@ -4,7 +4,7 @@ from datetime import timedelta
 from django_scopes import scope, scopes_disabled
 
 from ..models import ApplicationStatus, MemberVoucher, ShiftAssignment, TeamMemberApplication
-from ..operational_log import OUTCOME_SUCCESS, log_operation
+from ..operational_log import OUTCOME_FAILURE, OUTCOME_SUCCESS, log_operation
 from .certificates import maybe_auto_issue_certificate
 
 logger = logging.getLogger(__name__)
@@ -39,8 +39,17 @@ def resolve_volunteer_application(checkin, statuses=(ApplicationStatus.ACCEPTED,
                     user__email__iexact=email,
                     status__in=statuses,
                 )
-            except (TeamMemberApplication.DoesNotExist, TeamMemberApplication.MultipleObjectsReturned):
+            except TeamMemberApplication.DoesNotExist:
                 pass
+            except TeamMemberApplication.MultipleObjectsReturned:
+                log_operation(
+                    "checkin.resolve",
+                    OUTCOME_FAILURE,
+                    backend="teamshifts",
+                    error_code="multiple_applications",
+                    event_id=event.pk,
+                    object_id=getattr(checkin, "pk", None),
+                )
 
     return None
 

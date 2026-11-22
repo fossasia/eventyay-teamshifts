@@ -275,8 +275,17 @@ def maybe_auto_issue_certificate(application: TeamMemberApplication) -> MemberCe
         return None
     try:
         return issue_certificate(application, settings)
-    except (OSError, ValueError):
+    except (OSError, ValueError) as exc:
         logger.exception("Failed to auto-generate member certificate for application %s", application.pk)
+        log_operation(
+            "certificate.generate",
+            OUTCOME_FAILURE,
+            backend="teamshifts",
+            error_code=type(exc).__name__,
+            event_id=application.event_id,
+            user_id=application.user_id,
+            object_id=application.pk,
+        )
         return None
 
 

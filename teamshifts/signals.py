@@ -19,7 +19,7 @@ from eventyay.multidomain.urlreverse import build_absolute_uri
 from eventyay.presale.signals import header_nav_tabs
 
 from .models import ApplicationStatus, CallForTeamMembers, Shift, ShiftAssignment, TeamMemberApplication, TeamRole, TeamShiftsEmailQueue
-from .operational_log import OUTCOME_SUCCESS, log_operation
+from .operational_log import OUTCOME_FAILURE, OUTCOME_SUCCESS, log_operation
 from .permissions import has_any_teamshifts_permission
 from .services.certificates import events_awaiting_certificates, issue_event_end_certificates_task
 from .services.checkin import handle_volunteer_checkin, handle_volunteer_checkout
@@ -335,7 +335,19 @@ def dispatch_scheduled_emails(sender, **kwargs):
     for queue_pk, event_id in due:
         cache_key = f"teamshifts_mail_queue_{queue_pk}_enqueued"
         if cache.add(cache_key, True, timeout=300):
-            send_queued_email.delay(event_id, queue_pk)
+            try:
+                send_queued_email.delay(event_id, queue_pk)
+            except Exception:
+                log_operation(
+                    "job.enqueue",
+                    OUTCOME_FAILURE,
+                    backend="teamshifts",
+                    job_name="teamshifts.send_queued_email",
+                    error_code="enqueue_failed",
+                    event_id=event_id,
+                    object_id=queue_pk,
+                )
+                raise
             log_operation("job.enqueue", OUTCOME_SUCCESS, backend="teamshifts", job_name="teamshifts.send_queued_email", event_id=event_id, object_id=queue_pk)
             logger.info("[TeamShifts] Dispatched scheduled email queue %s", queue_pk)
 
@@ -344,7 +356,18 @@ def dispatch_scheduled_emails(sender, **kwargs):
 @minimum_interval(minutes_after_success=15)
 def dispatch_event_end_certificates(sender, **kwargs):
     for event_id in events_awaiting_certificates():
-        issue_event_end_certificates_task.apply_async(args=(event_id,))
+        try:
+            issue_event_end_certificates_task.apply_async(args=(event_id,))
+        except Exception:
+            log_operation(
+                "job.enqueue",
+                OUTCOME_FAILURE,
+                backend="teamshifts",
+                job_name="teamshifts.issue_event_end_certificates",
+                error_code="enqueue_failed",
+                event_id=event_id,
+            )
+            raise
         log_operation("job.enqueue", OUTCOME_SUCCESS, backend="teamshifts", job_name="teamshifts.issue_event_end_certificates", event_id=event_id)
 
 
@@ -355,11 +378,20 @@ def handle_checkin_created(sender, checkin, **kwargs):
             handle_volunteer_checkin(checkin)
         elif checkin.type == Checkin.TYPE_EXIT:
             handle_volunteer_checkout(checkin)
-    except Exception:
+    except Exception as exc:
         # Broad on purpose: this receiver hooks into eventyay's live ticket-scan
         # request. An unhandled error here must never break check-in for a real
         # attendee at the door, so we log and swallow rather than propagate.
-        logger.exception("[TeamShifts] Error handling check-in %s", checkin.pk)
+        logger.error("[TeamShifts] Error handling check-in %s (%s)", checkin.pk, type(exc).__name__)
+        action = "checkout.volunteer" if checkin.type == Checkin.TYPE_EXIT else "checkin.volunteer"
+        log_operation(
+            action,
+            OUTCOME_FAILURE,
+            backend="teamshifts",
+            error_code=type(exc).__name__,
+            event_id=getattr(getattr(checkin, "list", None), "event_id", None),
+            object_id=getattr(checkin, "pk", None),
+        )
 
 
 @receiver(post_delete, sender=TeamRole)

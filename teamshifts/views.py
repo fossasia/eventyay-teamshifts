@@ -109,7 +109,7 @@ from .models import (
     VoucherStatus,
     normalize_field_order,
 )
-from .operational_log import OUTCOME_SUCCESS, log_operation, log_permission_denied
+from .operational_log import OUTCOME_FAILURE, OUTCOME_SUCCESS, log_operation, log_permission_denied
 from .permissions import (
     TeamShiftsPermissionRequiredMixin,
     can_act_on_role,
@@ -1785,7 +1785,19 @@ class EmailQueueDeleteView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin,
 
 
 def _enqueue_queued_email(event_id: int, queue_id: int) -> None:
-    send_queued_email.delay(event_id, queue_id)
+    try:
+        send_queued_email.delay(event_id, queue_id)
+    except Exception:
+        log_operation(
+            "job.enqueue",
+            OUTCOME_FAILURE,
+            backend="teamshifts",
+            job_name="teamshifts.send_queued_email",
+            error_code="dispatch_failed",
+            event_id=event_id,
+            object_id=queue_id,
+        )
+        raise
     log_operation(
         "job.enqueue",
         OUTCOME_SUCCESS,

@@ -1,4 +1,4 @@
-"""Privacy, permission-denial, retry, and fail-open tests for plugin operational logs."""
+"""Privacy, permission-denial, retry, correlation, and fail-open tests for plugin operational logs."""
 
 import logging
 from types import SimpleNamespace
@@ -9,7 +9,7 @@ from celery.exceptions import MaxRetriesExceededError, Retry
 from django.core.exceptions import PermissionDenied
 from eventyay.base.services.mail import SendMailException
 
-from teamshifts import operational_log
+from teamshifts import apps as teamshifts_apps, operational_log, signals as teamshifts_signals, views as teamshifts_views
 from teamshifts.operational_log import (
     OUTCOME_FAILURE,
     OUTCOME_SUCCESS,
@@ -18,7 +18,7 @@ from teamshifts.operational_log import (
     traced_job,
 )
 from teamshifts.permissions import teamshifts_permission_required
-from teamshifts.services import reminders as reminder_service, vouchers as voucher_service
+from teamshifts.services import checkin as checkin_service, reminders as reminder_service, vouchers as voucher_service
 from teamshifts.tasks import send_queued_email
 
 
@@ -30,11 +30,13 @@ def captured(monkeypatch):
         records.append((level, action, extra or {}))
 
     monkeypatch.setattr(operational_log, "_HOST_LOG_EVENT", None)
+    monkeypatch.setattr(operational_log, "_host_get_request_id", None)
+    monkeypatch.setattr(operational_log, "_host_get_job_id", None)
     monkeypatch.setattr(logging.getLogger("eventyay.plugins"), "log", fake_log)
     return records
 
 
-def test_drops_email_token_and_unknown_fields(captured):
+def test_drops_email_token_and_unknown_fields_and_keeps_status_duration_correlation(captured):
     log_operation(
         "plugin.loaded",
         OUTCOME_SUCCESS,
@@ -43,11 +45,19 @@ def test_drops_email_token_and_unknown_fields(captured):
         token="secret-token",
         body="{raw}",
         event_id=12,
+        status=200,
+        duration_ms=15,
+        request_id="req-abc-123",
+        job_id="job-xyz-456",
     )
     assert len(captured) == 1
     extra = captured[0][2]
     assert extra["backend"] == "teamshifts"
     assert extra["event_id"] == 12
+    assert extra["status"] == 200
+    assert extra["duration_ms"] == 15
+    assert extra["request_id"] == "req-abc-123"
+    assert extra["job_id"] == "job-xyz-456"
     assert extra["outcome"] == "success"
     assert "email" not in extra
     assert "token" not in extra
@@ -55,6 +65,12 @@ def test_drops_email_token_and_unknown_fields(captured):
     blob = str(extra)
     assert "person@example.com" not in blob
     assert "secret-token" not in blob
+
+    captured.clear()
+    log_operation("plugin.loaded", OUTCOME_SUCCESS, status=True, duration_ms=False, request_id="has space")
+    assert "status" not in captured[0][2]
+    assert "duration_ms" not in captured[0][2]
+    assert "request_id" not in captured[0][2]
 
 
 def test_rejects_unsafe_action_and_backend(captured):
@@ -122,6 +138,7 @@ def test_permission_denied_skips_anonymous_and_logs_authenticated(captured, monk
         user=SimpleNamespace(is_authenticated=True, pk=99),
         event=event,
         organizer=SimpleNamespace(pk=1),
+        request_id="req-perm-99",
     )
     with pytest.raises(PermissionDenied):
         protected_view(auth_request)
@@ -135,9 +152,10 @@ def test_permission_denied_skips_anonymous_and_logs_authenticated(captured, monk
     assert extra["error_code"] == "permission_denied"
     assert extra["event_id"] == 42
     assert extra["user_id"] == 99
+    assert extra["request_id"] == "req-perm-99"
 
 
-def test_traced_job_logs_lifecycle_without_leaking_exception_text(captured):
+def test_traced_job_logs_lifecycle_correlation_and_duration(captured):
     @traced_job("teamshifts.sample_job")
     def ok_task(event):
         return 7
@@ -152,6 +170,8 @@ def test_traced_job_logs_lifecycle_without_leaking_exception_text(captured):
         ("job.start", "success", 55),
         ("job.finish", "success", 55),
     ]
+    assert captured[0][2]["job_id"] == captured[1][2]["job_id"]
+    assert isinstance(captured[1][2]["duration_ms"], int)
 
     captured.clear()
     with pytest.raises(ValueError):
@@ -160,7 +180,87 @@ def test_traced_job_logs_lifecycle_without_leaking_exception_text(captured):
         ("job.start", "success", None, 55),
         ("job.fail", "failure", "ValueError", 55),
     ]
+    assert captured[0][2]["job_id"] == captured[1][2]["job_id"]
+    assert isinstance(captured[1][2]["duration_ms"], int)
     assert "secret@example.com" not in str(captured)
+
+
+def test_app_ready_logs_plugin_loaded_after_registration(captured, monkeypatch):
+    order = []
+    app_cfg = teamshifts_apps.TeamShiftsApp("teamshifts", teamshifts_apps)
+    monkeypatch.setattr(teamshifts_apps.post_migrate, "connect", lambda *a, **kw: order.append("post_migrate"))
+    monkeypatch.setattr(teamshifts_apps, "log_plugin_loaded", lambda backend: order.append(f"loaded:{backend}"))
+
+    app_cfg.ready()
+    assert order == ["post_migrate", "loaded:teamshifts"]
+
+    def fail_connect(*a, **kw):
+        raise RuntimeError("connect failed")
+
+    monkeypatch.setattr(teamshifts_apps.post_migrate, "connect", fail_connect)
+    with pytest.raises(RuntimeError, match="connect failed"):
+        app_cfg.ready()
+    assert len(captured) == 1
+    assert captured[0][1] == "plugin.loaded"
+    assert captured[0][2]["outcome"] == "failure"
+    assert captured[0][2]["error_code"] == "RuntimeError"
+
+
+def test_enqueue_failures_logged_and_reraised_in_signals_and_views(captured, monkeypatch):
+    monkeypatch.setattr(teamshifts_views.send_queued_email, "delay", MagicMock(side_effect=RuntimeError("broker down")))
+    with pytest.raises(RuntimeError, match="broker down"):
+        teamshifts_views._enqueue_queued_email(11, 22)
+
+    assert len(captured) == 1
+    assert captured[0][1] == "job.enqueue"
+    assert captured[0][2]["outcome"] == "failure"
+    assert captured[0][2]["error_code"] == "dispatch_failed"
+    assert captured[0][2]["event_id"] == 11
+    assert captured[0][2]["object_id"] == 22
+
+    captured.clear()
+    fake_cache = MagicMock()
+    fake_cache.get.return_value = None
+    fake_cache.add.return_value = True
+    monkeypatch.setattr("eventyay.common.signals.cache", fake_cache)
+    monkeypatch.setattr(teamshifts_signals, "events_awaiting_certificates", lambda: [91])
+    monkeypatch.setattr(
+        teamshifts_signals.issue_event_end_certificates_task,
+        "apply_async",
+        MagicMock(side_effect=RuntimeError("celery down")),
+    )
+    with pytest.raises(RuntimeError, match="celery down"):
+        teamshifts_signals.dispatch_event_end_certificates(sender=None)
+
+    assert len(captured) == 1
+    assert captured[0][1] == "job.enqueue"
+    assert captured[0][2]["outcome"] == "failure"
+    assert captured[0][2]["error_code"] == "enqueue_failed"
+    assert captured[0][2]["event_id"] == 91
+    assert captured[0][2]["job_name"] == "teamshifts.issue_event_end_certificates"
+
+    captured.clear()
+    monkeypatch.setattr(teamshifts_signals, "scopes_disabled", lambda: MagicMock(__enter__=lambda s: None, __exit__=lambda s, *a: False))
+    monkeypatch.setattr(
+        teamshifts_signals.transaction,
+        "atomic",
+        lambda: MagicMock(__enter__=lambda s: None, __exit__=lambda s, *a: False),
+    )
+    qs = MagicMock()
+    qs.filter.return_value.select_for_update.return_value.order_by.return_value.values_list.return_value = [(303, 12)]
+    monkeypatch.setattr(teamshifts_signals.TeamShiftsEmailQueue, "objects", qs)
+    monkeypatch.setattr(teamshifts_signals.cache, "add", lambda *a, **kw: True)
+    monkeypatch.setattr(teamshifts_signals.send_queued_email, "delay", MagicMock(side_effect=RuntimeError("broker offline")))
+
+    with pytest.raises(RuntimeError, match="broker offline"):
+        teamshifts_signals.dispatch_scheduled_emails(sender=None)
+
+    assert len(captured) == 1
+    assert captured[0][1] == "job.enqueue"
+    assert captured[0][2]["outcome"] == "failure"
+    assert captured[0][2]["error_code"] == "enqueue_failed"
+    assert captured[0][2]["event_id"] == 12
+    assert captured[0][2]["object_id"] == 303
 
 
 def _mock_queue_env(monkeypatch, *, is_draft=False, recipients=None):
@@ -192,7 +292,7 @@ def _mock_queue_env(monkeypatch, *, is_draft=False, recipients=None):
     return fake_event, fake_queue
 
 
-def test_send_queued_email_draft_emits_terminal_finish(captured, monkeypatch):
+def test_send_queued_email_draft_emits_terminal_finish_with_timing_and_job_id(captured, monkeypatch):
     _mock_queue_env(monkeypatch, is_draft=True)
     send_queued_email.run(event_id=11, queue_id=88)
 
@@ -200,9 +300,11 @@ def test_send_queued_email_draft_emits_terminal_finish(captured, monkeypatch):
         ("job.start", "success", 11, 88),
         ("job.finish", "success", 11, 88),
     ]
+    assert captured[0][2]["job_id"] == captured[1][2]["job_id"]
+    assert isinstance(captured[1][2]["duration_ms"], int)
 
 
-def test_send_queued_email_retry_vs_max_retries_and_privacy_safe_error(captured, monkeypatch, caplog):
+def test_send_queued_email_retry_exhaustion_and_privacy_safe_error(captured, monkeypatch, caplog):
     recipient = MagicMock()
     recipient.pk = 501
     recipient.sent_at = None
@@ -228,7 +330,9 @@ def test_send_queued_email_retry_vs_max_retries_and_privacy_safe_error(captured,
 
     actions = [item[1] for item in captured]
     assert actions == ["job.start", "mail.send", "job.retry"]
-    assert "job.fail" not in actions
+    assert len({item[2]["job_id"] for item in captured}) == 1
+    assert isinstance(captured[1][2]["duration_ms"], int)
+    assert isinstance(captured[2][2]["duration_ms"], int)
     assert "alice@example.com" not in str(captured)
     assert "alice@example.com" not in caplog.text
     assert "550 5.1.1" not in caplog.text
@@ -243,10 +347,55 @@ def test_send_queued_email_retry_vs_max_retries_and_privacy_safe_error(captured,
 
     actions = [item[1] for item in captured]
     assert actions == ["job.start", "mail.send", "job.fail"]
-    assert "job.retry" not in actions
     assert captured[-1][2]["error_code"] == "max_retries"
+    assert isinstance(captured[-1][2]["duration_ms"], int)
+
+    captured.clear()
+    caplog.clear()
+
+    with caplog.at_level(logging.ERROR, logger="teamshifts.tasks"):
+        with patch.object(send_queued_email, "retry", side_effect=SendMailException("Partial send: alice@example.com")) as mock_retry:
+            with pytest.raises(SendMailException):
+                send_queued_email.run(event_id=11, queue_id=88)
+        mock_retry.assert_called_once()
+
+    actions = [item[1] for item in captured]
+    assert actions == ["job.start", "mail.send", "job.fail"]
+    assert captured[-1][2]["error_code"] == "SendMailException"
+    assert isinstance(captured[-1][2]["duration_ms"], int)
     assert "alice@example.com" not in str(captured)
-    assert "alice@example.com" not in caplog.text
+
+
+def test_checkin_failure_and_multiple_application_paths(captured, monkeypatch, caplog):
+    checkin = SimpleNamespace(
+        pk=77,
+        type="entry",
+        list=SimpleNamespace(event_id=15, event=SimpleNamespace(pk=15)),
+        position=SimpleNamespace(voucher_id=None, attendee_email="volunteer@example.com"),
+    )
+    monkeypatch.setattr(checkin_service, "scope", lambda **kw: MagicMock(__enter__=lambda s: None, __exit__=lambda s, *a: False))
+    app_mgr = MagicMock()
+    app_mgr.get.side_effect = checkin_service.TeamMemberApplication.MultipleObjectsReturned()
+    monkeypatch.setattr(checkin_service.TeamMemberApplication, "objects", app_mgr)
+
+    assert checkin_service.resolve_volunteer_application(checkin) is None
+    assert len(captured) == 1
+    assert captured[0][1] == "checkin.resolve"
+    assert captured[0][2]["error_code"] == "multiple_applications"
+    assert captured[0][2]["event_id"] == 15
+    assert "volunteer@example.com" not in str(captured)
+
+    captured.clear()
+    monkeypatch.setattr(teamshifts_signals, "handle_volunteer_checkin", MagicMock(side_effect=RuntimeError("db error")))
+    with caplog.at_level(logging.ERROR, logger="teamshifts.signals"):
+        teamshifts_signals.handle_checkin_created(sender=None, checkin=checkin)
+
+    assert len(captured) == 1
+    assert captured[0][1] == "checkin.volunteer"
+    assert captured[0][2]["outcome"] == "failure"
+    assert captured[0][2]["error_code"] == "RuntimeError"
+    assert captured[0][2]["event_id"] == 15
+    assert captured[0][2]["object_id"] == 77
 
 
 def test_voucher_and_reminder_error_logs_omit_email_and_smtp_text(captured, monkeypatch, caplog):

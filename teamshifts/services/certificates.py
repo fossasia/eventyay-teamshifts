@@ -1,5 +1,6 @@
 import json
 import logging
+import time as time_mod
 import zipfile
 from datetime import date, datetime, time, timedelta
 from io import BytesIO
@@ -30,7 +31,7 @@ from ..models import (
     ShiftAssignment,
     TeamMemberApplication,
 )
-from ..operational_log import OUTCOME_FAILURE, OUTCOME_SUCCESS, log_operation, traced_job
+from ..operational_log import OUTCOME_FAILURE, OUTCOME_SUCCESS, elapsed_ms, log_operation, traced_job
 from ..pdf import default_layout, format_event_date_from, format_event_date_to, format_event_dates, layout_is_initial_overlay, render_certificate_pdf
 from ..tasks import MarkdownBreakString
 from .email import record_sent_email
@@ -217,6 +218,7 @@ def _send_certificate_email(application: TeamMemberApplication, certificate: Mem
     subject = LazyI18nString(template.subject)
     body = MarkdownBreakString(LazyI18nString(template.body))
 
+    send_started = time_mod.monotonic()
     try:
         cf = CachedFile.objects.create(
             filename=certificate_filename(application),
@@ -245,6 +247,7 @@ def _send_certificate_email(application: TeamMemberApplication, certificate: Mem
             user_id=user.pk,
             object_id=application.pk,
             mail_type=EmailTemplateRoles.CERTIFICATE_GENERATED,
+            duration_ms=elapsed_ms(send_started),
         )
         logger.info("[TeamShifts] Certificate email queued for application %s", application.pk)
     except (OSError, SendMailException) as exc:
@@ -260,6 +263,7 @@ def _send_certificate_email(application: TeamMemberApplication, certificate: Mem
             user_id=user.pk,
             object_id=application.pk,
             mail_type=EmailTemplateRoles.CERTIFICATE_GENERATED,
+            duration_ms=elapsed_ms(send_started),
         )
 
 
@@ -276,7 +280,7 @@ def maybe_auto_issue_certificate(application: TeamMemberApplication) -> MemberCe
     try:
         return issue_certificate(application, settings)
     except (OSError, ValueError) as exc:
-        logger.exception("Failed to auto-generate member certificate for application %s", application.pk)
+        logger.error("Failed to auto-generate member certificate for application %s (%s)", application.pk, type(exc).__name__)
         log_operation(
             "certificate.generate",
             OUTCOME_FAILURE,
@@ -333,8 +337,17 @@ def generate_certificates(event) -> dict:
     for application in certificates_to_generate(event, settings):
         try:
             generate_certificate(application, settings)
-        except (OSError, ValueError):
-            logger.exception("Failed to generate member certificate for application %s", application.pk)
+        except (OSError, ValueError) as exc:
+            logger.error("Failed to generate member certificate for application %s (%s)", application.pk, type(exc).__name__)
+            log_operation(
+                "certificate.generate",
+                OUTCOME_FAILURE,
+                backend="teamshifts",
+                error_code=type(exc).__name__,
+                event_id=application.event_id,
+                user_id=application.user_id,
+                object_id=application.pk,
+            )
             result["failed"] += 1
         else:
             result["generated"] += 1
@@ -366,10 +379,19 @@ def send_certificates(event, applications) -> dict:
             try:
                 # Rebuild first: the stored PDF still has the design it was first sent with, not the current one.
                 sent_certificate = generate_certificate(application, settings)
-            except Exception:
+            except Exception as exc:
                 # Whatever goes wrong while rendering or storing one PDF (a storage error, a layout item with missing
                 # fields) only fails this member; the rest of the batch is still resent.
-                logger.exception("Failed to rebuild member certificate for application %s before resending", application.pk)
+                logger.error("Failed to rebuild member certificate for application %s before resending (%s)", application.pk, type(exc).__name__)
+                log_operation(
+                    "certificate.generate",
+                    OUTCOME_FAILURE,
+                    backend="teamshifts",
+                    error_code=type(exc).__name__,
+                    event_id=application.event_id,
+                    user_id=application.user_id,
+                    object_id=application.pk,
+                )
                 result["failed"] += 1
                 continue
             send_certificate(sent_certificate, resend=True)
@@ -377,8 +399,17 @@ def send_certificates(event, applications) -> dict:
             continue
         try:
             issue_certificate(application, settings)
-        except (OSError, ValueError):
-            logger.exception("Failed to send member certificate for application %s", application.pk)
+        except (OSError, ValueError) as exc:
+            logger.error("Failed to send member certificate for application %s (%s)", application.pk, type(exc).__name__)
+            log_operation(
+                "certificate.generate",
+                OUTCOME_FAILURE,
+                backend="teamshifts",
+                error_code=type(exc).__name__,
+                event_id=application.event_id,
+                user_id=application.user_id,
+                object_id=application.pk,
+            )
             result["failed"] += 1
         else:
             result["sent"] += 1
@@ -428,8 +459,17 @@ def generate_pending_certificates(event) -> int:
             continue
         try:
             issue_certificate(application, settings)
-        except (OSError, ValueError):
-            logger.exception("Failed to generate member certificate for application %s", application.pk)
+        except (OSError, ValueError) as exc:
+            logger.error("Failed to generate member certificate for application %s (%s)", application.pk, type(exc).__name__)
+            log_operation(
+                "certificate.generate",
+                OUTCOME_FAILURE,
+                backend="teamshifts",
+                error_code=type(exc).__name__,
+                event_id=application.event_id,
+                user_id=application.user_id,
+                object_id=application.pk,
+            )
         else:
             count += 1
     return count

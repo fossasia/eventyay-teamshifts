@@ -18,7 +18,13 @@ from teamshifts.operational_log import (
     traced_job,
 )
 from teamshifts.permissions import teamshifts_permission_required
-from teamshifts.services import checkin as checkin_service, reminders as reminder_service, vouchers as voucher_service
+from teamshifts.services import (
+    certificates as certificate_service,
+    checkin as checkin_service,
+    email as email_service,
+    reminders as reminder_service,
+    vouchers as voucher_service,
+)
 from teamshifts.tasks import send_queued_email
 
 
@@ -419,6 +425,7 @@ def test_voucher_and_reminder_error_logs_omit_email_and_smtp_text(captured, monk
     assert captured[0][1] == "mail.send"
     assert captured[0][2]["outcome"] == "failure"
     assert captured[0][2]["user_id"] == 33
+    assert isinstance(captured[0][2]["duration_ms"], int)
     assert "bob@example.com" not in caplog.text
     assert "SECRET-VOUCHER-123" not in caplog.text
     assert "bob@example.com" not in str(captured)
@@ -446,5 +453,87 @@ def test_voucher_and_reminder_error_logs_omit_email_and_smtp_text(captured, monk
     assert captured[0][1] == "mail.send"
     assert captured[0][2]["outcome"] == "failure"
     assert captured[0][2]["user_id"] == 33
+    assert isinstance(captured[0][2]["duration_ms"], int)
     assert "bob@example.com" not in caplog.text
     assert "bob@example.com" not in str(captured)
+
+
+def test_certificate_generation_and_email_logs_omit_raw_exceptions_and_record_duration(captured, monkeypatch, caplog):
+    event = SimpleNamespace(pk=21, slug="conf", settings=SimpleNamespace(locale="en"), call_for_team_members=MagicMock())
+    event.call_for_team_members.get_mail_template.return_value = SimpleNamespace(subject="Cert", body="Body")
+    user = SimpleNamespace(pk=44, email="carol@example.com", locale="en", fullname="Carol")
+    application = SimpleNamespace(pk=77, event=event, event_id=21, user=user, user_id=44)
+
+    monkeypatch.setattr(
+        certificate_service,
+        "get_certificate_settings",
+        lambda ev: SimpleNamespace(trigger=certificate_service.CertificateTrigger.AUTO, require_after_event_end=False),
+    )
+    monkeypatch.setattr(certificate_service, "member_qualifies", lambda app, s: True)
+    monkeypatch.setattr(
+        certificate_service,
+        "issue_certificate",
+        MagicMock(side_effect=ValueError("render failed for carol@example.com")),
+    )
+
+    with caplog.at_level(logging.ERROR, logger="teamshifts.services.certificates"):
+        assert certificate_service.maybe_auto_issue_certificate(application) is None
+
+    assert len(captured) == 1
+    assert captured[0][1] == "certificate.generate"
+    assert captured[0][2]["outcome"] == "failure"
+    assert captured[0][2]["error_code"] == "ValueError"
+    assert "carol@example.com" not in caplog.text
+    assert "carol@example.com" not in str(captured)
+
+    captured.clear()
+    caplog.clear()
+
+    cert_file = MagicMock()
+    cert_file.open.return_value.__enter__.return_value.read.return_value = b"%PDF-1.4"
+    certificate = SimpleNamespace(pk=88, application=application, file=cert_file)
+    monkeypatch.setattr(certificate_service, "get_email_context", lambda **kw: {})
+    monkeypatch.setattr(certificate_service.CachedFile, "objects", MagicMock(create=lambda **kw: MagicMock(pk=1, file=MagicMock())))
+    monkeypatch.setattr(
+        certificate_service,
+        "mail",
+        MagicMock(side_effect=SendMailException("550 carol@example.com rejected")),
+    )
+    monkeypatch.setattr(certificate_service, "scope", lambda **kw: MagicMock(__enter__=lambda s: None, __exit__=lambda s, *a: False))
+    monkeypatch.setattr(certificate_service.MemberCertificate, "objects", MagicMock())
+
+    with caplog.at_level(logging.ERROR, logger="teamshifts.services.certificates"):
+        certificate_service._send_certificate_email(application, certificate)
+
+    assert len(captured) == 1
+    assert captured[0][1] == "mail.send"
+    assert captured[0][2]["outcome"] == "failure"
+    assert captured[0][2]["error_code"] == "SendMailException"
+    assert isinstance(captured[0][2]["duration_ms"], int)
+    assert "carol@example.com" not in caplog.text
+    assert "carol@example.com" not in str(captured)
+
+
+def test_enqueue_propagates_celery_task_id(captured, monkeypatch):
+    monkeypatch.setattr(
+        teamshifts_views.send_queued_email,
+        "delay",
+        MagicMock(return_value=SimpleNamespace(id="celery-task-123")),
+    )
+    teamshifts_views._enqueue_queued_email(11, 22)
+    assert len(captured) == 1
+    assert captured[0][1] == "job.enqueue"
+    assert captured[0][2]["outcome"] == "success"
+    assert captured[0][2]["job_id"] == "celery-task-123"
+
+    captured.clear()
+    monkeypatch.setattr(
+        email_service.send_queued_email,
+        "delay",
+        MagicMock(return_value=SimpleNamespace(id="celery-task-456")),
+    )
+    monkeypatch.setattr(email_service.transaction, "on_commit", lambda fn: fn())
+    email_service._dispatch(11, 33)
+    assert len(captured) == 1
+    assert captured[0][1] == "job.enqueue"
+    assert captured[0][2]["job_id"] == "celery-task-456"

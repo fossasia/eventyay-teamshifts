@@ -188,7 +188,7 @@ def _dispatch(event_id: int, queue_id: int, eta=None) -> None:
 
     def _send():
         try:
-            send_queued_email.delay(event_id, queue_id)
+            res = send_queued_email.delay(event_id, queue_id)
             log_operation(
                 "job.enqueue",
                 OUTCOME_SUCCESS,
@@ -196,6 +196,7 @@ def _dispatch(event_id: int, queue_id: int, eta=None) -> None:
                 job_name="teamshifts.send_queued_email",
                 event_id=event_id,
                 object_id=queue_id,
+                job_id=getattr(res, "id", None),
             )
         except Exception as exc:
             logger.error("[TeamShifts] Failed to dispatch queue %s to Celery (%s); falling back to scheduled retry", queue_id, type(exc).__name__)

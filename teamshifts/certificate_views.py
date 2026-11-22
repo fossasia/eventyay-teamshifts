@@ -19,6 +19,7 @@ from eventyay.control.views.pdf import BaseEditorView
 
 from .forms import CertificateSettingsForm
 from .models import ApplicationStatus, CertificateTrigger, MemberCertificate, TeamMemberApplication
+from .operational_log import OUTCOME_SUCCESS, log_operation
 from .pdf import (
     CERTIFICATE_PLACEHOLDERS,
     default_layout,
@@ -69,6 +70,13 @@ class CertificateSettingsView(PluginActiveMixin, TeamShiftsPermissionRequiredMix
         form = CertificateSettingsForm(request.POST, instance=settings)
         if form.is_valid():
             form.save()
+            log_operation(
+                "plugin.settings_updated",
+                OUTCOME_SUCCESS,
+                backend="teamshifts",
+                event_id=request.event.pk,
+                user_id=getattr(request.user, "pk", None),
+            )
             messages.success(request, _("Certificate settings have been saved."))
             return redirect(self._url(request))
         messages.error(request, _("We could not save your changes. See below for details."))

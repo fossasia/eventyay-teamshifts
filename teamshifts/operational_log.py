@@ -219,8 +219,15 @@ def traced_job(job_name):
             event_id = getattr(event_arg, "pk", event_arg)
             if isinstance(event_id, bool) or not isinstance(event_id, int):
                 event_id = None
+            celery_job_id = None
+            try:
+                from celery import current_task
+
+                celery_job_id = getattr(getattr(current_task, "request", None), "id", None)
+            except Exception:
+                celery_job_id = None
             started = time.monotonic()
-            with job_correlation():
+            with job_correlation(celery_job_id):
                 log_job("job.start", OUTCOME_SUCCESS, job_name, event_id=event_id)
                 try:
                     result = fn(*args, **kwargs)

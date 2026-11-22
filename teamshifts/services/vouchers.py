@@ -1,4 +1,5 @@
 import logging
+import time
 from collections.abc import Sequence
 from typing import TypedDict
 
@@ -20,7 +21,7 @@ from ..models import (
     VolunteerVoucherSettings,
     VoucherStatus,
 )
-from ..operational_log import OUTCOME_FAILURE, OUTCOME_SUCCESS, log_operation
+from ..operational_log import OUTCOME_FAILURE, OUTCOME_SUCCESS, elapsed_ms, log_operation
 from ..tasks import MarkdownBreakString
 from .email import record_sent_email
 
@@ -164,6 +165,7 @@ def _send_voucher_email(event, user, voucher, template, locale) -> bool:
     subject = LazyI18nString(template.subject)
     body = MarkdownBreakString(LazyI18nString(template.body))
 
+    send_started = time.monotonic()
     try:
         mail(
             email=user.email,
@@ -186,6 +188,7 @@ def _send_voucher_email(event, user, voucher, template, locale) -> bool:
             event_id=event.pk,
             user_id=user.pk,
             mail_type=EmailTemplateRoles.VOUCHER_SENT,
+            duration_ms=elapsed_ms(send_started),
         )
         return False
 
@@ -198,5 +201,6 @@ def _send_voucher_email(event, user, voucher, template, locale) -> bool:
         event_id=event.pk,
         user_id=user.pk,
         mail_type=EmailTemplateRoles.VOUCHER_SENT,
+        duration_ms=elapsed_ms(send_started),
     )
     return True

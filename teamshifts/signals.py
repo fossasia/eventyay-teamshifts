@@ -336,7 +336,7 @@ def dispatch_scheduled_emails(sender, **kwargs):
         cache_key = f"teamshifts_mail_queue_{queue_pk}_enqueued"
         if cache.add(cache_key, True, timeout=300):
             try:
-                send_queued_email.delay(event_id, queue_pk)
+                res = send_queued_email.delay(event_id, queue_pk)
             except Exception:
                 log_operation(
                     "job.enqueue",
@@ -348,7 +348,15 @@ def dispatch_scheduled_emails(sender, **kwargs):
                     object_id=queue_pk,
                 )
                 raise
-            log_operation("job.enqueue", OUTCOME_SUCCESS, backend="teamshifts", job_name="teamshifts.send_queued_email", event_id=event_id, object_id=queue_pk)
+            log_operation(
+                "job.enqueue",
+                OUTCOME_SUCCESS,
+                backend="teamshifts",
+                job_name="teamshifts.send_queued_email",
+                event_id=event_id,
+                object_id=queue_pk,
+                job_id=getattr(res, "id", None),
+            )
             logger.info("[TeamShifts] Dispatched scheduled email queue %s", queue_pk)
 
 
@@ -357,7 +365,7 @@ def dispatch_scheduled_emails(sender, **kwargs):
 def dispatch_event_end_certificates(sender, **kwargs):
     for event_id in events_awaiting_certificates():
         try:
-            issue_event_end_certificates_task.apply_async(args=(event_id,))
+            res = issue_event_end_certificates_task.apply_async(args=(event_id,))
         except Exception:
             log_operation(
                 "job.enqueue",
@@ -368,7 +376,14 @@ def dispatch_event_end_certificates(sender, **kwargs):
                 event_id=event_id,
             )
             raise
-        log_operation("job.enqueue", OUTCOME_SUCCESS, backend="teamshifts", job_name="teamshifts.issue_event_end_certificates", event_id=event_id)
+        log_operation(
+            "job.enqueue",
+            OUTCOME_SUCCESS,
+            backend="teamshifts",
+            job_name="teamshifts.issue_event_end_certificates",
+            event_id=event_id,
+            job_id=getattr(res, "id", None),
+        )
 
 
 @receiver(checkin_created, dispatch_uid="teamshifts_volunteer_checkin")

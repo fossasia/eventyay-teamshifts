@@ -1,4 +1,5 @@
 import logging
+import time as time_mod
 from datetime import datetime, time, timedelta
 from urllib.parse import urljoin
 
@@ -18,7 +19,7 @@ from eventyay.multidomain.urlreverse import mainreverse
 from i18nfield.strings import LazyI18nString
 
 from ..models import EmailTemplateRoles, ShiftAssignment, ShiftReminder
-from ..operational_log import OUTCOME_FAILURE, OUTCOME_SUCCESS, log_operation, traced_job
+from ..operational_log import OUTCOME_FAILURE, OUTCOME_SUCCESS, elapsed_ms, log_operation, traced_job
 from .email import record_sent_email
 
 logger = logging.getLogger(__name__)
@@ -170,6 +171,7 @@ def send_due_shift_reminders(current=None) -> int:
             continue
 
         upcoming = [a for a in assignments if a.shift.start_time > current]
+        send_started = time_mod.monotonic()
         try:
             context, locale = _send_reminder(event, user, upcoming, template)
         except Exception as exc:
@@ -182,6 +184,7 @@ def send_due_shift_reminders(current=None) -> int:
                 event_id=event.pk,
                 user_id=user.pk,
                 mail_type=EmailTemplateRoles.SHIFT_REMINDER,
+                duration_ms=elapsed_ms(send_started),
             )
             continue
         _mark_sent(reminder)
@@ -194,6 +197,7 @@ def send_due_shift_reminders(current=None) -> int:
             event_id=event.pk,
             user_id=user.pk,
             mail_type=EmailTemplateRoles.SHIFT_REMINDER,
+            duration_ms=elapsed_ms(send_started),
         )
         logger.info("[TeamShifts] Shift reminder sent to user %s for event %s on %s", user.pk, event.slug, day)
     return sent

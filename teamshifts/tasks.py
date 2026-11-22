@@ -88,7 +88,7 @@ def dispatch_scheduled_emails_task():
         cache_key = f"teamshifts_mail_queue_{queue_pk}_enqueued"
         if cache.add(cache_key, True, timeout=300):
             try:
-                send_queued_email.delay(event_id, queue_pk)
+                res = send_queued_email.delay(event_id, queue_pk)
             except Exception:
                 log_operation(
                     "job.enqueue",
@@ -100,7 +100,15 @@ def dispatch_scheduled_emails_task():
                     object_id=queue_pk,
                 )
                 raise
-            log_operation("job.enqueue", OUTCOME_SUCCESS, backend="teamshifts", job_name="teamshifts.send_queued_email", event_id=event_id, object_id=queue_pk)
+            log_operation(
+                "job.enqueue",
+                OUTCOME_SUCCESS,
+                backend="teamshifts",
+                job_name="teamshifts.send_queued_email",
+                event_id=event_id,
+                object_id=queue_pk,
+                job_id=getattr(res, "id", None),
+            )
             logger.info("[TeamShifts] Dispatched scheduled email queue %s", queue_pk)
 
 

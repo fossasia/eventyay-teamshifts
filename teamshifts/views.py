@@ -228,6 +228,13 @@ class CFMSettingsView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View
         if request.POST.get("action") == "regenerate_secret":
             with scope(event=request.event):
                 cfm.regenerate_secret()
+            log_operation(
+                "plugin.settings_updated",
+                OUTCOME_SUCCESS,
+                backend="teamshifts",
+                event_id=request.event.pk,
+                user_id=getattr(request.user, "pk", None),
+            )
             messages.success(request, _("A new secret link has been generated. The old link no longer works."))
             return redirect("plugins:teamshifts:cfm_settings", organizer=request.organizer.slug, event=request.event.slug)
 
@@ -235,6 +242,13 @@ class CFMSettingsView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View
         if form.is_valid():
             with scope(event=request.event):
                 form.save()
+            log_operation(
+                "plugin.settings_updated",
+                OUTCOME_SUCCESS,
+                backend="teamshifts",
+                event_id=request.event.pk,
+                user_id=getattr(request.user, "pk", None),
+            )
             messages.success(request, _("Settings saved."))
             return redirect("plugins:teamshifts:cfm_settings", organizer=request.organizer.slug, event=request.event.slug)
 
@@ -327,6 +341,13 @@ class CFMApplicationFormView(PluginActiveMixin, TeamShiftsPermissionRequiredMixi
         if form.is_valid():
             with scope(event=request.event):
                 form.save()
+            log_operation(
+                "plugin.settings_updated",
+                OUTCOME_SUCCESS,
+                backend="teamshifts",
+                event_id=request.event.pk,
+                user_id=getattr(request.user, "pk", None),
+            )
             messages.success(request, _("Settings saved."))
             return redirect("plugins:teamshifts:cfm_application_form", organizer=request.organizer.slug, event=request.event.slug)
         return render(request, self.template_name, self._ctx(cfm, form, questions))
@@ -1066,6 +1087,14 @@ class ApplicationStatusView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin
             if new_status != old_status:
                 application.status = new_status
                 application.save(update_fields=["status", "updated_at"])
+                log_operation(
+                    "application.status_updated",
+                    OUTCOME_SUCCESS,
+                    backend="teamshifts",
+                    event_id=event.pk,
+                    user_id=getattr(request.user, "pk", None),
+                    object_id=application.pk,
+                )
                 if new_status == ApplicationStatus.ACCEPTED:
                     messages.success(request, _("Application by %s accepted.") % application.user.email)
                     transaction.on_commit(lambda app=application: queue_lifecycle_email(app, EmailTemplateRoles.APPLICATION_ACCEPTED))
@@ -1217,6 +1246,17 @@ class PublicApplyView(FormView):
             ctx["existing_application"] = None
         return ctx
 
+    def form_invalid(self, form):
+        log_operation(
+            "application.submit",
+            OUTCOME_FAILURE,
+            backend="teamshifts",
+            error_code="validation_failed",
+            event_id=getattr(self.event, "pk", None),
+            user_id=getattr(self.request.user, "pk", None) if getattr(self.request.user, "is_authenticated", False) else None,
+        )
+        return super().form_invalid(form)
+
     def form_valid(self, form):
         if not self.request.user.is_authenticated:
             login_url = reverse(
@@ -1246,6 +1286,14 @@ class PublicApplyView(FormView):
         if full_name and full_name != self.request.user.fullname:
             self.request.user.fullname = full_name
             self.request.user.save(update_fields=["fullname"])
+        log_operation(
+            "application.submit",
+            OUTCOME_SUCCESS,
+            backend="teamshifts",
+            event_id=event.pk,
+            user_id=self.request.user.pk,
+            object_id=application.pk,
+        )
         transaction.on_commit(
             lambda app=application: queue_lifecycle_email(app, EmailTemplateRoles.APPLICATION_RECEIVED),
             robust=True,
@@ -1786,7 +1834,7 @@ class EmailQueueDeleteView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin,
 
 def _enqueue_queued_email(event_id: int, queue_id: int) -> None:
     try:
-        send_queued_email.delay(event_id, queue_id)
+        res = send_queued_email.delay(event_id, queue_id)
     except Exception:
         log_operation(
             "job.enqueue",
@@ -1805,6 +1853,7 @@ def _enqueue_queued_email(event_id: int, queue_id: int) -> None:
         job_name="teamshifts.send_queued_email",
         event_id=event_id,
         object_id=queue_id,
+        job_id=getattr(res, "id", None),
     )
 
 
@@ -3203,19 +3252,20 @@ def _lock_member_for_overlap_check(user):
 def _queue_lifecycle_email_safely(application, template_role):
     try:
         queue_lifecycle_email(application, template_role)
-    except Exception:
-        logger.exception(
-            "[TeamShifts] Failed to queue %s email for application %s",
+    except Exception as exc:
+        logger.error(
+            "[TeamShifts] Failed to queue %s email for application %s (%s)",
             template_role,
             application.pk,
+            type(exc).__name__,
         )
 
 
 def _queue_shift_summary_safely(event, user):
     try:
         queue_shift_summary_email(event=event, user=user)
-    except Exception:
-        logger.exception("[TeamShifts] Failed to queue shift summary for user %s", user.pk)
+    except Exception as exc:
+        logger.error("[TeamShifts] Failed to queue shift summary for user %s (%s)", user.pk, type(exc).__name__)
 
 
 def _notify_shift_change_safely(event, user, shift, role, template_role):
@@ -3229,12 +3279,13 @@ def _notify_shift_change_safely(event, user, shift, role, template_role):
                 role=role,
                 template_role=template_role,
             )
-    except Exception:
-        logger.exception(
-            "[TeamShifts] Failed to queue %s notification for user %s, shift %s",
+    except Exception as exc:
+        logger.error(
+            "[TeamShifts] Failed to queue %s notification for user %s, shift %s (%s)",
             template_role,
             user.pk,
             shift.pk,
+            type(exc).__name__,
         )
 
 
@@ -3830,6 +3881,7 @@ class ShiftClaimView(PublicShiftScheduleMixin, View):
             if sra is None:
                 return fail(_("This role is not configured for the shift."))
             if sra.role.is_restricted:
+                log_permission_denied(request, "restricted_role")
                 return fail(_("This role requires organizer assignment — you cannot sign up directly."))
 
             with transaction.atomic():
@@ -3847,6 +3899,7 @@ class ShiftClaimView(PublicShiftScheduleMixin, View):
                     self.member_application is not None
                     and not TeamMemberApplication.objects.filter(pk=self.member_application.pk, status=ApplicationStatus.ACCEPTED).exists()
                 ):
+                    log_permission_denied(request, "schedule_access_denied")
                     return fail(_("You need to be an accepted team member to view the shift schedule."))
                 if shift.start_time and shift.end_time:
                     conflicting = (
@@ -3965,6 +4018,7 @@ class ShiftWithdrawView(PublicShiftScheduleMixin, View):
                 return fail(_("You are not signed up for this shift."))
 
             if shift.start_time <= now() and not has_any_teamshifts_permission(request.user, self.organizer, event, request=request):
+                log_permission_denied(request, "shift_already_started")
                 return fail(_("This shift has already started, so it can no longer be dropped. Please contact the organizers."))
 
             role = assignment.role
@@ -3998,11 +4052,12 @@ def _notify_organizers_shift_dropped_safely(event, volunteer, shift, role=None):
     # The drop is already saved when this runs, so a failure here must not turn it into an error response.
     try:
         _notify_organizers_shift_dropped(event, volunteer, shift, role)
-    except Exception:
-        logger.exception(
-            "[TeamShifts] Failed to notify organizers that user %s dropped shift %s",
+    except Exception as exc:
+        logger.error(
+            "[TeamShifts] Failed to notify organizers that user %s dropped shift %s (%s)",
             volunteer.pk,
             shift.pk,
+            type(exc).__name__,
         )
 
 
@@ -4015,8 +4070,8 @@ def _notify_organizers_shift_dropped(event, volunteer, shift, role=None):
 
     try:
         template = cfm.get_mail_template(EmailTemplateRoles.SHIFT_DROPPED_ORGANIZER)
-    except Exception:
-        logger.exception("Failed to load shift-dropped email template for event %s", event.pk)
+    except Exception as exc:
+        logger.error("Failed to load shift-dropped email template for event %s (%s)", event.pk, type(exc).__name__)
         return
 
     with scopes_disabled():
@@ -4156,6 +4211,7 @@ class ShiftCheckOutView(LoginRequiredMixin, View):
                 status__in=allowed_statuses,
             ).exists()
             if not may_check_out:
+                log_permission_denied(request, "checkout_denied")
                 return JsonResponse(
                     {"status": "error", "error": str(_("You need to be an accepted team member to check out of this shift."))},
                     status=403,
@@ -4173,6 +4229,14 @@ class ShiftCheckOutView(LoginRequiredMixin, View):
                 return JsonResponse({"status": "error", "error": str(_("You have already checked out of this shift."))}, status=400)
 
             stamp_shift_end(assignment, current_time)
+            log_operation(
+                "checkout.volunteer",
+                OUTCOME_SUCCESS,
+                backend="teamshifts",
+                event_id=assignment.shift.event_id,
+                user_id=request.user.pk,
+                object_id=assignment.pk,
+            )
 
         evaluate_shift_certificate(assignment)
 
@@ -4475,6 +4539,13 @@ class VoucherSettingsView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, 
             settings.enabled = form.cleaned_data["enabled"]
             settings.voucher_tag = form.cleaned_data["voucher_tag"]
             settings.save(update_fields=["enabled", "voucher_tag"])
+            log_operation(
+                "plugin.settings_updated",
+                OUTCOME_SUCCESS,
+                backend="teamshifts",
+                event_id=request.event.pk,
+                user_id=getattr(request.user, "pk", None),
+            )
             if self._send_vouchers_blocker(settings) is None:
                 messages.success(
                     request,

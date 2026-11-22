@@ -56,5 +56,5 @@ class TeamShiftsApp(PluginConfig):
                         "enabled": True,
                     },
                 )
-            except Exception:
-                logger.exception("[TeamShifts] Failed to register beat schedule for %s", task)
+            except Exception as exc:
+                logger.error("[TeamShifts] Failed to register beat schedule for %s (%s)", task, type(exc).__name__)

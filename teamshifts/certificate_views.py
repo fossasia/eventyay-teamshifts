@@ -15,6 +15,7 @@ from django.views.generic import View
 from django_scopes import scope
 from eventyay.base.models import CachedFile
 from eventyay.base.views.tasks import AsyncAction
+from eventyay.control.permissions import EventPermissionRequiredMixin
 from eventyay.control.views.pdf import BaseEditorView
 
 from .forms import CertificateSettingsForm
@@ -30,7 +31,7 @@ from .pdf import (
     preview_context,
     render_certificate_pdf,
 )
-from .permissions import TeamShiftsPermissionRequiredMixin, can_view_email_addresses
+from .permissions import TeamShiftsPermissionRequiredMixin, can_view_email_addresses, teamshifts_permission_required
 from .services.certificates import (
     event_has_ended,
     event_last_day,
@@ -223,15 +224,38 @@ class CertificateDefaultPdfView(PluginActiveMixin, TeamShiftsPermissionRequiredM
         return response
 
 
-class CertificateEditorView(PluginActiveMixin, BaseEditorView):
-    permission = "can_change_settings"
+_JSON_SCRIPT_ESCAPES = {
+    ord(">"): "\\u003e",
+    ord("<"): "\\u003c",
+    ord("&"): "\\u0026",
+}
+
+
+def escape_json_for_html(json_str: str) -> str:
+    """Escapes HTML-significant characters in JSON strings to prevent script injection."""
+    return json_str.translate(_JSON_SCRIPT_ESCAPES)
+
+
+class CertificateEditorView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, BaseEditorView):
+    permission = "can_teamshifts_manage_applicants"
     template_name = "teamshifts/certificate_editor.html"
     accepted_formats = ("application/pdf", "image/png", "image/jpeg")
     title = _("Member certificate layout")
 
+    @classmethod
+    def as_view(cls, **initkwargs):
+        view = super(EventPermissionRequiredMixin, cls).as_view(**initkwargs)
+        return teamshifts_permission_required(cls.permission)(view)
+
     @cached_property
     def certificate_settings(self):
         return get_certificate_settings(self.request.event)
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        if "layout" in ctx and isinstance(ctx["layout"], str):
+            ctx["layout"] = escape_json_for_html(ctx["layout"])
+        return ctx
 
     def get_variables(self):
         return editor_variables()

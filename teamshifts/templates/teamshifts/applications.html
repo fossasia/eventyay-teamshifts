@@ -16,7 +16,7 @@
 {% block teamshifts_content %}
     {% include "teamshifts/_filter_form.html" %}
 
-    <div data-teamshifts-list data-ajax-results-region data-filter-count="{{ advanced_filter_count }}">
+    <div data-teamshifts-list data-ajax-results-region>
     {% if applications and can_manage_applicants %}
         <div class="teamshifts-list-toolbar">
             <button type="submit" form="bulk-action-form" name="action" value="accept" class="btn btn-success teamshifts-bulk-action-btn">

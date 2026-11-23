@@ -9,7 +9,9 @@ from eventyay.base.models import Team
 from teamshifts.models import (
     ApplicationStatus,
     Shift,
+    ShiftAssignment,
     ShiftLocation,
+    ShiftRoleAssignment,
     TeamMemberApplication,
     TeamRole,
     TeamShiftsEmailQueue,
@@ -131,10 +133,41 @@ def test_shifts_list_filter_and_ajax(orga_client, event, test_data):
     resp_empty = orga_client.get(url, {"query": "Nonexistent"})
     assert resp_empty.status_code == 200
     assert b"Morning Shift" not in resp_empty.content
+    assert b"Clear all filters" in resp_empty.content
 
     ajax_resp = orga_client.get(url, {"location": test_data["loc1"].pk}, HTTP_X_REQUESTED_WITH="XMLHttpRequest")
     assert ajax_resp.status_code == 200
     assert b"Morning Shift" in ajax_resp.content
+
+    # Invalid date or stale role ID still applies valid query
+    resp_invalid = orga_client.get(url, {"query": "Morning", "date_from": "not-a-date", "role": 999999})
+    assert resp_invalid.status_code == 200
+    assert b"Morning Shift" in resp_invalid.content
+
+    # Staffing filter tests
+    with scope(event=event):
+        s1 = test_data["shift1"]
+        role = test_data["role_lead"]
+        ShiftRoleAssignment.objects.create(shift=s1, role=role, capacity=1)
+
+    resp_open = orga_client.get(url, {"staffing": "open"})
+    assert resp_open.status_code == 200
+    assert b"Morning Shift" in resp_open.content
+
+    resp_full = orga_client.get(url, {"staffing": "full"})
+    assert resp_full.status_code == 200
+    assert b"Morning Shift" not in resp_full.content
+
+    with scope(event=event):
+        ShiftAssignment.objects.create(shift=s1, role=role, team_member=test_data["app1"].user)
+
+    resp_full_after = orga_client.get(url, {"staffing": "full"})
+    assert resp_full_after.status_code == 200
+    assert b"Morning Shift" in resp_full_after.content
+
+    resp_open_after = orga_client.get(url, {"staffing": "open"})
+    assert resp_open_after.status_code == 200
+    assert b"Morning Shift" not in resp_open_after.content
 
 
 @pytest.mark.django_db

@@ -17,7 +17,7 @@
 {% block teamshifts_content %}
   {% include "teamshifts/_filter_form.html" %}
 
-  <div data-teamshifts-list data-ajax-results-region data-filter-count="{{ advanced_filter_count }}">
+  <div data-teamshifts-list data-ajax-results-region>
     <div class="teamshifts-list-toolbar">
       <a href='{% url "plugins:teamshifts:email_compose" organizer=request.organizer.slug event=request.event.slug %}'
          class='btn btn-primary'>

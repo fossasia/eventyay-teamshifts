@@ -1,7 +1,8 @@
 from datetime import datetime, time
 
 from django import forms
-from django.db.models import Q
+from django.db.models import Count, F, IntegerField, OuterRef, Q, Subquery
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from eventyay.base.forms.widgets import DatePickerWidget
@@ -13,6 +14,7 @@ from .models import (
     EmailTemplateRoles,
     ShiftAssignment,
     ShiftLocation,
+    ShiftRoleAssignment,
     TeamRole,
     TeamShiftsEmailQueueRecipient,
     VoucherStatus,
@@ -199,16 +201,6 @@ class MemberFilterForm(TeamShiftsFilterForm):
         self.event = event
         self.hide_emails = hide_emails
         self.vouchers_enabled = vouchers_enabled
-        if args and args[0] is not None:
-            data = args[0].copy()
-            if "q" in data and "query" not in data:
-                data["query"] = data["q"]
-            args = (data,) + args[1:]
-        elif "data" in kwargs and kwargs["data"] is not None:
-            data = kwargs["data"].copy()
-            if "q" in data and "query" not in data:
-                data["query"] = data["q"]
-            kwargs["data"] = data
         super().__init__(*args, **kwargs)
         if event:
             self.fields["role"].queryset = TeamRole.objects.filter(event=event)
@@ -224,6 +216,7 @@ class MemberFilterForm(TeamShiftsFilterForm):
 
     @staticmethod
     def voucher_status_filter(voucher_status):
+        # A redeemed voucher counts as claimed even before its status has been synced.
         claimed = Q(voucher_assignment__status=VoucherStatus.CLAIMED) | Q(voucher_assignment__voucher__redeemed__gt=0)
         if voucher_status == VoucherStatus.CLAIMED:
             return claimed
@@ -285,13 +278,13 @@ class ShiftFilterForm(TeamShiftsFilterForm):
         widget=search_widget(_("Search shifts by name…"), _("Search shifts")),
         required=False,
     )
-    location = forms.ModelChoiceField(
+    location = LenientModelChoiceField(
         label=_("Location"),
         queryset=ShiftLocation.objects.none(),
         required=False,
         empty_label=_("All locations"),
     )
-    role = forms.ModelChoiceField(
+    role = LenientModelChoiceField(
         label=_("Role"),
         queryset=TeamRole.objects.none(),
         required=False,
@@ -306,6 +299,15 @@ class ShiftFilterForm(TeamShiftsFilterForm):
         label=_("End date"),
         required=False,
         widget=DatePickerWidget(attrs={"placeholder": _("End date")}),
+    )
+    staffing = forms.ChoiceField(
+        label=_("Staffing"),
+        choices=(
+            ("", _("All staffing")),
+            ("open", _("Has open spots")),
+            ("full", _("Fully staffed")),
+        ),
+        required=False,
     )
 
     def __init__(self, *args, event=None, **kwargs):
@@ -335,6 +337,20 @@ class ShiftFilterForm(TeamShiftsFilterForm):
         if fdata.get("date_to"):
             dt_to = timezone.make_aware(datetime.combine(fdata["date_to"], time.max), tz)
             queryset = queryset.filter(start_time__lte=dt_to)
+
+        if staffing := fdata.get("staffing"):
+            assigned = (
+                ShiftAssignment.objects.filter(shift=OuterRef("shift"), role=OuterRef("role")).values("shift", "role").annotate(cnt=Count("id")).values("cnt")
+            )
+            open_slots = (
+                ShiftRoleAssignment.objects.filter(shift__event=self.event)
+                .annotate(assigned=Coalesce(Subquery(assigned, output_field=IntegerField()), 0))
+                .filter(assigned__lt=F("capacity"))
+            )
+            if staffing == "open":
+                queryset = queryset.filter(role_assignments__in=open_slots).distinct()
+            else:
+                queryset = queryset.filter(role_assignments__isnull=False).exclude(role_assignments__in=open_slots).distinct()
 
         return self.apply_ordering(queryset)
 

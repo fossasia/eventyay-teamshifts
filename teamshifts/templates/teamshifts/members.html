@@ -17,7 +17,7 @@
 {% block teamshifts_content %}
   {% include "teamshifts/_filter_form.html" %}
 
-  <div data-ajax-results-region data-filter-count="{{ advanced_filter_count }}">
+  <div data-ajax-results-region>
     <div class='teamshifts-list-toolbar'>
       {% if can_download_members %}
         <details class='dropdown teamshifts-download-dropdown' data-ajax-sync='members-download'>

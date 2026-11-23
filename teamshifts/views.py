@@ -209,9 +209,9 @@ class FilteredListMixin(PaginationMixin):
         return self.build_filter_form()
 
     def apply_filters(self, queryset):
-        if self.filter_form.is_valid():
-            return self.filter_form.filter_qs(queryset)
-        return self.filter_form.apply_ordering(queryset)
+        # Invalid fields are left out of cleaned_data, so the valid filters still apply.
+        self.filter_form.is_valid()
+        return self.filter_form.filter_qs(queryset)
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -1718,7 +1718,6 @@ class EmailSentView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Filter
         sort_field = sort[1:] if sort.startswith("-") else sort
         ctx["current_ordering"] = sort if sort_field in self.sortable_fields else self.default_sort_field
         return ctx
-        return ctx
 
 
 class EmailQueueEditView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):
@@ -2190,6 +2189,9 @@ class ShiftListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Filter
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         event = self.request.event
+        with scope(event=event):
+            ctx["total_shifts_count"] = Shift.objects.filter(event=event).count()
+            ctx["matching_shifts_count"] = getattr(self, "object_list", Shift.objects.none()).count()
         ctx["can_manage_shifts"] = has_teamshifts_permission(
             self.request.user, self.request.organizer, event, "can_teamshifts_create_shifts", request=self.request
         )
@@ -2522,16 +2524,6 @@ class MembersQuerysetMixin(FilteredListMixin):
             return None
         value = int(raw)
         return value if value <= MAX_DB_INTEGER else None
-
-    @staticmethod
-    def _voucher_status_filter(voucher_status):
-        # A redeemed voucher counts as claimed even before its status has been synced.
-        claimed = Q(voucher_assignment__status=VoucherStatus.CLAIMED) | Q(voucher_assignment__voucher__redeemed__gt=0)
-        if voucher_status == VoucherStatus.CLAIMED:
-            return claimed
-        if voucher_status == VoucherStatus.SENT:
-            return Q(voucher_assignment__status=VoucherStatus.SENT) & ~claimed
-        return (Q(voucher_assignment__isnull=True) | Q(voucher_assignment__status=VoucherStatus.NOT_SENT)) & ~claimed
 
 
 class MembersListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, MembersQuerysetMixin, ListView):

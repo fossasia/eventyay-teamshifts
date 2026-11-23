@@ -15,7 +15,7 @@
 {% block teamshifts_content %}
   {% include "teamshifts/_filter_form.html" %}
 
-  <div data-teamshifts-list data-ajax-results-region data-filter-count="{{ advanced_filter_count }}">
+  <div data-teamshifts-list data-ajax-results-region>
     <div class="teamshifts-list-toolbar">
       {% if shifts and can_manage_shifts %}
         <button type="submit" form="bulk-action-form" class="btn btn-danger teamshifts-bulk-delete-btn">
@@ -115,11 +115,18 @@
         <p>
             {% if filter_form.filtered %}
                 {% trans "No shifts match your filters." %}
+                <a href="{{ request.path }}{% if request.GET.sort %}?sort={{ request.GET.sort|urlencode }}{% endif %}">{% trans "Clear all filters" %}</a>
             {% else %}
                 {% trans "No shifts created yet." %}
             {% endif %}
         </p>
     </div>
+  {% endif %}
+
+  {% if filter_form.filtered %}
+    <p class="teamshifts-filtered-count text-muted">
+      {% blocktrans with matching=matching_shifts_count total=total_shifts_count %}{{ matching }} of {{ total }} shifts match the filters{% endblocktrans %}
+    </p>
   {% endif %}
 
   <div data-teamshifts-shifts-i18n

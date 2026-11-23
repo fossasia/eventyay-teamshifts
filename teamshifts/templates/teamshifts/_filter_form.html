@@ -26,11 +26,12 @@
                     <button type="button"
                             class="btn btn-default advanced-filter-toggle"
                             data-advanced-filter-toggle
+                            data-filter-count="{{ advanced_filter_count }}"
                             aria-controls="advanced-filter-advanced"
                             aria-expanded="{% if advanced_filters_open %}true{% else %}false{% endif %}">
                         <span class="fa fa-sliders" aria-hidden="true"></span>
                         {% trans "Filters" %}
-                        <span class="badge" data-filter-count-badge{% if not advanced_filter_count %} hidden{% endif %}>{{ advanced_filter_count }}</span>
+                        {% if advanced_filter_count %}<span class="badge advanced-filter-badge" data-advanced-filter-count>{{ advanced_filter_count }}</span>{% endif %}
                     </button>
                 {% endif %}
             </div>

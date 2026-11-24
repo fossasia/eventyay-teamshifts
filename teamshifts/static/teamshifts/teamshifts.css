@@ -622,27 +622,27 @@ label .optional {
     .teamshifts-outbox-table td {
         vertical-align: middle;
     }
-}
 
-.teamshifts-outbox-table .btn-toolbar {
-    display: flex;
-    flex-direction: row;
-    align-items: center;
-    flex-wrap: nowrap;
-    gap: 8px;
-    margin-left: 0;
-}
+    .teamshifts-outbox-table .btn-toolbar {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        flex-wrap: nowrap;
+        gap: 8px;
+        margin-left: 0;
+    }
 
-.teamshifts-outbox-table .btn-toolbar .btn-group {
-    float: none;
-    margin-left: 0;
-    flex-shrink: 0;
-}
+    .teamshifts-outbox-table .btn-toolbar .btn-group {
+        float: none;
+        margin-left: 0;
+        flex-shrink: 0;
+    }
 
-.teamshifts-outbox-table .btn-toolbar .btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 34px;
-    height: 32px;
+    .teamshifts-outbox-table .btn-toolbar .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 34px;
+        height: 32px;
+    }
 }

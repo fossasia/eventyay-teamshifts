@@ -16,7 +16,6 @@ from .models import (
     ShiftLocation,
     ShiftRoleAssignment,
     TeamRole,
-    TeamShiftsEmailQueueRecipient,
     VoucherStatus,
 )
 
@@ -31,64 +30,59 @@ def search_widget(placeholder, aria_label):
     )
 
 
+def date_filter_field(label):
+    return forms.DateField(
+        label=label,
+        required=False,
+        widget=DatePickerWidget(attrs={"placeholder": label}),
+    )
+
+
 class TeamShiftsFilterForm(FilterForm):
     default_order = None
 
-    def __init__(self, *args, **kwargs):
-        if len(args) > 0 and args[0] is not None:
-            data = args[0].copy()
-            if "q" in data and "query" not in data:
-                data["query"] = data["q"]
-            args = (data,) + args[1:]
-        elif "data" in kwargs and kwargs["data"] is not None:
-            data = kwargs["data"].copy()
-            if "q" in data and "query" not in data:
-                data["query"] = data["q"]
-            kwargs["data"] = data
-        super().__init__(*args, **kwargs)
-        if not self.orders:
-            self.fields.pop("ordering", None)
+    def __init__(self, data=None, *args, **kwargs):
+        if data is not None and "q" in data and "query" not in data:
+            data = data.copy()
+            data["query"] = data["q"]
+        super().__init__(data, *args, **kwargs)
+        self.fields.pop("ordering", None)
 
     @property
     def advanced_fields(self):
-        return [self[name] for name in self.fields if name not in ("query", "ordering")]
-
-    @property
-    def current_ordering(self):
-        if "ordering" in self.fields:
-            return self["ordering"].value() or ""
-        return ""
-
-    def get_order_by(self):
-        o = self.cleaned_data.get("ordering") if hasattr(self, "cleaned_data") else None
-        if not o:
-            return None
-        is_desc = o.startswith("-") and o not in self.orders
-        key = o[1:] if is_desc else o
-        field = self.orders.get(key)
-        if not field:
-            return None
-        if isinstance(field, (list, tuple)):
-            if is_desc:
-                return tuple(f[1:] if f.startswith("-") else f"-{f}" for f in field)
-            return tuple(field)
-        if is_desc:
-            return field[1:] if field.startswith("-") else f"-{field}"
-        return field
+        return [self[name] for name in self.fields if name != "query"]
 
     def apply_ordering(self, queryset):
-        if order_by := self.get_order_by():
-            order_list = list(order_by) if isinstance(order_by, (list, tuple)) else [order_by]
-            if "pk" not in order_list and "-pk" not in order_list:
-                tie_breaker = "-pk" if any(f.startswith("-") for f in order_list) else "pk"
-                order_list.append(tie_breaker)
-            return queryset.order_by(*order_list)
         if self.default_order:
             default_list = list(self.default_order) if isinstance(self.default_order, (list, tuple)) else [self.default_order]
             if "pk" not in default_list and "-pk" not in default_list:
                 tie_breaker = "-pk" if any(f.startswith("-") for f in default_list) else "pk"
                 default_list.append(tie_breaker)
             return queryset.order_by(*default_list)
+        return queryset
+
+
+class DateRangeFilterMixin:
+    date_field = None
+
+    def clean(self):
+        cleaned_data = super().clean()
+        date_from = cleaned_data.get("date_from")
+        date_to = cleaned_data.get("date_to")
+        if date_from and date_to and date_from > date_to:
+            self.add_error("date_to", _("End date cannot be earlier than start date."))
+        return cleaned_data
+
+    def filter_date_range(self, queryset, field_name=None):
+        target_field = field_name or self.date_field
+        fdata = self.cleaned_data
+        tz = getattr(self.event, "tz", None) or timezone.get_current_timezone()
+        if date_from := fdata.get("date_from"):
+            dt_from = timezone.make_aware(datetime.combine(date_from, time.min), tz)
+            queryset = queryset.filter(**{f"{target_field}__gte": dt_from})
+        if date_to := fdata.get("date_to"):
+            dt_to = timezone.make_aware(datetime.combine(date_to, time.max), tz)
+            queryset = queryset.filter(**{f"{target_field}__lte": dt_to})
         return queryset
 
 
@@ -116,19 +110,11 @@ class ApplicationFilterForm(TeamShiftsFilterForm):
         choices=(("", _("All statuses")),) + tuple(ApplicationStatus.choices),
         required=False,
     )
-    role = LenientModelChoiceField(
-        label=_("Role"),
-        queryset=TeamRole.objects.none(),
-        required=False,
-        empty_label=_("All roles"),
-    )
 
     def __init__(self, *args, event=None, hide_emails=False, **kwargs):
         self.event = event
         self.hide_emails = hide_emails
         super().__init__(*args, **kwargs)
-        if event:
-            self.fields["role"].queryset = TeamRole.objects.filter(event=event)
         if hide_emails:
             self.fields["query"].widget.attrs.update(
                 {
@@ -149,22 +135,11 @@ class ApplicationFilterForm(TeamShiftsFilterForm):
         if fdata.get("status"):
             queryset = queryset.filter(status=fdata["status"])
 
-        if role := fdata.get("role"):
-            matching_users = ShiftAssignment.objects.filter(
-                role=role,
-                shift__event=self.event,
-            ).values("team_member_id")
-            queryset = queryset.filter(user_id__in=matching_users)
-
         return self.apply_ordering(queryset)
 
 
 class MemberFilterForm(TeamShiftsFilterForm):
     default_order = ("user__fullname", "user__email", "pk")
-    orders = {
-        "name": "user__fullname",
-        "email": "user__email",
-    }
 
     query = forms.CharField(
         label=_("Search members…"),
@@ -270,8 +245,9 @@ class MemberFilterForm(TeamShiftsFilterForm):
         return generated if certificate_status == CertificateStatus.GENERATED else ~downloaded & ~sent & ~generated
 
 
-class ShiftFilterForm(TeamShiftsFilterForm):
+class ShiftFilterForm(DateRangeFilterMixin, TeamShiftsFilterForm):
     default_order = ("start_time", "pk")
+    date_field = "start_time"
 
     query = forms.CharField(
         label=_("Search shifts…"),
@@ -290,16 +266,8 @@ class ShiftFilterForm(TeamShiftsFilterForm):
         required=False,
         empty_label=_("All roles"),
     )
-    date_from = forms.DateField(
-        label=_("Start date"),
-        required=False,
-        widget=DatePickerWidget(attrs={"placeholder": _("Start date")}),
-    )
-    date_to = forms.DateField(
-        label=_("End date"),
-        required=False,
-        widget=DatePickerWidget(attrs={"placeholder": _("End date")}),
-    )
+    date_from = date_filter_field(_("Start date"))
+    date_to = date_filter_field(_("End date"))
     staffing = forms.ChoiceField(
         label=_("Staffing"),
         choices=(
@@ -329,14 +297,7 @@ class ShiftFilterForm(TeamShiftsFilterForm):
         if fdata.get("role"):
             queryset = queryset.filter(role_assignments__role=fdata["role"]).distinct()
 
-        tz = getattr(self.event, "tz", None) or timezone.get_current_timezone()
-        if fdata.get("date_from"):
-            dt_from = timezone.make_aware(datetime.combine(fdata["date_from"], time.min), tz)
-            queryset = queryset.filter(start_time__gte=dt_from)
-
-        if fdata.get("date_to"):
-            dt_to = timezone.make_aware(datetime.combine(fdata["date_to"], time.max), tz)
-            queryset = queryset.filter(start_time__lte=dt_to)
+        queryset = self.filter_date_range(queryset)
 
         if staffing := fdata.get("staffing"):
             assigned = (
@@ -355,7 +316,9 @@ class ShiftFilterForm(TeamShiftsFilterForm):
         return self.apply_ordering(queryset)
 
 
-class TeamShiftsEmailFilterForm(TeamShiftsFilterForm):
+class TeamShiftsEmailFilterForm(DateRangeFilterMixin, TeamShiftsFilterForm):
+    date_field = "created"
+
     query = forms.CharField(
         label=_("Search emails…"),
         widget=search_widget(_("Search by subject or recipient…"), _("Search emails")),
@@ -367,16 +330,8 @@ class TeamShiftsEmailFilterForm(TeamShiftsFilterForm):
         required=False,
         empty_label=_("All roles"),
     )
-    date_from = forms.DateField(
-        label=_("Start date"),
-        required=False,
-        widget=DatePickerWidget(attrs={"placeholder": _("Start date")}),
-    )
-    date_to = forms.DateField(
-        label=_("End date"),
-        required=False,
-        widget=DatePickerWidget(attrs={"placeholder": _("End date")}),
-    )
+    date_from = date_filter_field(_("Start date"))
+    date_to = date_filter_field(_("End date"))
 
     def __init__(self, *args, event=None, date_field="created", hide_emails=False, **kwargs):
         self.event = event
@@ -398,37 +353,23 @@ class TeamShiftsEmailFilterForm(TeamShiftsFilterForm):
         fdata = self.cleaned_data
 
         if query := (fdata.get("query") or "").strip():
-            if queryset.model == TeamShiftsEmailQueueRecipient:
-                condition = Q(subject__icontains=query) | Q(subject="", queue__subject__icontains=query) | Q(user__fullname__icontains=query)
-                if not self.hide_emails:
-                    condition |= Q(email__icontains=query)
-                queryset = queryset.filter(condition)
-            elif self.hide_emails:
+            if self.hide_emails:
                 queryset = queryset.filter(subject__icontains=query)
             else:
                 recipient_matches = queryset.model.objects.filter(recipients__email__icontains=query).values("pk")
                 queryset = queryset.filter(Q(subject__icontains=query) | Q(pk__in=recipient_matches))
 
         if role := fdata.get("role"):
-            if queryset.model == TeamShiftsEmailQueueRecipient:
-                queryset = queryset.filter(queue__role_filter=role)
-            else:
-                queryset = queryset.filter(role_filter=role)
+            queryset = queryset.filter(role_filter=role)
 
-        tz = getattr(self.event, "tz", None) or timezone.get_current_timezone()
-        if fdata.get("date_from"):
-            dt_from = timezone.make_aware(datetime.combine(fdata["date_from"], time.min), tz)
-            queryset = queryset.filter(**{f"{self.date_field}__gte": dt_from})
-
-        if fdata.get("date_to"):
-            dt_to = timezone.make_aware(datetime.combine(fdata["date_to"], time.max), tz)
-            queryset = queryset.filter(**{f"{self.date_field}__lte": dt_to})
+        queryset = self.filter_date_range(queryset)
 
         return self.apply_ordering(queryset)
 
 
-class TeamShiftsSentEmailFilterForm(TeamShiftsFilterForm):
+class TeamShiftsSentEmailFilterForm(DateRangeFilterMixin, TeamShiftsFilterForm):
     default_order = ("-sent_at", "-pk")
+    date_field = "sent_at"
 
     query = forms.CharField(
         label=_("Search emails…"),
@@ -445,16 +386,8 @@ class TeamShiftsSentEmailFilterForm(TeamShiftsFilterForm):
         label=_("Email type"),
         required=False,
     )
-    date_from = forms.DateField(
-        label=_("Start date"),
-        required=False,
-        widget=DatePickerWidget(attrs={"placeholder": _("Start date")}),
-    )
-    date_to = forms.DateField(
-        label=_("End date"),
-        required=False,
-        widget=DatePickerWidget(attrs={"placeholder": _("End date")}),
-    )
+    date_from = date_filter_field(_("Start date"))
+    date_to = date_filter_field(_("End date"))
 
     def __init__(self, *args, event=None, hide_emails=False, **kwargs):
         self.event = event
@@ -489,13 +422,6 @@ class TeamShiftsSentEmailFilterForm(TeamShiftsFilterForm):
             else:
                 queryset = queryset.filter(queue__mail_type=mail_type)
 
-        tz = getattr(self.event, "tz", None) or timezone.get_current_timezone()
-        if fdata.get("date_from"):
-            dt_from = timezone.make_aware(datetime.combine(fdata["date_from"], time.min), tz)
-            queryset = queryset.filter(sent_at__gte=dt_from)
-
-        if fdata.get("date_to"):
-            dt_to = timezone.make_aware(datetime.combine(fdata["date_to"], time.max), tz)
-            queryset = queryset.filter(sent_at__lte=dt_to)
+        queryset = self.filter_date_range(queryset)
 
         return self.apply_ordering(queryset)

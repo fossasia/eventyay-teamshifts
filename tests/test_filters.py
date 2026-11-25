@@ -1,4 +1,5 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
 from django.db.models import Count
@@ -76,39 +77,21 @@ def test_application_filter_query_and_privacy(event, django_user_model):
 
 
 @pytest.mark.django_db
-def test_application_filter_status_and_role(event, django_user_model, role_a, role_b, location_a):
+def test_application_filter_status_and_no_role(event, django_user_model):
     with scope(event=event):
         user_alice = django_user_model.objects.create_user(email="alice@test.com", fullname="Alice")
         user_bob = django_user_model.objects.create_user(email="bob@test.com", fullname="Bob")
         app_a = TeamMemberApplication.objects.create(event=event, user=user_alice, status=ApplicationStatus.ACCEPTED)
         app_b = TeamMemberApplication.objects.create(event=event, user=user_bob, status=ApplicationStatus.PENDING)
 
-        shift = Shift.objects.create(
-            event=event,
-            name="Morning Shift",
-            location=location_a,
-            start_time=now(),
-            end_time=now() + timedelta(hours=2),
-        )
-        ShiftAssignment.objects.create(shift=shift, team_member=user_alice, role=role_a)
-
         qs = TeamMemberApplication.objects.filter(event=event)
 
         form = ApplicationFilterForm({"status": ApplicationStatus.ACCEPTED}, event=event)
+        assert "role" not in form.fields
         assert form.is_valid()
         results = list(form.filter_qs(qs))
         assert results == [app_a]
         assert app_b not in results
-
-        form = ApplicationFilterForm({"role": role_a.pk}, event=event)
-        assert form.is_valid()
-        results = list(form.filter_qs(qs))
-        assert results == [app_a]
-
-        form = ApplicationFilterForm({"role": role_b.pk}, event=event)
-        assert form.is_valid()
-        results = list(form.filter_qs(qs))
-        assert not results
 
 
 @pytest.mark.django_db
@@ -386,3 +369,145 @@ def test_stable_default_ordering_with_shared_timestamps(event, django_user_model
         assert shift_form.is_valid()
         shift_qs = shift_form.filter_qs(Shift.objects.filter(event=event))
         assert list(shift_qs) == [s1, s2]
+
+
+@pytest.mark.django_db
+def test_shift_filter_staffing(event, django_user_model, location_a, role_a, role_b):
+    with scope(event=event):
+        volunteer = django_user_model.objects.create_user(email="vol@test.com", fullname="Vol")
+        base_time = now()
+
+        shift_no_roles = Shift.objects.create(
+            event=event,
+            name="Unconfigured Shift",
+            location=location_a,
+            start_time=base_time,
+            end_time=base_time + timedelta(hours=2),
+        )
+        shift_open = Shift.objects.create(
+            event=event,
+            name="Open Shift",
+            location=location_a,
+            start_time=base_time + timedelta(hours=3),
+            end_time=base_time + timedelta(hours=5),
+        )
+        shift_full = Shift.objects.create(
+            event=event,
+            name="Full Shift",
+            location=location_a,
+            start_time=base_time + timedelta(hours=6),
+            end_time=base_time + timedelta(hours=8),
+        )
+
+        # shift_open has one filled role and one open role
+        ShiftRoleAssignment.objects.create(shift=shift_open, role=role_a, capacity=1)
+        ShiftRoleAssignment.objects.create(shift=shift_open, role=role_b, capacity=2)
+        ShiftAssignment.objects.create(shift=shift_open, team_member=volunteer, role=role_a)
+
+        # shift_full has all roles at capacity
+        ShiftRoleAssignment.objects.create(shift=shift_full, role=role_a, capacity=1)
+        ShiftAssignment.objects.create(shift=shift_full, team_member=volunteer, role=role_a)
+
+        qs = Shift.objects.filter(event=event)
+
+        form_open = ShiftFilterForm({"staffing": "open"}, event=event)
+        assert form_open.is_valid()
+        assert list(form_open.filter_qs(qs)) == [shift_open]
+
+        form_full = ShiftFilterForm({"staffing": "full"}, event=event)
+        assert form_full.is_valid()
+        assert list(form_full.filter_qs(qs)) == [shift_full]
+        assert shift_no_roles not in list(form_open.filter_qs(qs))
+        assert shift_no_roles not in list(form_full.filter_qs(qs))
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "form_cls",
+    [ShiftFilterForm, TeamShiftsEmailFilterForm, TeamShiftsSentEmailFilterForm],
+)
+def test_reversed_date_range_is_invalid(event, form_cls):
+    with scope(event=event):
+        form = form_cls({"date_from": "2026-06-15", "date_to": "2026-06-10"}, event=event)
+        assert not form.is_valid()
+        assert "date_to" in form.errors
+
+        equal_form = form_cls({"date_from": "2026-06-15", "date_to": "2026-06-15"}, event=event)
+        assert equal_form.is_valid()
+
+
+@pytest.mark.django_db
+def test_date_to_boundary_in_non_utc_event_timezone(event, django_user_model):
+    from eventyay.base.models import Event
+
+    ny_tz = ZoneInfo("America/New_York")
+    ist_tz = ZoneInfo("Asia/Kolkata")
+
+    # UTC-negative timezone: 23:30 EDT on June 15 is already 03:30 UTC on June 16
+    Event.objects.filter(pk=event.pk).update(timezone="America/New_York")
+    ny_event = Event.objects.get(pk=event.pk)
+    with scope(event=ny_event):
+        ny_loc = ShiftLocation.objects.create(event=ny_event, name="NY Stage")
+        inside_ny = Shift.objects.create(
+            event=ny_event,
+            name="Late NY Shift",
+            location=ny_loc,
+            start_time=datetime(2026, 6, 15, 23, 30, tzinfo=ny_tz),
+            end_time=datetime(2026, 6, 16, 1, 30, tzinfo=ny_tz),
+        )
+        outside_ny = Shift.objects.create(
+            event=ny_event,
+            name="Next Day NY Shift",
+            location=ny_loc,
+            start_time=datetime(2026, 6, 16, 0, 5, tzinfo=ny_tz),
+            end_time=datetime(2026, 6, 16, 2, 5, tzinfo=ny_tz),
+        )
+        form = ShiftFilterForm({"date_to": "2026-06-15"}, event=ny_event)
+        assert form.is_valid()
+        ny_results = list(form.filter_qs(Shift.objects.filter(event=ny_event)))
+        assert ny_results == [inside_ny]
+        assert outside_ny not in ny_results
+
+    # UTC-positive timezone: 01:00 IST on June 16 is still 19:30 UTC on June 15
+    Event.objects.filter(pk=event.pk).update(timezone="Asia/Kolkata")
+    ist_event = Event.objects.get(pk=event.pk)
+    with scope(event=ist_event):
+        Shift.objects.filter(event=ist_event).delete()
+        inside_ist = Shift.objects.create(
+            event=ist_event,
+            name="Late IST Shift",
+            location=ny_loc,
+            start_time=datetime(2026, 6, 15, 23, 30, tzinfo=ist_tz),
+            end_time=datetime(2026, 6, 16, 0, 30, tzinfo=ist_tz),
+        )
+        outside_ist = Shift.objects.create(
+            event=ist_event,
+            name="Next Day IST Shift",
+            location=ny_loc,
+            start_time=datetime(2026, 6, 16, 1, 0, tzinfo=ist_tz),
+            end_time=datetime(2026, 6, 16, 2, 0, tzinfo=ist_tz),
+        )
+        form = ShiftFilterForm({"date_to": "2026-06-15"}, event=ist_event)
+        assert form.is_valid()
+        results = list(form.filter_qs(Shift.objects.filter(event=ist_event)))
+        assert results == [inside_ist]
+        assert outside_ist not in results
+
+        # Sent email filter also respects non-UTC event timezone on date_to
+        sender = django_user_model.objects.create_user(email="tzsender@test.com")
+        q_in = TeamShiftsEmailQueue.objects.create(event=ist_event, user=sender, subject="In IST", message="Body")
+        r_in = TeamShiftsEmailQueueRecipient.objects.create(
+            queue=q_in,
+            email="r1@test.com",
+            sent_at=datetime(2026, 6, 15, 23, 59, tzinfo=ist_tz),
+        )
+        q_out = TeamShiftsEmailQueue.objects.create(event=ist_event, user=sender, subject="Out IST", message="Body")
+        TeamShiftsEmailQueueRecipient.objects.create(
+            queue=q_out,
+            email="r2@test.com",
+            sent_at=datetime(2026, 6, 16, 0, 30, tzinfo=ist_tz),
+        )
+        sent_form = TeamShiftsSentEmailFilterForm({"date_to": "2026-06-15"}, event=ist_event)
+        assert sent_form.is_valid()
+        sent_results = list(sent_form.filter_qs(TeamShiftsEmailQueueRecipient.objects.filter(queue__event=ist_event)))
+        assert sent_results == [r_in]

@@ -184,7 +184,6 @@ def test_emails_outbox_and_sent_filter_views(orga_client, event, test_data):
     resp_sent = orga_client.get(sent_url, {"query": "Newsletter"})
     assert resp_sent.status_code == 200
     assert "filter_form" in resp_sent.context
-    assert "search" in resp_sent.context
     assert b"data-ajax-results-region" in resp_sent.content
     assert b"Sent Newsletter" in resp_sent.content
     assert b"New email" in resp_sent.content
@@ -258,3 +257,44 @@ def test_get_safe_next_url_helper(rf):
     # HTTPS scheme on HTTPS request with allowed host is accepted
     req_https_ok = rf.get("/current/?next=https://testserver/safe/", secure=True)
     assert get_safe_next_url(req_https_ok, fallback) == "https://testserver/safe/"
+
+
+@pytest.mark.django_db
+def test_shifts_list_reversed_date_range_marks_form_invalid(orga_client, event, test_data):
+    url = reverse("plugins:teamshifts:shifts", kwargs={"organizer": event.organizer.slug, "event": event.slug})
+    resp = orga_client.get(url, {"date_from": "2026-06-15", "date_to": "2026-06-10"})
+    assert resp.status_code == 200
+    assert not resp.context["filter_form"].is_valid()
+    assert "date_to" in resp.context["filter_form"].errors
+    assert resp.context["advanced_filters_open"] is True
+
+
+@pytest.mark.django_db
+def test_bulk_remove_members_redirect_preserves_safe_next(orga_client, event, test_data):
+    members_url = reverse("plugins:teamshifts:members", kwargs={"organizer": event.organizer.slug, "event": event.slug})
+    bulk_url = reverse("plugins:teamshifts:bulk_remove_members", kwargs={"organizer": event.organizer.slug, "event": event.slug})
+    next_page = f"{members_url}?arrived=yes"
+
+    page = orga_client.get(next_page)
+    assert page.status_code == 200
+    assert f"value='{next_page}'".encode() in page.content
+
+    resp = orga_client.post(
+        bulk_url,
+        {
+            "member_ids": [test_data["app1"].pk],
+            "next": next_page,
+        },
+    )
+    assert resp.status_code == 302
+    assert resp["Location"] == next_page
+
+    unsafe_resp = orga_client.post(
+        bulk_url,
+        {
+            "member_ids": [],
+            "next": "https://malicious.example.com/steal-creds",
+        },
+    )
+    assert unsafe_resp.status_code == 302
+    assert unsafe_resp["Location"] == members_url

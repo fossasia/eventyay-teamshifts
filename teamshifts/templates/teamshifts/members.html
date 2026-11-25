@@ -80,6 +80,7 @@
     <dialog id='remove-members-dialog' class='pretix-confirm-dialog ts-remove-members-dialog' aria-labelledby='remove-members-title'>
       <form method='post' action='{% url "plugins:teamshifts:bulk_remove_members" organizer=request.organizer.slug event=request.event.slug %}' id='remove-members-form'>
         {% csrf_token %}
+        <input type='hidden' name='next' value='{{ request.get_full_path }}'>
         <h4 class='pretix-confirm-dialog__title' id='remove-members-title'></h4>
         <p>{% trans "They will no longer be team members of this event and can't see the shift schedule or sign up for shifts." %}</p>
         <ul id='remove-members-list'></ul>

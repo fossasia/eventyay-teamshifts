@@ -216,7 +216,7 @@ class FilteredListMixin(PaginationMixin):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["filter_form"] = self.filter_form
-        context["advanced_filters_open"] = advanced_filters_open_from_get(self.filter_form)
+        context["advanced_filters_open"] = advanced_filters_open_from_get(self.filter_form) or any(field.errors for field in self.filter_form.advanced_fields)
         context["advanced_filter_count"] = advanced_filter_count(self.filter_form)
         return context
 
@@ -1066,11 +1066,9 @@ class ApplicationListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, 
 
             ctx["columns"] = columns
             ctx["status_choices"] = ApplicationStatus.choices
-            ctx["current_status"] = self.filter_form.cleaned_data.get("status", "") if self.filter_form.is_valid() else ""
             ctx["can_manage_applicants"] = has_teamshifts_permission(
                 self.request.user, self.request.organizer, event, "can_teamshifts_manage_applicants", request=self.request
             )
-            ctx["search"] = self.filter_form.cleaned_data.get("query", "") if self.filter_form.is_valid() else ""
             sort = self.request.GET.get("sort", "")
             sort_field = sort[1:] if sort.startswith("-") else sort
             ctx["current_ordering"] = sort if sort_field in self.sortable_fields else self.default_sort_field
@@ -1707,7 +1705,6 @@ class EmailSentView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Filter
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
-        ctx["search"] = (self.request.GET.get("q") or self.request.GET.get("query") or "").strip()
         ctx["can_view_email"] = can_view_email_addresses(
             self.request.user,
             self.request.organizer,
@@ -2667,11 +2664,12 @@ class BulkRemoveMembersView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin
     def post(self, request, *args, **kwargs):
         event = request.event
         members_url = reverse("plugins:teamshifts:members", kwargs={"organizer": request.organizer.slug, "event": event.slug})
+        redirect_url = get_safe_next_url(request, members_url)
         parsed_ids = (MembersQuerysetMixin._parse_role_id(raw) for raw in request.POST.getlist("member_ids"))
         member_ids = [pk for pk in parsed_ids if pk is not None]
         if not member_ids:
             messages.warning(request, _("No members selected."))
-            return redirect(members_url)
+            return redirect(redirect_url)
 
         result = remove_members_from_team(
             event=event,
@@ -2682,7 +2680,7 @@ class BulkRemoveMembersView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin
         )
         if not result["removed"]:
             messages.warning(request, _("None of the selected people are team members any more."))
-            return redirect(members_url)
+            return redirect(redirect_url)
 
         parts = [
             ngettext(
@@ -2717,7 +2715,7 @@ class BulkRemoveMembersView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin
                 % {"count": result["vouchers_cancelled"]}
             )
         messages.success(request, " ".join(str(part) for part in parts))
-        return redirect(members_url)
+        return redirect(redirect_url)
 
 
 class CustomEmailTemplateCreateView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):

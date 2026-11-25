@@ -16,7 +16,7 @@
 
 {% block teamshifts_content %}
   {% if vouchers_enabled %}
-    <form method='post' action='{% url "plugins:teamshifts:bulk_send_vouchers" organizer=request.organizer.slug event=request.event.slug %}' id='bulk-voucher-form' class='ts-hidden'>
+    <form method='post' action='{% url "plugins:teamshifts:bulk_send_vouchers" organizer=request.organizer.slug event=request.event.slug %}?{{ request.GET.urlencode }}' id='bulk-voucher-form' class='ts-hidden'>
       {% csrf_token %}
     </form>
   {% endif %}
@@ -53,6 +53,7 @@
 
   <div class='teamshifts-filter-bar'>
     <form method='get' class='form-inline'>
+      {% if request.GET.sort %}<input type='hidden' name='sort' value='{{ request.GET.sort }}'>{% endif %}
       <div class='form-group'>
         <input type='text' name='q' value='{{ request.GET.q|default:"" }}' class='form-control' placeholder='{% trans "Search by name or email" %}'>
       </div>
@@ -61,6 +62,14 @@
           <option value=''>{% trans 'All roles' %}</option>
           {% for r in roles %}
             <option value='{{ r.pk }}' {% if request.GET.role == r.pk|stringformat:'s' %}selected{% endif %}>{{ r.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class='form-group'>
+        <select name='hours' class='form-control' aria-label='{% trans "Hours scheduled" %}'>
+          <option value=''>{% trans 'All hours' %}</option>
+          {% for value, label in hours_filter_choices %}
+            <option value='{{ value }}' {% if request.GET.hours == value %}selected{% endif %}>{{ label }}</option>
           {% endfor %}
         </select>
       </div>
@@ -141,19 +150,46 @@
             <th class='checkbox-column'>
               <input type='checkbox' id='select-all' title='{% trans "Select all" %}'>
             </th>
-            <th>{% trans 'Name' %}</th>
+            {% trans 'Name' as name_label %}
+            <th aria-sort="{% if current_ordering == 'name_sort' %}ascending{% elif current_ordering == '-name_sort' %}descending{% else %}none{% endif %}">
+              {% include 'teamshifts/_sort_header.html' with label=name_label field='name_sort' current_ordering=current_ordering %}
+            </th>
             {% if can_view_email %}
-              <th>{% trans 'Email' %}</th>
+              {% trans 'Email' as email_label %}
+              <th aria-sort="{% if current_ordering == 'user__email' %}ascending{% elif current_ordering == '-user__email' %}descending{% else %}none{% endif %}">
+              {% include 'teamshifts/_sort_header.html' with label=email_label field='user__email' current_ordering=current_ordering %}
+            </th>
             {% endif %}
-            <th>{% trans 'Role' %}</th>
-            <th>{% trans 'Shifts assigned' %}</th>
-            <th>{% trans 'Check-in' %}</th>
-            <th>{% trans 'Hours scheduled' %}</th>
+            {% trans 'Role' as role_label %}
+            <th aria-sort="{% if current_ordering == 'role_sort' %}ascending{% elif current_ordering == '-role_sort' %}descending{% else %}none{% endif %}">
+              {% include 'teamshifts/_sort_header.html' with label=role_label field='role_sort' current_ordering=current_ordering %}
+            </th>
+            {% trans 'Shifts assigned' as shifts_label %}
+            <th aria-sort="{% if current_ordering == 'shifts_assigned' %}ascending{% elif current_ordering == '-shifts_assigned' %}descending{% else %}none{% endif %}">
+              {% include 'teamshifts/_sort_header.html' with label=shifts_label field='shifts_assigned' current_ordering=current_ordering %}
+            </th>
+            {% trans 'Check-in' as checkin_label %}
+            <th aria-sort="{% if current_ordering == 'shifts_checked_in' %}ascending{% elif current_ordering == '-shifts_checked_in' %}descending{% else %}none{% endif %}">
+              {% include 'teamshifts/_sort_header.html' with label=checkin_label field='shifts_checked_in' current_ordering=current_ordering %}
+            </th>
+            {% trans 'Hours scheduled' as hours_label %}
+            <th aria-sort="{% if current_ordering == 'hours_sort' %}ascending{% elif current_ordering == '-hours_sort' %}descending{% else %}none{% endif %}">
+              {% include 'teamshifts/_sort_header.html' with label=hours_label field='hours_sort' current_ordering=current_ordering %}
+            </th>
             {% if vouchers_enabled %}
-              <th>{% trans 'Voucher' %}</th>
+              {% trans 'Voucher' as voucher_label %}
+              <th aria-sort="{% if current_ordering == 'voucher_sort' %}ascending{% elif current_ordering == '-voucher_sort' %}descending{% else %}none{% endif %}">
+              {% include 'teamshifts/_sort_header.html' with label=voucher_label field='voucher_sort' current_ordering=current_ordering %}
+            </th>
             {% endif %}
-            <th>{% trans 'Certificate' %}</th>
-            <th>{% trans 'Arrived' %}</th>
+            {% trans 'Certificate' as certificate_label %}
+            <th aria-sort="{% if current_ordering == 'certificate_sort' %}ascending{% elif current_ordering == '-certificate_sort' %}descending{% else %}none{% endif %}">
+              {% include 'teamshifts/_sort_header.html' with label=certificate_label field='certificate_sort' current_ordering=current_ordering %}
+            </th>
+            {% trans 'Arrived' as arrived_label %}
+            <th aria-sort="{% if current_ordering == 'arrived' %}ascending{% elif current_ordering == '-arrived' %}descending{% else %}none{% endif %}">
+              {% include 'teamshifts/_sort_header.html' with label=arrived_label field='arrived' current_ordering=current_ordering %}
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -162,7 +198,7 @@
               <td class='checkbox-column'>
                 <input type='checkbox' data-member-id='{{ member.pk }}' data-member-name='{{ member.user.fullname|default:member.user.email }}' data-upcoming-shifts='{{ member.upcoming_shifts|default:0 }}' class='member-checkbox'>
               </td>
-              <td>
+              <td class='ts-wrap-cell'>
                 <strong>
                   <a href='{% url "plugins:teamshifts:application_detail" organizer=request.organizer.slug event=request.event.slug pk=member.pk %}'>
                     {{ member.user.fullname|default:member.user.email }}
@@ -170,7 +206,7 @@
                 </strong>
               </td>
               {% if can_view_email %}
-                <td>{{ member.user.email }}</td>
+                <td class='ts-wrap-cell'>{{ member.user.email }}</td>
               {% endif %}
               <td>
                 {% if member.user.event_assignments %}

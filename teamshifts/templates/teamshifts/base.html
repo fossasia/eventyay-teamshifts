@@ -91,7 +91,7 @@
             <li>
                 <a href="{% url 'plugins:teamshifts:applications' organizer=request.organizer.slug event=request.event.slug %}"
                    {% if url_name == 'applications' or url_name == 'application_detail' and application.status != 'accepted' %}class="active"{% endif %}>
-                    <span class="sidebar-text">{% trans "Applicants" %}</span>
+                    <span class="sidebar-text">{% trans "Applications" %}</span>
                 </a>
             </li>
             <li>

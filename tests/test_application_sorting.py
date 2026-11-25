@@ -1,3 +1,4 @@
+import re
 from datetime import timedelta
 
 import pytest
@@ -75,10 +76,16 @@ def _names(client, event, sort):
     return [app.user.fullname for app in response.context["applications"]], response
 
 
-def _assert_sorted(client, event, sort, ascending):
-    """Check the order both ways: descending reverses the answers but keeps empty answers last."""
+def _assert_sorted(client, event, sort, expected):
+    """Check the page is listed in the expected order for this sort key.
+
+    The expected order must differ from the default newest-first order, so a sort that silently
+    falls back to the default cannot pass.
+    """
+    default_names, _ = _names(client, event, "")
+    assert expected != default_names, "choose a creation order that differs from the expected order"
     names, response = _names(client, event, sort)
-    assert names == ascending
+    assert names == expected
     assert response.context["current_ordering"] == sort
     return response
 
@@ -95,8 +102,8 @@ def test_email_column_sorts_both_ways(coordinator_client, event, cfm):
 
 @pytest.mark.django_db
 def test_builtin_phone_column_sorts_with_empty_values_last(coordinator_client, event, cfm):
-    _apply(event, "No Phone", "none@example.com", phone="")
     _apply(event, "Second", "second@example.com", phone="+4930222")
+    _apply(event, "No Phone", "none@example.com", phone="")
     _apply(event, "First", "first@example.com", phone="+4930111")
 
     _assert_sorted(coordinator_client, event, "phone", ["First", "Second", "No Phone"])
@@ -107,9 +114,9 @@ def test_builtin_phone_column_sorts_with_empty_values_last(coordinator_client, e
 def test_availability_column_sorts_alphabetically_ignoring_case(coordinator_client, event, cfm):
     cfm.field_order = ["full_name", "availability", "email", "phone"]
     cfm.save(update_fields=["field_order"])
-    _apply(event, "Weekend", "weekend@example.com", availability_notes="weekends")
     _apply(event, "Evening", "evening@example.com", availability_notes="Evenings")
     _apply(event, "Anytime", "anytime@example.com", availability_notes="anytime")
+    _apply(event, "Weekend", "weekend@example.com", availability_notes="weekends")
 
     _assert_sorted(coordinator_client, event, "availability_notes", ["Anytime", "Evening", "Weekend"])
     _assert_sorted(coordinator_client, event, "-availability_notes", ["Weekend", "Evening", "Anytime"])
@@ -145,15 +152,33 @@ def test_choice_question_groups_same_answers_and_orders_them_by_name(coordinator
 @pytest.mark.django_db
 def test_number_question_sorts_numerically(coordinator_client, event, cfm):
     question = _question(event, cfm, QuestionVariant.NUMBER, "Years of experience")
-    for name, answer in (("Ten", "10"), ("Two", "2"), ("Half", "0.5"), ("Minus", "-1")):
+    for name, answer in (("Ten", "10"), ("Two", "2"), ("Half", "0.5"), ("Minus", "-1"), ("Thousand", "1E+3"), ("Tiny", "1E-7")):
         _answer(event, _apply(event, name, f"{name.lower()}@example.com"), question, answer)
     _apply(event, "Unanswered", "unanswered@example.com")
     # An answer that is not a number (e.g. saved before the question type changed) must not break sorting.
     _answer(event, _apply(event, "Words", "words@example.com"), question, "a few")
 
     sort_key = f"question_{question.pk}"
-    _assert_sorted(coordinator_client, event, sort_key, ["Minus", "Half", "Two", "Ten", "Unanswered", "Words"])
-    _assert_sorted(coordinator_client, event, f"-{sort_key}", ["Ten", "Two", "Half", "Minus", "Unanswered", "Words"])
+    ascending = ["Minus", "Tiny", "Half", "Two", "Ten", "Thousand"]
+    _assert_sorted(coordinator_client, event, sort_key, ascending + ["Unanswered", "Words"])
+    _assert_sorted(coordinator_client, event, f"-{sort_key}", ascending[::-1] + ["Unanswered", "Words"])
+
+
+@pytest.mark.django_db
+def test_number_question_keeps_full_decimal_precision(coordinator_client, event, cfm):
+    """Values a float cannot tell apart are still sorted by value, not by the name tie-breaker."""
+    question = _question(event, cfm, QuestionVariant.NUMBER, "Precise number")
+    for name, answer in (
+        ("B smaller", "9007199254740992"),
+        ("A larger", "9007199254740993"),
+        ("D smaller fraction", "0.10000000000000000001"),
+        ("C larger fraction", "0.10000000000000000002"),
+    ):
+        _answer(event, _apply(event, name, f"{name[0].lower()}@example.com"), question, answer)
+
+    sort_key = f"question_{question.pk}"
+    _assert_sorted(coordinator_client, event, sort_key, ["D smaller fraction", "C larger fraction", "B smaller", "A larger"])
+    _assert_sorted(coordinator_client, event, f"-{sort_key}", ["A larger", "B smaller", "C larger fraction", "D smaller fraction"])
 
 
 @pytest.mark.django_db
@@ -171,7 +196,7 @@ def test_yes_no_question_sorts_no_before_yes(coordinator_client, event, cfm):
 @pytest.mark.django_db
 def test_date_question_sorts_chronologically(coordinator_client, event, cfm):
     question = _question(event, cfm, QuestionVariant.DATE, "Arrival date")
-    for name, answer in (("March", "2026-03-01"), ("January", "2026-01-15"), ("Last year", "2025-12-31")):
+    for name, answer in (("January", "2026-01-15"), ("Last year", "2025-12-31"), ("March", "2026-03-01")):
         _answer(event, _apply(event, name, f"{name.lower().replace(' ', '')}@example.com"), question, answer)
 
     sort_key = f"question_{question.pk}"
@@ -200,11 +225,25 @@ def test_every_shown_column_gets_sort_links(coordinator_client, event, cfm):
     content = response.content.decode()
 
     assert [col["sort_key"] for col in response.context["columns"]] == ["user__fullname", f"question_{question.pk}", "user__email", "phone"]
-    for sort_key in ("user__fullname", f"question_{question.pk}", "user__email", "phone", "status", "created_at"):
-        assert f"sort={sort_key}&amp;" in content
-        assert f"sort=-{sort_key}&amp;" in content
-    assert "Sort Newly added question ascending" in content
-    assert "Sort Newly added question descending" in content
+
+    # Each header's own arrows must point at that column's sort key, in header order.
+    thead = content.split("<thead>", 1)[1].split("</thead>", 1)[0]
+    headers = re.findall(r"<th\b[^>]*>(.*?)</th>", thead, flags=re.S)[1:-1]  # skip the checkbox and actions columns
+    expected = [
+        ("Name", "user__fullname"),
+        ("Newly added question", f"question_{question.pk}"),
+        ("Email", "user__email"),
+        ("Phone", "phone"),
+        ("Status", "status"),
+        ("Applied", "created_at"),
+    ]
+    assert len(headers) == len(expected)
+    for header, (label, sort_key) in zip(headers, expected, strict=True):
+        links = re.findall(r'href="\?sort=(-?[\w]+)&amp;', header)
+        assert links == [sort_key, f"-{sort_key}"], label
+        # The active sort reads "Sorted by …" instead of "Sort …".
+        assert re.search(rf"Sort(ed by)? {label} ascending", header), label
+        assert re.search(rf"Sort(ed by)? {label} descending", header), label
 
 
 @pytest.mark.django_db

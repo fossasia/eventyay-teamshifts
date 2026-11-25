@@ -19,10 +19,10 @@ from django.db.models import (
     Case,
     CharField,
     Count,
+    DecimalField,
     DurationField,
     ExpressionWrapper,
     F,
-    FloatField,
     Func,
     IntegerField,
     JSONField,
@@ -37,7 +37,8 @@ from django.db.models import (
     When,
 )
 from django.db.models.fields.json import KeyTextTransform
-from django.db.models.functions import Cast, Coalesce, Lower, NullIf, Replace
+from django.db.models.functions import Cast, Coalesce, Length, Lower, NullIf, Replace
+from django.db.models.lookups import LessThanOrEqual
 from django.forms import inlineformset_factory
 from django.forms.models import model_to_dict
 from django.http import FileResponse, Http404, HttpResponse, HttpResponseBadRequest, HttpResponseRedirect, JsonResponse
@@ -927,6 +928,13 @@ class QuestionToggleView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, V
         return JsonResponse({"success": True, "field": field, "value": value})
 
 
+class CastToNumeric(Func):
+    """Cast to PostgreSQL's unconstrained ``numeric``, which keeps every digit of a decimal (unlike float)."""
+
+    template = "CAST(%(expressions)s AS numeric)"
+    output_field = DecimalField()
+
+
 class ApplicationListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, PaginationMixin, Sortable, ListView):
     permission = None
     template_name = "teamshifts/applications.html"
@@ -949,7 +957,10 @@ class ApplicationListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, 
         "availability": "availability_notes",
     }
     QUESTION_SORT_PREFIX = "question_"
-    NUMBER_ANSWER_REGEX = r"^-?[0-9]{1,30}(\.[0-9]+)?$"
+    # Number answers are stored as str(Decimal), e.g. "12", "-0.5", "1E+3" or "1E-7".
+    NUMBER_ANSWER_REGEX = r"^-?([0-9]+\.?[0-9]*|\.[0-9]+)([eE][-+]?[0-9]{1,4})?$"
+    # With the exponent capped at 4 digits, this keeps every cast within PostgreSQL's numeric range.
+    MAX_NUMBER_ANSWER_LENGTH = 1000
 
     @cached_property
     def field_columns(self):
@@ -1016,11 +1027,9 @@ class ApplicationListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, 
         answer = NullIf("answer", Value(""), output_field=TextField())
         variant = question.variant
         if variant == QuestionVariant.NUMBER:
-            return Case(
-                When(answer__regex=cls.NUMBER_ANSWER_REGEX, then=Cast("answer", FloatField())),
-                default=None,
-                output_field=FloatField(),
-            )
+            # Cast only answers that are valid numbers; anything else sorts with the empty answers.
+            is_number = Q(answer__regex=cls.NUMBER_ANSWER_REGEX) & Q(LessThanOrEqual(Length("answer"), cls.MAX_NUMBER_ANSWER_LENGTH))
+            return Case(When(is_number, then=CastToNumeric("answer")), default=None, output_field=DecimalField())
         if variant == QuestionVariant.BOOLEAN:
             # Sort "No" before "Yes" in every language rather than by the translated words.
             return Case(When(answer="false", then=Value(0)), When(answer="true", then=Value(1)), default=None, output_field=IntegerField())
@@ -1055,7 +1064,7 @@ class ApplicationListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, 
         expression = self._field_column_sort_expression(sort[1:] if descending else sort)
         if expression is None:
             return super().sort_queryset(qs)
-        qs = qs.annotate(column_sort=expression)
+        qs = qs.alias(column_sort=expression)
         ordering = F("column_sort").desc(nulls_last=True) if descending else F("column_sort").asc(nulls_last=True)
         # Applications with the same answer are listed by name.
         return qs.order_by(ordering, Lower("user__fullname"), "pk")

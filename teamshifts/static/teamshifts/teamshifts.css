@@ -646,3 +646,27 @@ label .optional {
         height: 32px;
     }
 }
+
+@media (max-width: 767px) {
+    [data-teamshifts-list]:has(.teamshifts-sent-table) {
+        max-width: 100%;
+        min-width: 0;
+    }
+
+    .teamshifts-sent-table {
+        width: 100%;
+        max-width: 100%;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .teamshifts-sent-table .table {
+        min-width: 650px;
+        margin-bottom: 0;
+    }
+
+    .teamshifts-sent-table th,
+    .teamshifts-sent-table td {
+        vertical-align: middle;
+    }
+}

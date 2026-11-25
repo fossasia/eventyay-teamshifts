@@ -1,9 +1,11 @@
+import json
 from datetime import timedelta
 
 import pytest
+from django.urls import reverse
 from django.utils.timezone import now
-from django_scopes import scope
-from eventyay.base.models import User
+from django_scopes import scope, scopes_disabled
+from eventyay.base.models import Team, User
 
 from teamshifts.forms import CertificateSettingsForm
 from teamshifts.models import (
@@ -15,7 +17,12 @@ from teamshifts.models import (
     ShiftLocation,
     TeamMemberApplication,
 )
-from teamshifts.services.certificates import completed_shift_count, member_qualifies
+from teamshifts.services.certificates import completed_shift_count, get_certificate_settings, member_qualifies
+
+
+@pytest.fixture(autouse=True)
+def site_url(settings):
+    settings.SITE_URL = "https://testserver"
 
 
 @pytest.fixture
@@ -372,3 +379,122 @@ def test_certificate_editor_view_get_current_layout(event, rf):
         custom_layout = view.get_current_layout()
         custom_title = next(o for o in custom_layout if o.get("content") == "certificate_title")
         assert custom_title["color"] == custom_color
+
+
+def _editor_url(event):
+    return reverse(
+        "plugins:teamshifts:certificate_editor",
+        kwargs={"organizer": event.organizer.slug, "event": event.slug},
+    )
+
+
+@pytest.mark.django_db
+def test_certificate_editor_permission_coordinator_allowed(client, event):
+    user = User.objects.create_user(email="coord@example.com", password="password")
+    with scopes_disabled():
+        team = Team.objects.create(
+            organizer=event.organizer,
+            name="Coordinators",
+            all_events=True,
+            teamshifts_role="coordinator",
+            can_change_event_settings=False,
+        )
+        team.members.add(user)
+
+    client.force_login(user)
+    editor_url = _editor_url(event)
+
+    response = client.get(editor_url)
+    assert response.status_code == 200
+
+    layout_data = json.dumps([{"type": "textarea", "content": "member_name"}])
+    post_response = client.post(editor_url, {"data": layout_data})
+    assert post_response.status_code == 200
+    assert post_response.json()["status"] == "ok"
+
+    cert_settings = get_certificate_settings(event)
+    cert_settings.refresh_from_db()
+    assert json.loads(cert_settings.layout) == [{"type": "textarea", "content": "member_name"}]
+
+
+@pytest.mark.django_db
+def test_certificate_editor_permission_lead_denied_even_with_event_settings(client, event):
+    user = User.objects.create_user(email="lead@example.com", password="password")
+    with scopes_disabled():
+        team = Team.objects.create(
+            organizer=event.organizer,
+            name="Leads",
+            all_events=True,
+            teamshifts_role="lead",
+            can_change_event_settings=True,
+        )
+        team.members.add(user)
+
+    client.force_login(user)
+    editor_url = _editor_url(event)
+
+    response = client.get(editor_url)
+    assert response.status_code == 403
+
+    layout_data = json.dumps([{"type": "textarea", "content": "member_name"}])
+    post_response = client.post(editor_url, {"data": layout_data})
+    assert post_response.status_code == 403
+
+
+@pytest.mark.django_db
+def test_certificate_editor_permission_organizer_fallback_allowed(client, event):
+    user = User.objects.create_user(email="orga@example.com", password="password")
+    with scopes_disabled():
+        team = Team.objects.create(
+            organizer=event.organizer,
+            name="Organizers",
+            all_events=True,
+            can_change_event_settings=True,
+        )
+        team.members.add(user)
+
+    client.force_login(user)
+    response = client.get(_editor_url(event))
+    assert response.status_code == 200
+
+
+@pytest.mark.django_db
+def test_certificate_editor_permission_unauthenticated_or_unauthorized_denied(client, event):
+    editor_url = _editor_url(event)
+
+    # Anonymous user is redirected to login or denied
+    response = client.get(editor_url)
+    assert response.status_code in (302, 403)
+
+    # Logged in user with no team permissions
+    unauthorized = User.objects.create_user(email="unauth@example.com", password="password")
+    client.force_login(unauthorized)
+    response = client.get(editor_url)
+    assert response.status_code in (403, 404)
+
+
+@pytest.mark.django_db
+def test_certificate_editor_stored_script_escaped(client, event):
+    user = User.objects.create_user(email="coord_xss@example.com", password="password")
+    with scopes_disabled():
+        team = Team.objects.create(
+            organizer=event.organizer,
+            name="Coordinators",
+            all_events=True,
+            teamshifts_role="coordinator",
+            can_change_event_settings=False,
+        )
+        team.members.add(user)
+    client.force_login(user)
+    editor_url = _editor_url(event)
+
+    # Post layout with </script> payload
+    xss_payload = json.dumps([{"type": "textarea", "content": "other", "text": "</script><script>alert(1)</script>"}])
+    post_resp = client.post(editor_url, {"data": xss_payload})
+    assert post_resp.status_code == 200
+
+    # GET response must have < and > escaped in JSON
+    get_resp = client.get(editor_url)
+    content = get_resp.content.decode("utf-8")
+    assert "</script><script>alert(1)</script>" not in content
+    assert "\\u003c/script\\u003e" in content

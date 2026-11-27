@@ -1,7 +1,8 @@
 import logging
 import re
+import time
 
-from celery.exceptions import MaxRetriesExceededError
+from celery.exceptions import MaxRetriesExceededError, Retry
 from django.core.cache import cache
 from django.db import transaction
 from django.utils.timezone import now
@@ -15,6 +16,7 @@ from eventyay.celery_app import app
 from i18nfield.strings import LazyI18nString
 
 from .models import ApplicationStatus, CallForTeamMembers, RecipientGroup, TeamMemberApplication, TeamShiftsEmailQueue
+from .operational_log import OUTCOME_FAILURE, OUTCOME_SUCCESS, elapsed_ms, job_correlation, log_job, log_operation, traced_job
 from .services.shift_summary import build_shift_summary
 
 logger = logging.getLogger(__name__)
@@ -66,6 +68,7 @@ def _shift_schedule_published(event: Event) -> bool:
 
 
 @app.task(name="teamshifts.dispatch_scheduled_emails")
+@traced_job("teamshifts.dispatch_scheduled_emails")
 def dispatch_scheduled_emails_task():
     with scopes_disabled():
         with transaction.atomic():
@@ -84,7 +87,28 @@ def dispatch_scheduled_emails_task():
     for queue_pk, event_id in due:
         cache_key = f"teamshifts_mail_queue_{queue_pk}_enqueued"
         if cache.add(cache_key, True, timeout=300):
-            send_queued_email.delay(event_id, queue_pk)
+            try:
+                res = send_queued_email.delay(event_id, queue_pk)
+            except Exception:
+                log_operation(
+                    "job.enqueue",
+                    OUTCOME_FAILURE,
+                    backend="teamshifts",
+                    job_name="teamshifts.send_queued_email",
+                    error_code="enqueue_failed",
+                    event_id=event_id,
+                    object_id=queue_pk,
+                )
+                raise
+            log_operation(
+                "job.enqueue",
+                OUTCOME_SUCCESS,
+                backend="teamshifts",
+                job_name="teamshifts.send_queued_email",
+                event_id=event_id,
+                object_id=queue_pk,
+                job_id=getattr(res, "id", None),
+            )
             logger.info("[TeamShifts] Dispatched scheduled email queue %s", queue_pk)
 
 
@@ -102,135 +126,314 @@ def send_queued_email(self, event_id: int, queue_id: int):
         original_event_id = event.pk
     else:
         original_event_id = event_id
+        event = None
+    event_pk = event.pk if event is not None else (event_id if isinstance(event_id, int) and not isinstance(event_id, bool) else None)
+    job_started = time.monotonic()
+    celery_job_id = getattr(getattr(self, "request", None), "id", None)
+
+    with job_correlation(celery_job_id):
+        log_job("job.start", OUTCOME_SUCCESS, "teamshifts.send_queued_email", event_id=event_pk, object_id=queue_id)
+
+        if event is None:
+            try:
+                event = Event.objects.get(pk=event_id)
+            except Event.DoesNotExist:
+                logger.error("[TeamShifts] Event %s not found for queue %s", event_id, queue_id)
+                log_job(
+                    "job.fail",
+                    OUTCOME_FAILURE,
+                    "teamshifts.send_queued_email",
+                    event_id=event_pk,
+                    object_id=queue_id,
+                    error_code="missing_event",
+                    duration_ms=elapsed_ms(job_started),
+                )
+                return
+            event_pk = event.pk
+
         try:
-            event = Event.objects.get(pk=event_id)
-        except Event.DoesNotExist:
-            logger.error("[TeamShifts] Event %s not found for queue %s", event_id, queue_id)
+            with scope(event=event):
+                queue = TeamShiftsEmailQueue.objects.select_related("event", "role_filter", "shift", "shift_role").filter(pk=queue_id, event=event).first()
+                if queue is None:
+                    logger.debug("[TeamShifts] Queue %s not found or locked", queue_id)
+                    log_job(
+                        "job.finish",
+                        OUTCOME_SUCCESS,
+                        "teamshifts.send_queued_email",
+                        event_id=event_pk,
+                        object_id=queue_id,
+                        duration_ms=elapsed_ms(job_started),
+                    )
+                    return
+                if queue.sent_at:
+                    log_job(
+                        "job.finish",
+                        OUTCOME_SUCCESS,
+                        "teamshifts.send_queued_email",
+                        event_id=event_pk,
+                        object_id=queue_id,
+                        duration_ms=elapsed_ms(job_started),
+                    )
+                    return
+                if queue.is_draft:
+                    logger.debug("[TeamShifts] Queue %s is a draft, skipping", queue_id)
+                    log_job(
+                        "job.finish",
+                        OUTCOME_SUCCESS,
+                        "teamshifts.send_queued_email",
+                        event_id=event_pk,
+                        object_id=queue_id,
+                        duration_ms=elapsed_ms(job_started),
+                    )
+                    return
+                if queue.send_after and queue.send_after > now():
+                    logger.debug("[TeamShifts] Queue %s not yet due, skipping", queue_id)
+                    log_job(
+                        "job.finish",
+                        OUTCOME_SUCCESS,
+                        "teamshifts.send_queued_email",
+                        event_id=event_pk,
+                        object_id=queue_id,
+                        duration_ms=elapsed_ms(job_started),
+                    )
+                    return
+                if queue.is_shift_summary and not _shift_schedule_published(event):
+                    logger.info("[TeamShifts] Dropping shift summary queue %s: shift schedule is no longer published", queue_id)
+                    queue.delete()
+                    log_job(
+                        "job.finish",
+                        OUTCOME_SUCCESS,
+                        "teamshifts.send_queued_email",
+                        event_id=event_pk,
+                        object_id=queue_id,
+                        duration_ms=elapsed_ms(job_started),
+                    )
+                    return
+                if queue.is_shift_summary and _summary_recipient_removed(event, queue):
+                    logger.info("[TeamShifts] Dropping shift summary queue %s: the volunteer was removed from the team", queue_id)
+                    queue.delete()
+                    log_job(
+                        "job.finish",
+                        OUTCOME_SUCCESS,
+                        "teamshifts.send_queued_email",
+                        event_id=event_pk,
+                        object_id=queue_id,
+                        duration_ms=elapsed_ms(job_started),
+                    )
+                    return
+                recipients = list(queue.recipients.select_related("user").all())
+
+                if not recipients:
+                    logger.warning("[TeamShifts] Queue %s has no recipients", queue_id)
+                    queue.sent_at = now()
+                    queue.save(update_fields=["sent_at"])
+                    log_job(
+                        "job.finish",
+                        OUTCOME_SUCCESS,
+                        "teamshifts.send_queued_email",
+                        event_id=event_pk,
+                        object_id=queue_id,
+                        duration_ms=elapsed_ms(job_started),
+                    )
+                    return
+
+                subject = LazyI18nString(queue.subject)
+                message = MarkdownBreakString(LazyI18nString(queue.message))
+                locale = queue.locale or event.settings.locale
+
+                partial_send = False
+                batch_started = time.monotonic()
+                for recipient in recipients:
+                    if recipient.sent_at:
+                        continue
+
+                    if queue.recipient_group and _left_group(event, queue, recipient):
+                        type(recipient).objects.filter(pk=recipient.pk, sent_at__isnull=True).delete()
+                        logger.info("[TeamShifts] Queue %s: skipped recipient %s, no longer in group %s", queue.pk, recipient.pk, queue.recipient_group)
+                        continue
+
+                    claimed = type(recipient).objects.filter(pk=recipient.pk, sent_at__isnull=True).update(sent_at=now())
+
+                    if not claimed:
+                        continue
+
+                    send_started = time.monotonic()
+                    try:
+                        ctx_kwargs = {"event": event}
+                        if recipient.user:
+                            ctx_kwargs["user"] = recipient.user
+                        if queue.role_filter_id:
+                            ctx_kwargs["role"] = queue.role_filter
+                        if queue.user:
+                            application = TeamMemberApplication.objects.filter(
+                                event=event,
+                                user=queue.user,
+                            ).first()
+                            if application:
+                                ctx_kwargs["application"] = application
+
+                        if queue.shift_id:
+                            ctx_kwargs["shift"] = queue.shift
+                            ctx_kwargs["role"] = queue.shift_role
+                        if queue.is_shift_summary and recipient.user:
+                            ctx_kwargs["shift_summary"] = build_shift_summary(event, recipient.user, locale)
+                        context = get_email_context(**ctx_kwargs)
+                        if queue.is_shift_summary and recipient.user:
+                            # Imported here: services.members imports services.email, which imports this module.
+                            from .services.members import my_shifts_page_available
+
+                            if not my_shifts_page_available(recipient.user):
+                                context["my_shifts_url"] = context.get("shift_schedule_url", "")
+                        mail(
+                            email=recipient.email,
+                            subject=subject,
+                            template=message,
+                            context=context,
+                            event=event,
+                            locale=locale,
+                            event_bcc=queue.bcc or None,
+                            event_reply_to=queue.reply_to or None,
+                            user=recipient.user,
+                            auto_email=False,
+                            sync_send=True,
+                        )
+                        recipient.error = ""
+                        recipient.subject = render_subject(subject, context, locale, event)
+                        recipient.save(update_fields=["error", "subject"])
+                    except SendMailException as exc:
+                        recipient.sent_at = None
+                        recipient.error = str(exc)
+                        recipient.save(update_fields=["error", "sent_at"])
+                        logger.error("[TeamShifts] Send failed for recipient %s (%s)", recipient.pk, type(exc).__name__)
+                        log_operation(
+                            "mail.send",
+                            OUTCOME_FAILURE,
+                            backend="teamshifts",
+                            error_code="send_failed",
+                            event_id=event_pk,
+                            object_id=queue_id,
+                            mail_type=queue.mail_type or None,
+                            duration_ms=elapsed_ms(send_started),
+                        )
+                        partial_send = True
+                    except Exception as exc:
+                        recipient.sent_at = None
+                        recipient.error = str(exc)
+                        recipient.save(update_fields=["error", "sent_at"])
+                        logger.error("[TeamShifts] Unexpected failure rendering/sending for recipient %s (%s)", recipient.pk, type(exc).__name__)
+                        log_operation(
+                            "mail.send",
+                            OUTCOME_FAILURE,
+                            backend="teamshifts",
+                            error_code=type(exc).__name__,
+                            event_id=event_pk,
+                            object_id=queue_id,
+                            mail_type=queue.mail_type or None,
+                            duration_ms=elapsed_ms(send_started),
+                        )
+                        partial_send = True
+
+                has_unsent = queue.recipients.filter(sent_at__isnull=True).exists()
+                if not has_unsent:
+                    queue.sent_at = now()
+                    queue.save(update_fields=["sent_at"])
+                    log_operation(
+                        "mail.send",
+                        OUTCOME_SUCCESS,
+                        backend="teamshifts",
+                        event_id=event_pk,
+                        object_id=queue_id,
+                        recipient_count=len(recipients),
+                        mail_type=queue.mail_type or None,
+                        duration_ms=elapsed_ms(batch_started),
+                    )
+                else:
+                    partial_send = True
+        except Exception as exc:
+            logger.error("[TeamShifts] Unexpected failure for queue %s (%s)", queue_id, type(exc).__name__)
+            try:
+                self.retry(exc=exc, args=[original_event_id, queue_id])
+            except Retry:
+                log_job(
+                    "job.retry",
+                    OUTCOME_FAILURE,
+                    "teamshifts.send_queued_email",
+                    event_id=event_pk,
+                    object_id=queue_id,
+                    error_code="retry",
+                    duration_ms=elapsed_ms(job_started),
+                )
+                raise
+            except MaxRetriesExceededError:
+                logger.error("[TeamShifts] Max retries exceeded for queue %s", queue_id)
+                log_job(
+                    "job.fail",
+                    OUTCOME_FAILURE,
+                    "teamshifts.send_queued_email",
+                    event_id=event_pk,
+                    object_id=queue_id,
+                    error_code="max_retries",
+                    duration_ms=elapsed_ms(job_started),
+                )
+            except Exception as retry_exc:
+                log_job(
+                    "job.fail",
+                    OUTCOME_FAILURE,
+                    "teamshifts.send_queued_email",
+                    event_id=event_pk,
+                    object_id=queue_id,
+                    error_code=type(retry_exc).__name__,
+                    duration_ms=elapsed_ms(job_started),
+                )
+                raise
             return
 
-    try:
-        with scope(event=event):
-            queue = TeamShiftsEmailQueue.objects.select_related("event", "role_filter", "shift", "shift_role").filter(pk=queue_id, event=event).first()
-            if queue is None:
-                logger.debug("[TeamShifts] Queue %s not found or locked", queue_id)
-                return
-            if queue.sent_at:
-                return
-            if queue.is_draft:
-                logger.debug("[TeamShifts] Queue %s is a draft, skipping", queue_id)
-                return
-            if queue.send_after and queue.send_after > now():
-                logger.debug("[TeamShifts] Queue %s not yet due, skipping", queue_id)
-                return
-            if queue.is_shift_summary and not _shift_schedule_published(event):
-                logger.info("[TeamShifts] Dropping shift summary queue %s: shift schedule is no longer published", queue_id)
-                queue.delete()
-                return
-            if queue.is_shift_summary and _summary_recipient_removed(event, queue):
-                logger.info("[TeamShifts] Dropping shift summary queue %s: the volunteer was removed from the team", queue_id)
-                queue.delete()
-                return
-            recipients = list(queue.recipients.select_related("user").all())
+        if partial_send:
+            try:
+                self.retry(
+                    exc=SendMailException("Partial send: some recipients failed"),
+                    args=[original_event_id, queue_id],
+                )
+            except Retry:
+                log_job(
+                    "job.retry",
+                    OUTCOME_FAILURE,
+                    "teamshifts.send_queued_email",
+                    event_id=event_pk,
+                    object_id=queue_id,
+                    error_code="retry",
+                    duration_ms=elapsed_ms(job_started),
+                )
+                raise
+            except MaxRetriesExceededError:
+                logger.error("[TeamShifts] Max retries exceeded for queue %s (partial send)", queue_id)
+                log_job(
+                    "job.fail",
+                    OUTCOME_FAILURE,
+                    "teamshifts.send_queued_email",
+                    event_id=event_pk,
+                    object_id=queue_id,
+                    error_code="max_retries",
+                    duration_ms=elapsed_ms(job_started),
+                )
+            except Exception as retry_exc:
+                log_job(
+                    "job.fail",
+                    OUTCOME_FAILURE,
+                    "teamshifts.send_queued_email",
+                    event_id=event_pk,
+                    object_id=queue_id,
+                    error_code=type(retry_exc).__name__,
+                    duration_ms=elapsed_ms(job_started),
+                )
+                raise
+            return
 
-            if not recipients:
-                logger.warning("[TeamShifts] Queue %s has no recipients", queue_id)
-                queue.sent_at = now()
-                queue.save(update_fields=["sent_at"])
-                return
-
-            subject = LazyI18nString(queue.subject)
-            message = MarkdownBreakString(LazyI18nString(queue.message))
-            locale = queue.locale or event.settings.locale
-
-            partial_send = False
-            for recipient in recipients:
-                if recipient.sent_at:
-                    continue
-
-                if queue.recipient_group and _left_group(event, queue, recipient):
-                    type(recipient).objects.filter(pk=recipient.pk, sent_at__isnull=True).delete()
-                    logger.info("[TeamShifts] Queue %s: skipped %s, no longer in group %s", queue.pk, recipient.email, queue.recipient_group)
-                    continue
-
-                claimed = type(recipient).objects.filter(pk=recipient.pk, sent_at__isnull=True).update(sent_at=now())
-
-                if not claimed:
-                    continue
-
-                try:
-                    ctx_kwargs = {"event": event}
-                    if recipient.user:
-                        ctx_kwargs["user"] = recipient.user
-                    if queue.role_filter_id:
-                        ctx_kwargs["role"] = queue.role_filter
-                    if queue.user:
-                        application = TeamMemberApplication.objects.filter(
-                            event=event,
-                            user=queue.user,
-                        ).first()
-                        if application:
-                            ctx_kwargs["application"] = application
-
-                    if queue.shift_id:
-                        ctx_kwargs["shift"] = queue.shift
-                        ctx_kwargs["role"] = queue.shift_role
-                    if queue.is_shift_summary and recipient.user:
-                        ctx_kwargs["shift_summary"] = build_shift_summary(event, recipient.user, locale)
-                    context = get_email_context(**ctx_kwargs)
-                    if queue.is_shift_summary and recipient.user:
-                        # Imported here: services.members imports services.email, which imports this module.
-                        from .services.members import my_shifts_page_available
-
-                        if not my_shifts_page_available(recipient.user):
-                            context["my_shifts_url"] = context.get("shift_schedule_url", "")
-                    mail(
-                        email=recipient.email,
-                        subject=subject,
-                        template=message,
-                        context=context,
-                        event=event,
-                        locale=locale,
-                        event_bcc=queue.bcc or None,
-                        event_reply_to=queue.reply_to or None,
-                        user=recipient.user,
-                        auto_email=False,
-                        sync_send=True,
-                    )
-                    recipient.error = ""
-                    recipient.subject = render_subject(subject, context, locale, event)
-                    recipient.save(update_fields=["error", "subject"])
-                except SendMailException as exc:
-                    recipient.sent_at = None
-                    recipient.error = str(exc)
-                    recipient.save(update_fields=["error", "sent_at"])
-                    logger.exception("[TeamShifts] Send failed for %s", recipient.email)
-                    partial_send = True
-                except Exception as exc:
-                    recipient.sent_at = None
-                    recipient.error = str(exc)
-                    recipient.save(update_fields=["error", "sent_at"])
-                    logger.exception("[TeamShifts] Unexpected failure rendering/sending to %s", recipient.email)
-                    partial_send = True
-
-            has_unsent = queue.recipients.filter(sent_at__isnull=True).exists()
-            if not has_unsent:
-                queue.sent_at = now()
-                queue.save(update_fields=["sent_at"])
-            else:
-                partial_send = True
-    except Exception as exc:
-        logger.exception("[TeamShifts] Unexpected failure for queue %s", queue_id)
-        try:
-            self.retry(exc=exc, args=[original_event_id, queue_id])
-        except MaxRetriesExceededError:
-            logger.error("[TeamShifts] Max retries exceeded for queue %s", queue_id)
-        return
-
-    if partial_send:
-        try:
-            self.retry(
-                exc=SendMailException("Partial send: some recipients failed"),
-                args=[original_event_id, queue_id],
-            )
-        except MaxRetriesExceededError:
-            logger.error("[TeamShifts] Max retries exceeded for queue %s (partial send)", queue_id)
+        log_job(
+            "job.finish",
+            OUTCOME_SUCCESS,
+            "teamshifts.send_queued_email",
+            event_id=event_pk,
+            object_id=queue_id,
+            duration_ms=elapsed_ms(job_started),
+        )

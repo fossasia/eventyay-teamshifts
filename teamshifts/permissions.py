@@ -6,6 +6,8 @@ from django.utils.translation import gettext as _
 from django_scopes import scopes_disabled
 from eventyay.base.models.organizer import Team
 
+from .operational_log import log_permission_denied
+
 COORDINATOR_PERMISSIONS = frozenset(
     {
         "can_teamshifts_manage_applicants",
@@ -143,6 +145,7 @@ def teamshifts_permission_required(permission):
                 if has_any_teamshifts_permission(request.user, request.organizer, request.event, request=request):
                     return function(request, *args, **kw)
 
+            log_permission_denied(request, "permission_denied")
             raise PermissionDenied(_("You do not have permission to view this content."))
 
         return wrapper

@@ -4,6 +4,7 @@ from django.db.models.signals import post_migrate
 from django.utils.translation import gettext_lazy as _
 
 from . import __version__
+from .operational_log import OUTCOME_FAILURE, log_operation, log_plugin_loaded
 
 logger = logging.getLogger(__name__)
 
@@ -27,9 +28,14 @@ class TeamShiftsApp(PluginConfig):
         category = "FEATURE"
 
     def ready(self):
-        from . import signals, tasks  # noqa: F401 — registers signal receivers and celery tasks
+        try:
+            from . import signals, tasks  # noqa: F401 — registers signal receivers and celery tasks
 
-        post_migrate.connect(self._ensure_beat_schedule, sender=self)
+            post_migrate.connect(self._ensure_beat_schedule, sender=self)
+        except Exception as exc:
+            log_operation("plugin.loaded", OUTCOME_FAILURE, backend="teamshifts", error_code=type(exc).__name__)
+            raise
+        log_plugin_loaded("teamshifts")
 
     @staticmethod
     def _ensure_beat_schedule(sender, **kwargs):
@@ -50,5 +56,5 @@ class TeamShiftsApp(PluginConfig):
                         "enabled": True,
                     },
                 )
-            except Exception:
-                logger.exception("[TeamShifts] Failed to register beat schedule for %s", task)
+            except Exception as exc:
+                logger.error("[TeamShifts] Failed to register beat schedule for %s (%s)", task, type(exc).__name__)

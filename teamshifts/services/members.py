@@ -193,8 +193,8 @@ def _queue_removal_email_safely(application: TeamMemberApplication) -> None:
     # or turn the request into an error, since a retry can no longer select these members.
     try:
         queue_lifecycle_email(application, EmailTemplateRoles.MEMBER_REMOVED)
-    except Exception:
-        logger.exception("[TeamShifts] Failed to queue removal email for application %s", application.pk)
+    except Exception as exc:
+        logger.error("[TeamShifts] Failed to queue removal email for application %s (%s)", application.pk, type(exc).__name__)
 
 
 def _cancel_unused_vouchers(event: Event, applications: Sequence[TeamMemberApplication], user: User | None) -> int:

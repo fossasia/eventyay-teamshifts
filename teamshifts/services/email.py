@@ -18,6 +18,7 @@ from ..models import (
     TeamShiftsEmailQueue,
     TeamShiftsEmailQueueRecipient,
 )
+from ..operational_log import OUTCOME_FAILURE, OUTCOME_SUCCESS, log_operation
 from ..tasks import render_subject, send_queued_email
 
 logger = logging.getLogger(__name__)
@@ -187,9 +188,27 @@ def _dispatch(event_id: int, queue_id: int, eta=None) -> None:
 
     def _send():
         try:
-            send_queued_email.delay(event_id, queue_id)
-        except Exception:
-            logger.exception("[TeamShifts] Failed to dispatch queue %s to Celery; falling back to scheduled retry", queue_id)
+            res = send_queued_email.delay(event_id, queue_id)
+            log_operation(
+                "job.enqueue",
+                OUTCOME_SUCCESS,
+                backend="teamshifts",
+                job_name="teamshifts.send_queued_email",
+                event_id=event_id,
+                object_id=queue_id,
+                job_id=getattr(res, "id", None),
+            )
+        except Exception as exc:
+            logger.error("[TeamShifts] Failed to dispatch queue %s to Celery (%s); falling back to scheduled retry", queue_id, type(exc).__name__)
+            log_operation(
+                "job.enqueue",
+                OUTCOME_FAILURE,
+                backend="teamshifts",
+                job_name="teamshifts.send_queued_email",
+                error_code="dispatch_failed",
+                event_id=event_id,
+                object_id=queue_id,
+            )
             with scope(event=event_id):
                 TeamShiftsEmailQueue.objects.filter(pk=queue_id, sent_at__isnull=True, send_after__isnull=True).update(send_after=now())
 

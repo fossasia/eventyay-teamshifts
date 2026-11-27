@@ -1116,3 +1116,18 @@ class VoucherSettingsForm(forms.Form):
         if cleaned.get("enabled") and not cleaned.get("voucher_tag"):
             self.add_error("voucher_tag", _("Select a voucher batch when vouchers are enabled."))
         return cleaned
+
+
+class SelfSignupCloseForm(forms.ModelForm):
+    class Meta:
+        model = CallForTeamMembers
+        fields = ("self_signup_closes_at",)
+        widgets = {
+            "self_signup_closes_at": forms.DateTimeInput(attrs={"type": "datetime-local", "class": "form-control"}, format="%Y-%m-%dT%H:%M"),
+        }
+
+    def __init__(self, *args, event=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["self_signup_closes_at"].input_formats = ["%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"]
+        if event is not None:
+            self.fields["self_signup_closes_at"].help_text = get_tz_help(event)

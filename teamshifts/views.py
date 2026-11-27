@@ -64,7 +64,6 @@ from eventyay.common.text.phrases import phrases
 from eventyay.common.views.mixins import Sortable
 from eventyay.control.forms.orders import ExporterForm
 from eventyay.control.views import PaginationMixin
-from eventyay.multidomain.urlreverse import build_absolute_uri
 
 from .exporters import EXPORT_FORMAT_CSV, EXPORT_FORMAT_XLSX, MembersExporter, MyShiftsICalExporter, build_shift_schedule_exporters
 from .forms import (
@@ -91,6 +90,7 @@ from .forms import (
     valid_user_pk,
     volunteer_choice_label,
 )
+from .mail.placeholders import COMPOSE_CONTEXT, PREVIEW_CONTEXT, available_placeholders, mail_context, placeholder_help, placeholder_names
 from .models import (
     CFM_BUILTIN_FIELD_KEYS,
     CFM_LOCKED_FIELDS,
@@ -145,27 +145,9 @@ from .services.members import (
     remove_members_from_team,
     upcoming_assignment_filter,
 )
-from .services.reminders import my_shifts_url
-from .services.shift_summary import build_shift_summary_sample
 from .tasks import send_queued_email
 
 logger = logging.getLogger(__name__)
-
-_TEMPLATE_PLACEHOLDERS = [
-    ("{full_name}", _("The volunteer's full name")),
-    ("{event_name}", _("The event's name")),
-    ("{event_dates}", _("The event's date range")),
-    ("{event_location}", _("The event's location")),
-    ("{shift_schedule_url}", _("Link to the shift schedule")),
-    ("{shift_summary}", _("The volunteer's current shifts (daily shift summary only)")),
-    ("{shift_name}", _("The shift name (shift emails only)")),
-    ("{shift_time}", _("The shift date and time range (shift emails only)")),
-    ("{role_name}", _("The assigned role name (shift emails only)")),
-    ("{my_shifts_url}", _("Link to the volunteer's My Shifts page")),
-    ("{shift_list}", _("The volunteer's shifts for the day (shift reminder emails only)")),
-    ("{voucher_code}", _("The volunteer's voucher code (voucher emails only)")),
-    ("{ticket_claim_url}", _("Link to claim the ticket (voucher emails only)")),
-]
 
 
 def build_shift_role_formset(extra=1):
@@ -487,6 +469,7 @@ class EmailTemplateListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin
                 instance=template,
                 prefix=role,
                 locales=locales,
+                placeholders=placeholder_names(event, mail_context(role)),
             )
             is_customised = False
             if template.pk:
@@ -504,6 +487,7 @@ class EmailTemplateListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin
                     "label": EmailTemplateRoles(role).label,
                     "form": form,
                     "is_customised": is_customised,
+                    "placeholders": placeholder_help(event, mail_context(role)),
                 }
             )
         return panels
@@ -519,6 +503,7 @@ class EmailTemplateListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin
                 instance=template,
                 prefix=f"custom_{template.pk}",
                 locales=locales,
+                placeholders=placeholder_names(request.event, COMPOSE_CONTEXT),
             )
             panels.append(
                 {
@@ -527,6 +512,7 @@ class EmailTemplateListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin
                     "role_slug": f"custom_{template.pk}",
                     "form": form,
                     "is_custom": True,
+                    "placeholders": placeholder_help(request.event, COMPOSE_CONTEXT),
                 }
             )
         return panels
@@ -541,7 +527,6 @@ class EmailTemplateListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin
                 "panels": panels,
                 "custom_panels": custom_panels,
                 "locales": request.event.settings.locales,
-                "email_placeholders": _TEMPLATE_PLACEHOLDERS,
             },
         )
 
@@ -575,7 +560,6 @@ class EmailTemplateListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin
                 "panels": panels,
                 "custom_panels": custom_panels,
                 "locales": request.event.settings.locales,
-                "email_placeholders": _TEMPLATE_PLACEHOLDERS,
             },
         )
 
@@ -588,24 +572,7 @@ class EmailTemplatePreviewView(PluginActiveMixin, TeamShiftsPermissionRequiredMi
         event_locales = list(event.settings.locales)
         region = event.settings.region
 
-        sample_values = defaultdict(
-            str,
-            {
-                "full_name": "Jane Doe",
-                "event_name": str(event.name),
-                "role_name": "Volunteer",
-                "event_dates": event.get_date_range_display(),
-                "event_location": str(event.location) if event.location else "",
-                "shift_schedule_url": build_absolute_uri(event, "plugins:teamshifts:public_shift_schedule"),
-                "shift_name": "Morning Shift (2026-01-15 09:00 – 12:00)",
-                "shift_time": "2026-01-15 09:00 – 12:00",
-                "my_shifts_url": my_shifts_url(),
-                "shift_summary": build_shift_summary_sample(event),
-                "shift_list": "- Sat, Oct 10, 2026, 8 a.m.–12 p.m.: Registration desk (Role: Greeter, Location: Main hall)",
-                "voucher_code": "ABCD-1234-EFGH",
-                "ticket_claim_url": build_absolute_uri(event, "presale:event.redeem") + "?voucher=ABCD-1234-EFGH",
-            },
-        )
+        sample_values = {placeholder.identifier: placeholder.render_sample(event) for placeholder in available_placeholders(event, PREVIEW_CONTEXT)}
 
         def render_with_placeholders(text):
             highlighted = re.sub(
@@ -642,7 +609,11 @@ class EmailTemplateEditView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin
 
     def get(self, request, *args, **kwargs):
         template = self._get_or_seed(request, kwargs["role"])
-        form = EmailTemplateForm(instance=template, locales=request.event.settings.locales)
+        form = EmailTemplateForm(
+            instance=template,
+            locales=request.event.settings.locales,
+            placeholders=placeholder_names(request.event, mail_context(template.role)),
+        )
         return render(
             request,
             self.template_name,
@@ -650,13 +621,18 @@ class EmailTemplateEditView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin
                 "form": form,
                 "template": template,
                 "role_label": EmailTemplateRoles(template.role).label,
-                "email_placeholders": _TEMPLATE_PLACEHOLDERS,
+                "email_placeholders": placeholder_help(request.event, mail_context(template.role)),
             },
         )
 
     def post(self, request, *args, **kwargs):
         template = self._get_or_seed(request, kwargs["role"])
-        form = EmailTemplateForm(request.POST, instance=template, locales=request.event.settings.locales)
+        form = EmailTemplateForm(
+            request.POST,
+            instance=template,
+            locales=request.event.settings.locales,
+            placeholders=placeholder_names(request.event, mail_context(template.role)),
+        )
         if form.is_valid():
             with scope(event=request.event):
                 form.save()
@@ -673,7 +649,7 @@ class EmailTemplateEditView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin
                 "form": form,
                 "template": template,
                 "role_label": EmailTemplateRoles(template.role).label,
-                "email_placeholders": _TEMPLATE_PLACEHOLDERS,
+                "email_placeholders": placeholder_help(request.event, mail_context(template.role)),
             },
         )
 
@@ -2973,11 +2949,18 @@ class CustomEmailTemplateCreateView(PluginActiveMixin, TeamShiftsPermissionRequi
     template_name = "teamshifts/custom_email_template_form.html"
 
     def get(self, request, *args, **kwargs):
-        form = CustomEmailTemplateForm(locales=request.event.settings.locales)
+        form = CustomEmailTemplateForm(
+            locales=request.event.settings.locales,
+            placeholders=placeholder_names(request.event, COMPOSE_CONTEXT),
+        )
         return render(request, self.template_name, {"form": form})
 
     def post(self, request, *args, **kwargs):
-        form = CustomEmailTemplateForm(request.POST, locales=request.event.settings.locales)
+        form = CustomEmailTemplateForm(
+            request.POST,
+            locales=request.event.settings.locales,
+            placeholders=placeholder_names(request.event, COMPOSE_CONTEXT),
+        )
         if form.is_valid():
             template = form.save(commit=False)
             template.event = request.event

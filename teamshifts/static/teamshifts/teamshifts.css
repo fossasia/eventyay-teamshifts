@@ -263,7 +263,7 @@ label .optional {
   display: inline-block;
 }
 
-@media (max-width: 991px) {
+@media (max-width: 767px) {
   .my-shifts-table-wrapper {
     border: 0;
     overflow: visible;
@@ -276,6 +276,7 @@ label .optional {
   }
 
   .my-shifts-table-wrapper > table.my-shifts-table > tbody > tr > td {
+    display: flex;
     white-space: normal;
     flex-wrap: wrap;
     gap: 4px 12px;
@@ -284,6 +285,7 @@ label .optional {
   }
 
   .my-shifts-table-wrapper > table.my-shifts-table > tbody > tr > td.event-name-col {
+    display: block;
     padding-right: 5px;
   }
 

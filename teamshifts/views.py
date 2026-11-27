@@ -3933,10 +3933,13 @@ class ShiftClaimView(PublicShiftScheduleMixin, View):
                     self.member_application = application
                     if promoted:
                         transaction.on_commit(lambda app=application: _queue_lifecycle_email_safely(app, EmailTemplateRoles.APPLICATION_ACCEPTED))
+                claim_defaults = {"role_id": sra.role_id}
+                if existing is None:
+                    claim_defaults["assigned_by"] = None
                 _assignment, created = ShiftAssignment.objects.update_or_create(
                     shift=shift,
                     team_member=request.user,
-                    defaults={"role_id": sra.role_id, "assigned_by": None},
+                    defaults=claim_defaults,
                 )
             send_email = _resolve_shift_action_emails(self.member_application, requested_send_email)
             if created or previous_role_id != sra.role_id:

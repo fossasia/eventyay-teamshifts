@@ -330,3 +330,51 @@ def test_can_manage_shifts_flag_in_public_schedule_api(orga_client, member_clien
     volunteer_response = member_client.get(url)
     assert volunteer_response.status_code == 200
     assert volunteer_response.json()["can_manage_shifts"] is False
+
+
+@pytest.mark.django_db
+def test_reclaim_preserves_organizer_attribution(orga_client, member_client, event, shift, team_role, volunteer, user):
+    with scope(event=event):
+        CallForTeamMembers.objects.create(event=event, active=True, shift_schedule_published=True)
+    assign_url = reverse(
+        "plugins:teamshifts:public_shift_assignments",
+        kwargs={"organizer": event.organizer.slug, "event": event.slug},
+    )
+    assign_payload = {"shift_id": shift.pk, "user_id": volunteer.pk, "role_id": team_role.pk}
+    response = orga_client.post(assign_url, data=json.dumps(assign_payload), content_type="application/json")
+    assert response.status_code == 200
+
+    claim_url = reverse(
+        "plugins:teamshifts:public_shift_claim",
+        kwargs={"organizer": event.organizer.slug, "event": event.slug, "pk": shift.pk},
+    )
+    claim_response = member_client.post(claim_url, {"role_id": team_role.pk}, HTTP_X_REQUESTED_WITH="XMLHttpRequest")
+    assert claim_response.status_code == 200
+
+    body = claim_response.json()
+    assignee = next(entry for role in body["roles"] for entry in role["assigned"] if entry["id"] == volunteer.pk)
+    assert assignee["self_assigned"] is False
+
+    with scope(event=event):
+        assignment = ShiftAssignment.objects.get(shift=shift, team_member=volunteer)
+        assert assignment.role_id == team_role.pk
+        assert assignment.assigned_by_id == user.pk
+
+
+@pytest.mark.django_db
+def test_self_claim_keeps_self_assignment(member_client, event, shift, team_role, volunteer):
+    with scope(event=event):
+        CallForTeamMembers.objects.create(event=event, active=True, shift_schedule_published=True)
+    claim_url = reverse(
+        "plugins:teamshifts:public_shift_claim",
+        kwargs={"organizer": event.organizer.slug, "event": event.slug, "pk": shift.pk},
+    )
+
+    first_claim = member_client.post(claim_url, {"role_id": team_role.pk}, HTTP_X_REQUESTED_WITH="XMLHttpRequest")
+    assert first_claim.status_code == 200
+    re_claim = member_client.post(claim_url, {"role_id": team_role.pk}, HTTP_X_REQUESTED_WITH="XMLHttpRequest")
+    assert re_claim.status_code == 200
+
+    with scope(event=event):
+        assignment = ShiftAssignment.objects.get(shift=shift, team_member=volunteer)
+        assert assignment.assigned_by_id is None

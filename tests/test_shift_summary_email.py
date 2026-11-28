@@ -179,7 +179,7 @@ def test_summary_template_is_editable_role(event, cfm):
     assert "{my_shifts_url}" in str(template.body)
     assert "{shift_schedule_url}" not in str(template.body)
     assert "drop it there" in str(template.body)
-    assert str(template.subject) == "Your shifts for {event_name}"
+    assert str(template.subject) == "Team Shifts: Your shifts for {event_name}"
 
 
 @pytest.mark.django_db

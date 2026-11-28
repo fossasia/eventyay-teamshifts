@@ -183,6 +183,43 @@ def test_download_role_filter_limits_members(client, event, cfm, orga_user, djan
 
 
 @pytest.mark.django_db
+def test_download_follows_the_selected_sort(client, event, cfm, orga_user, django_user_model):
+    """The file lists members in the order of the Members page: emails and hours do not follow the name order."""
+    with scope(event=event):
+        role = TeamRole.objects.create(event=event, name="Volunteer")
+        alice = _member(event, django_user_model, "c-alice@example.com", "Alice")
+        _member(event, django_user_model, "a-bob@example.com", "bob")
+        carol = _member(event, django_user_model, "b-carol@example.com", "Carol")
+        start = now()
+        for member, hours in ((alice, 6), (carol, 1)):
+            shift = Shift.objects.create(event=event, name="Desk", start_time=start, end_time=start + timedelta(hours=hours))
+            ShiftAssignment.objects.create(shift=shift, team_member=member.user, role=role)
+    client.force_login(orga_user)
+    emails = ["a-bob@example.com", "b-carol@example.com", "c-alice@example.com"]
+
+    def listed(**params):
+        body = client.get(_url(event), {"_format": "default", **params}).content.decode("utf-8-sig")
+        return sorted(emails, key=body.index)
+
+    by_name = ["c-alice@example.com", "a-bob@example.com", "b-carol@example.com"]
+    assert listed() == by_name
+    assert listed(sort="hours_sort") == ["a-bob@example.com", "b-carol@example.com", "c-alice@example.com"]
+    assert listed(sort="-hours_sort") == ["c-alice@example.com", "b-carol@example.com", "a-bob@example.com"]
+    # An unknown sort falls back to the name order and still exports every member.
+    assert listed(sort="not-a-column") == by_name
+
+
+@pytest.mark.django_db
+def test_members_page_download_links_keep_the_sort_and_filters(client, event, cfm, orga_user):
+    client.force_login(orga_user)
+    members_url = reverse("plugins:teamshifts:members", kwargs={"organizer": event.organizer.slug, "event": event.slug})
+    response = client.get(members_url, {"sort": "-hours_sort", "hours": "some"})
+    for key in ("download_csv_url", "download_xlsx_url"):
+        assert "sort=-hours_sort" in response.context[key]
+        assert "hours=some" in response.context[key]
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize("export_format", ["pdf", "csv-excel", "semicolon", "csv"])
 def test_download_rejects_unsupported_format(client, event, cfm, orga_user, export_format):
     client.force_login(orga_user)

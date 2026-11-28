@@ -1,8 +1,7 @@
 {% load i18n %}
 {% load urlreplace %}
 
-{{ label }}
-<span class="list-sort">
+{{ label }}<span class="list-sort">
     <a data-ajax
        href="?{% url_replace request 'sort' field 'page' '1' %}"
        class="{% if current_ordering == field %}text-primary{% else %}text-muted{% endif %}"

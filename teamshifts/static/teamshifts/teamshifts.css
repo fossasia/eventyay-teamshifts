@@ -670,3 +670,17 @@ label .optional {
         vertical-align: middle;
     }
 }
+
+/*
+ * The sort arrows follow the label with no space in between, so they always stay on the line of the
+ * label's last word and a column's two arrows are never split.
+ */
+.list-sort {
+    white-space: nowrap;
+    margin-left: 4px;
+}
+
+/* A long name or email address wraps instead of making the Members table wider than the page. */
+.ts-wrap-cell {
+    overflow-wrap: anywhere;
+}

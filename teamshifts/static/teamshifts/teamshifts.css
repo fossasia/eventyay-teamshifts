@@ -263,6 +263,56 @@ label .optional {
   display: inline-block;
 }
 
+@media (max-width: 767px) {
+  .my-shifts-table-wrapper {
+    border: 0;
+    overflow: visible;
+  }
+
+  table.my-shifts-table,
+  table.my-shifts-table > tbody {
+    display: block;
+    width: 100%;
+  }
+
+  .my-shifts-table-wrapper > table.my-shifts-table > tbody > tr > td {
+    display: flex;
+    white-space: normal;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .my-shifts-table-wrapper > table.my-shifts-table > tbody > tr > td.event-name-col {
+    display: block;
+    padding-right: 5px;
+  }
+
+  .my-shifts-table-wrapper > table.my-shifts-table > tbody > tr > td.events-table__cell--no-border {
+    justify-content: flex-end;
+    gap: 6px;
+    padding-top: 10px;
+  }
+
+  .my-shifts-table-wrapper > table.my-shifts-table > tbody > tr > td.events-table__cell--no-border::before {
+    display: none;
+  }
+
+  .my-shifts-table-wrapper > table.my-shifts-table > tbody > tr > td.events-table__cell--no-border .btn {
+    white-space: normal;
+    max-width: 100%;
+  }
+
+  .my-shifts-table-wrapper > table.my-shifts-table > tbody > tr > td .label {
+    display: inline-block;
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+}
+
 
 .richtext-preview,
 .mail-preview {

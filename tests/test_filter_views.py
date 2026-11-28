@@ -90,6 +90,7 @@ def test_application_list_filter_and_ajax(orga_client, event, test_data):
     resp = orga_client.get(url, {"query": "Alice"})
     assert resp.status_code == 200
     assert "filter_form" in resp.context
+    assert b"filter_search.js" in resp.content
     assert b"data-ajax-results-region" in resp.content
     assert b"Alice Wonder" in resp.content
     assert b"Bob Builder" not in resp.content

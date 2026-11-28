@@ -1,6 +1,7 @@
 {% load i18n %}
 {% load bootstrap3 %}
 <div class="advanced-filter-search" data-advanced-filter-search>
+    {# Core's ajax-filter.js handles form.filter-form submit, .btn-clear-filter, pagination, and sort via AJAX; filter_search.js handles debounced live search typing. #}
     <form class="filter-form advanced-filter-search-form" action="" method="get">
         <div class="advanced-filter-search-bar">
             <div class="input-group advanced-filter-search-query-group">

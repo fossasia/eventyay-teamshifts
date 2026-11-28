@@ -4,9 +4,8 @@ import json
 import logging
 import re
 import secrets
-import zoneinfo
 from collections import defaultdict
-from datetime import datetime, time, timedelta
+from datetime import timedelta
 from urllib.parse import urlencode, urljoin, urlparse, urlunparse
 
 import dateutil.parser
@@ -62,11 +61,25 @@ from eventyay.base.views.tasks import AsyncAction
 from eventyay.common.text.path import safe_filename
 from eventyay.common.text.phrases import phrases
 from eventyay.common.views.mixins import Sortable
+from eventyay.control.forms.filter import advanced_filter_count, advanced_filters_open_from_get
 from eventyay.control.forms.orders import ExporterForm
 from eventyay.control.views import PaginationMixin
 from eventyay.multidomain.urlreverse import build_absolute_uri
 
-from .exporters import EXPORT_FORMAT_CSV, EXPORT_FORMAT_XLSX, MembersExporter, MyShiftsICalExporter, build_shift_schedule_exporters
+from .exporters import (
+    EXPORT_FORMAT_CSV,
+    EXPORT_FORMAT_XLSX,
+    MembersExporter,
+    MyShiftsICalExporter,
+    build_shift_schedule_exporters,
+)
+from .filters import (
+    ApplicationFilterForm,
+    MemberFilterForm,
+    ShiftFilterForm,
+    TeamShiftsEmailFilterForm,
+    TeamShiftsSentEmailFilterForm,
+)
 from .forms import (
     MAX_SHIFTS_PER_ACTION,
     MIN_FINAL_SHIFT_MINUTES,
@@ -175,11 +188,46 @@ def build_shift_role_formset(extra=1):
 ShiftRoleFormSet = build_shift_role_formset()
 
 
+def get_safe_next_url(request, fallback_url):
+    next_url = request.GET.get("next") or request.POST.get("next")
+    return (
+        next_url
+        if next_url
+        and url_has_allowed_host_and_scheme(
+            url=next_url,
+            allowed_hosts={request.get_host()},
+            require_https=request.is_secure(),
+        )
+        else fallback_url
+    )
+
+
 class PluginActiveMixin:
     def dispatch(self, request, *args, **kwargs):
         if "teamshifts" not in request.event.get_plugins():
             raise Http404
         return super().dispatch(request, *args, **kwargs)
+
+
+class FilteredListMixin(PaginationMixin):
+    def build_filter_form(self):
+        raise NotImplementedError
+
+    @cached_property
+    def filter_form(self):
+        return self.build_filter_form()
+
+    def apply_filters(self, queryset):
+        # Invalid fields are left out of cleaned_data, so the valid filters still apply.
+        self.filter_form.is_valid()
+        return self.filter_form.filter_qs(queryset)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["filter_form"] = self.filter_form
+        context["advanced_filters_open"] = advanced_filters_open_from_get(self.filter_form) or any(field.errors for field in self.filter_form.advanced_fields)
+        context["advanced_filter_count"] = advanced_filter_count(self.filter_form)
+        return context
 
 
 class TeamShiftsDashboard(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, TemplateView):
@@ -935,7 +983,7 @@ class CastToNumeric(Func):
     output_field = DecimalField()
 
 
-class ApplicationListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, PaginationMixin, Sortable, ListView):
+class ApplicationListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, FilteredListMixin, Sortable, ListView):
     permission = None
     template_name = "teamshifts/applications.html"
     context_object_name = "applications"
@@ -1069,6 +1117,14 @@ class ApplicationListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, 
         # Applications with the same answer are listed by name.
         return qs.order_by(ordering, Lower("user__fullname"), "pk")
 
+    def build_filter_form(self):
+        can_view_email = can_view_email_addresses(self.request.user, self.request.organizer, self.request.event, request=self.request)
+        return ApplicationFilterForm(
+            self.request.GET,
+            event=self.request.event,
+            hide_emails=not can_view_email,
+        )
+
     def get_queryset(self):
         event = self.request.event
         with scope(event=event):
@@ -1079,30 +1135,14 @@ class ApplicationListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, 
                 )
                 .select_related("user")
                 .prefetch_related("answers__question")
-                .order_by("-created_at")
             )
-            status_filter = self.request.GET.get("status")
-
-            search = self.request.GET.get("q", "").strip()
-
-            if status_filter in ApplicationStatus.values:
-                qs = qs.filter(status=status_filter)
-
-            if search:
-                can_view_email = can_view_email_addresses(self.request.user, self.request.organizer, event, request=self.request)
-                if can_view_email:
-                    qs = qs.filter(Q(user__email__icontains=search) | Q(user__fullname__icontains=search))
-                else:
-                    qs = qs.filter(Q(user__fullname__icontains=search))
-
+            qs = self.apply_filters(qs)
             return self.sort_queryset(qs)
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         event = self.request.event
         with scope(event=event):
-            status_filter = self.request.GET.get("status")
-            search = self.request.GET.get("q", "").strip()
             columns = self.field_columns
 
             applications = list(ctx["applications"])
@@ -1126,11 +1166,9 @@ class ApplicationListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, 
 
             ctx["columns"] = columns
             ctx["status_choices"] = ApplicationStatus.choices
-            ctx["current_status"] = status_filter
             ctx["can_manage_applicants"] = has_teamshifts_permission(
                 self.request.user, self.request.organizer, event, "can_teamshifts_manage_applicants", request=self.request
             )
-            ctx["search"] = search
             sort = self.request.GET.get("sort", "")
             sort_field = sort[1:] if sort.startswith("-") else sort
             ctx["current_ordering"] = sort if sort_field in self.sortable_fields else self.default_sort_field
@@ -1167,11 +1205,8 @@ class ApplicationStatusView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin
                 else:
                     messages.success(request, _("Application status updated to %s.") % application.get_status_display())
 
-            next_url = request.GET.get("next") or request.POST.get("next")
-            if next_url and url_has_allowed_host_and_scheme(url=next_url, allowed_hosts={request.get_host()}):
-                return redirect(next_url)
-
-        return redirect(reverse("plugins:teamshifts:applications", kwargs={"organizer": event.organizer.slug, "event": event.slug}))
+            fallback_url = reverse("plugins:teamshifts:applications", kwargs={"organizer": event.organizer.slug, "event": event.slug})
+            return redirect(get_safe_next_url(request, fallback_url))
 
 
 class BulkApplicationStatusView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):
@@ -1180,6 +1215,8 @@ class BulkApplicationStatusView(PluginActiveMixin, TeamShiftsPermissionRequiredM
     def post(self, request, *args, **kwargs):
         event = request.event
         with scope(event=event), transaction.atomic():
+            fallback_url = reverse("plugins:teamshifts:applications", kwargs={"organizer": event.organizer.slug, "event": event.slug})
+            redirect_url = get_safe_next_url(request, fallback_url)
             action = request.POST.get("action")
             if action not in ("accept", "reject"):
                 return HttpResponseBadRequest("Invalid action")
@@ -1187,7 +1224,7 @@ class BulkApplicationStatusView(PluginActiveMixin, TeamShiftsPermissionRequiredM
             app_ids = request.POST.getlist("application_ids")
             if not app_ids:
                 messages.warning(request, _("No applications selected."))
-                return redirect(reverse("plugins:teamshifts:applications", kwargs={"organizer": event.organizer.slug, "event": event.slug}))
+                return redirect(redirect_url)
 
             new_status = ApplicationStatus.ACCEPTED if action == "accept" else ApplicationStatus.REJECTED
 
@@ -1203,7 +1240,7 @@ class BulkApplicationStatusView(PluginActiveMixin, TeamShiftsPermissionRequiredM
 
             if not apps:
                 messages.warning(request, _("The selected applications already have this status."))
-                return redirect(reverse("plugins:teamshifts:applications", kwargs={"organizer": event.organizer.slug, "event": event.slug}))
+                return redirect(redirect_url)
 
             TeamMemberApplication.objects.filter(
                 event=event,
@@ -1222,7 +1259,7 @@ class BulkApplicationStatusView(PluginActiveMixin, TeamShiftsPermissionRequiredM
                 for app in apps:
                     transaction.on_commit(lambda app=app: queue_lifecycle_email(app, EmailTemplateRoles.APPLICATION_REJECTED))
 
-        return redirect(reverse("plugins:teamshifts:applications", kwargs={"organizer": event.organizer.slug, "event": event.slug}))
+        return redirect(redirect_url)
 
 
 class ApplicationDetailView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, TemplateView):
@@ -1638,25 +1675,37 @@ class ComposeVolunteersSelect2View(PluginActiveMixin, TeamShiftsPermissionRequir
         return JsonResponse({"results": results, "pagination": {"more": total > offset + self.page_size}})
 
 
-class EmailOutboxView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Sortable, TemplateView):
+class EmailOutboxView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, FilteredListMixin, Sortable, ListView):
     permission = "can_teamshifts_send_emails"
     template_name = "teamshifts/emails/outbox_list.html"
+    context_object_name = "mails"
     default_sort_field = "-created"
     sortable_fields = ("subject", "recipient_count", "send_after", "created")
     secondary_sort = {"recipient_count": ["-created", "pk"]}
 
+    def build_filter_form(self):
+        can_view_email = can_view_email_addresses(self.request.user, self.request.organizer, self.request.event, request=self.request)
+        return TeamShiftsEmailFilterForm(
+            self.request.GET,
+            event=self.request.event,
+            date_field="created",
+            hide_emails=not can_view_email,
+        )
+
+    def get_queryset(self):
+        event = self.request.event
+        with scope(event=event):
+            qs = (
+                TeamShiftsEmailQueue.objects.filter(event=event, sent_at__isnull=True, is_draft=False, user__isnull=False)
+                .select_related("role_filter", "user")
+                .annotate(recipient_count=Count("recipients"))
+            )
+            qs = self.apply_filters(qs)
+            return self.sort_queryset(qs)
+
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         event = self.request.event
-        with scope(event=event):
-            queues = list(
-                self.sort_queryset(
-                    TeamShiftsEmailQueue.objects.filter(event=event, sent_at__isnull=True, is_draft=False, user__isnull=False)
-                    .select_related("role_filter", "user")
-                    .annotate(recipient_count=Count("recipients"))
-                )
-            )
-        ctx["mails"] = queues
         sort = self.request.GET.get("sort", "")
         sort_field = sort[1:] if sort.startswith("-") else sort
         ctx["current_ordering"] = sort if sort_field in self.sortable_fields else self.default_sort_field
@@ -1694,7 +1743,7 @@ class EmailDraftsView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Sort
         return ctx
 
 
-class EmailSentView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, PaginationMixin, Sortable, ListView):
+class EmailSentView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, FilteredListMixin, Sortable, ListView):
     permission = "can_teamshifts_send_emails"
     template_name = "teamshifts/emails/sent_list.html"
     context_object_name = "mails"
@@ -1735,6 +1784,14 @@ class EmailSentView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Pagina
             return qs
         return super().sort_queryset(qs)
 
+    def build_filter_form(self):
+        can_view_email = can_view_email_addresses(self.request.user, self.request.organizer, self.request.event, request=self.request)
+        return TeamShiftsSentEmailFilterForm(
+            self.request.GET,
+            event=self.request.event,
+            hide_emails=not can_view_email,
+        )
+
     def get_queryset(self):
         event = self.request.event
         with scope(event=event):
@@ -1743,23 +1800,11 @@ class EmailSentView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Pagina
                 .filter(Q(queue__user__isnull=False) | ~Q(queue__mail_type=""))
                 .select_related("queue", "user")
             )
-
-            search = self.request.GET.get("q", "").strip()
-            if search:
-                condition = Q(subject__icontains=search) | Q(subject="", queue__subject__icontains=search) | Q(user__fullname__icontains=search)
-                if can_view_email_addresses(
-                    self.request.user,
-                    self.request.organizer,
-                    event,
-                    request=self.request,
-                ):
-                    condition |= Q(email__icontains=search)
-                qs = qs.filter(condition)
-        return self.sort_queryset(qs)
+            qs = self.apply_filters(qs)
+            return self.sort_queryset(qs)
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
-        ctx["search"] = self.request.GET.get("q", "").strip()
         ctx["can_view_email"] = can_view_email_addresses(
             self.request.user,
             self.request.organizer,
@@ -2210,7 +2255,7 @@ class ImportTalksRoomsView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin,
         return redirect("plugins:teamshifts:locations", organizer=request.organizer.slug, event=request.event.slug)
 
 
-class ShiftListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, PaginationMixin, Sortable, ListView):
+class ShiftListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, FilteredListMixin, Sortable, ListView):
     permission = "can_teamshifts_create_shifts"
     template_name = "teamshifts/shifts.html"
     context_object_name = "shifts"
@@ -2224,196 +2269,32 @@ class ShiftListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Pagina
         "end_time": ["pk"],
     }
 
-    def _get_event_tz(self, event):
-        return getattr(event, "timezone_object", None) or zoneinfo.ZoneInfo(event.timezone)
-
-    def _get_filter_days(self, event, tz):
-        shift_start_times = Shift.objects.filter(event=event).values_list("start_time", flat=True)
-        day_counts = defaultdict(int)
-        for st in shift_start_times:
-            local_dt = st.astimezone(tz)
-            day_counts[local_dt.date()] += 1
-
-        available_days = []
-        for d in sorted(day_counts.keys()):
-            count = day_counts[d]
-            shift_label = ngettext("%(count)d shift", "%(count)d shifts", count) % {"count": count}
-            formatted_date = f"{d.strftime('%a')}, {d.day} {d.strftime('%b')}"
-            available_days.append(
-                {
-                    "value": d.isoformat(),
-                    "label": f"{formatted_date} ({shift_label})",
-                    "date_label": formatted_date,
-                }
-            )
-        return available_days
+    def build_filter_form(self):
+        return ShiftFilterForm(
+            self.request.GET,
+            event=self.request.event,
+        )
 
     def get_queryset(self):
         event = self.request.event
 
         with scope(event=event):
             qs = Shift.objects.filter(event=event).select_related("location").prefetch_related("role_assignments__role")
-
-            q = self.request.GET.get("q", "").strip()
-            if q:
-                qs = qs.filter(name__icontains=q)
-
-            day_val = self.request.GET.get("day", "").strip()
-            if day_val:
-                try:
-                    selected_date = datetime.strptime(day_val, "%Y-%m-%d").date()
-                    tz = self._get_event_tz(event)
-                    day_start = datetime.combine(selected_date, time.min, tzinfo=tz)
-                    day_end = datetime.combine(selected_date, time.max, tzinfo=tz)
-                    qs = qs.filter(start_time__gte=day_start, start_time__lte=day_end)
-                except ValueError:
-                    pass
-
-            loc_val = self.request.GET.get("location", "").strip()
-            if loc_val:
-                try:
-                    qs = qs.filter(location_id=int(loc_val))
-                except ValueError:
-                    pass
-
-            role_val = self.request.GET.get("role", "").strip()
-            if role_val:
-                try:
-                    qs = qs.filter(role_assignments__role_id=int(role_val)).distinct()
-                except ValueError:
-                    pass
-
-            staffing_val = self.request.GET.get("staffing", "").strip()
-            if staffing_val in ("open", "full"):
-                assignment_count_subquery = (
-                    ShiftAssignment.objects.filter(
-                        shift=OuterRef("shift"),
-                        role=OuterRef("role"),
-                    )
-                    .values("shift", "role")
-                    .annotate(cnt=Count("id"))
-                    .values("cnt")
-                )
-                open_roles_qs = (
-                    ShiftRoleAssignment.objects.filter(shift__event=event)
-                    .annotate(assigned=Coalesce(Subquery(assignment_count_subquery, output_field=IntegerField()), 0))
-                    .filter(assigned__lt=F("capacity"))
-                )
-
-                if staffing_val == "open":
-                    qs = qs.filter(role_assignments__in=open_roles_qs).distinct()
-                elif staffing_val == "full":
-                    qs = qs.filter(role_assignments__isnull=False).exclude(role_assignments__in=open_roles_qs).distinct()
+            qs = self.apply_filters(qs)
             return self.sort_queryset(qs)
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         event = self.request.event
-        tz = self._get_event_tz(event)
-
         with scope(event=event):
-            available_days = self._get_filter_days(event, tz)
-            day_dict = {d["value"]: d for d in available_days}
-
-            locations = list(ShiftLocation.objects.filter(event=event, shifts__isnull=False).distinct().order_by("position", "name"))
-            loc_dict = {str(loc.pk): loc for loc in locations}
-
-            roles = list(TeamRole.objects.filter(event=event).order_by("name"))
-            role_dict = {str(r.pk): r for r in roles}
-
-            total_shifts_count = Shift.objects.filter(event=event).count()
-
-        q = self.request.GET.get("q", "").strip()
-        day_val = self.request.GET.get("day", "").strip()
-        loc_val = self.request.GET.get("location", "").strip()
-        role_val = self.request.GET.get("role", "").strip()
-        staffing_val = self.request.GET.get("staffing", "").strip()
-
-        active_filter_chips = []
-        if q:
-            active_filter_chips.append(
-                {
-                    "label": _('Search: "%(query)s"') % {"query": q},
-                    "remove_param": "q",
-                }
-            )
-        if day_val:
-            date_label = None
-            if day_val in day_dict:
-                date_label = day_dict[day_val]["date_label"]
-            else:
-                try:
-                    d = datetime.strptime(day_val, "%Y-%m-%d").date()
-                    date_label = f"{d.strftime('%a')}, {d.day} {d.strftime('%b')}"
-                except ValueError:
-                    pass
-            if date_label:
-                active_filter_chips.append(
-                    {
-                        "label": _("Day: %(day)s") % {"day": date_label},
-                        "remove_param": "day",
-                    }
-                )
-        if loc_val:
-            loc_obj = loc_dict.get(loc_val)
-            if not loc_obj:
-                try:
-                    with scope(event=event):
-                        loc_obj = ShiftLocation.objects.filter(event=event, pk=int(loc_val)).first()
-                except (ValueError, TypeError):
-                    pass
-            active_filter_chips.append(
-                {
-                    "label": _("Location: %(loc)s") % {"loc": loc_obj.name if loc_obj else loc_val},
-                    "remove_param": "location",
-                }
-            )
-        if role_val:
-            role_obj = role_dict.get(role_val)
-            if not role_obj:
-                try:
-                    with scope(event=event):
-                        role_obj = TeamRole.objects.filter(event=event, pk=int(role_val)).first()
-                except (ValueError, TypeError):
-                    pass
-            active_filter_chips.append(
-                {
-                    "label": _("Role: %(role)s") % {"role": role_obj.name if role_obj else role_val},
-                    "remove_param": "role",
-                }
-            )
-        if staffing_val == "open":
-            active_filter_chips.append(
-                {
-                    "label": _("Staffing: Has open spots"),
-                    "remove_param": "staffing",
-                }
-            )
-        elif staffing_val == "full":
-            active_filter_chips.append(
-                {
-                    "label": _("Staffing: Fully staffed"),
-                    "remove_param": "staffing",
-                }
-            )
-
-        is_filtered = bool(active_filter_chips)
-
-        ctx["days"] = available_days
-        ctx["locations"] = locations
-        ctx["roles"] = roles
-        ctx["active_filter_chips"] = active_filter_chips
-        ctx["is_filtered"] = is_filtered
-        ctx["total_shifts_count"] = total_shifts_count
-        ctx["matching_shifts_count"] = getattr(self, "object_list", Shift.objects.none()).count()
-
-        sort = self.request.GET.get("sort", "")
-        sort_field = sort[1:] if sort.startswith("-") else sort
-        ctx["current_ordering"] = sort if sort_field in self.sortable_fields else self.default_sort_field
-
+            ctx["total_shifts_count"] = Shift.objects.filter(event=event).count()
+            ctx["matching_shifts_count"] = getattr(self, "object_list", Shift.objects.none()).count()
         ctx["can_manage_shifts"] = has_teamshifts_permission(
             self.request.user, self.request.organizer, event, "can_teamshifts_create_shifts", request=self.request
         )
+        sort = self.request.GET.get("sort", "")
+        sort_field = sort[1:] if sort.startswith("-") else sort
+        ctx["current_ordering"] = sort if sort_field in self.sortable_fields else self.default_sort_field
         return ctx
 
 
@@ -2437,9 +2318,11 @@ class BulkShiftDeleteView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, 
 
     def post(self, request, *args, **kwargs):
         event = request.event
-        redirect_url = _shifts_list_url(event, request.GET, omit_page=True)
 
         with scope(event=event):
+            fallback_url = _shifts_list_url(event, request.GET, omit_page=True)
+            redirect_url = get_safe_next_url(request, fallback_url)
+
             shift_ids = [int(v) for v in request.POST.getlist("shift_ids") if str(v).strip().isdigit()]
             if not shift_ids:
                 messages.warning(request, _("No shifts selected."))
@@ -2671,35 +2554,14 @@ class ShiftDeleteView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Dele
 MAX_DB_INTEGER = 2147483647
 
 
-class MembersQuerysetMixin:
+class MembersQuerysetMixin(FilteredListMixin):
     def get_queryset(self):
         event = self.request.event
         with scope(event=event):
-            qs = TeamMemberApplication.objects.filter(event=event, status=ApplicationStatus.ACCEPTED).select_related("user", "certificate")
-
-            search = self.request.GET.get("q", "").strip()
-            if search:
-                can_view_email = can_view_email_addresses(self.request.user, self.request.organizer, event, request=self.request)
-                if can_view_email:
-                    qs = qs.filter(Q(user__email__icontains=search) | Q(user__fullname__icontains=search))
-                else:
-                    qs = qs.filter(Q(user__fullname__icontains=search))
-
-            role_id = self._parse_role_id(self.request.GET.get("role", ""))
-            if role_id is not None:
-                qs = qs.filter(user_id__in=ShiftAssignment.objects.filter(shift__event=event, role_id=role_id).values("team_member_id"))
-
-            # The voucher filter is only shown while vouchers are enabled, so only apply it then.
-            voucher_status = self.request.GET.get("voucher", "")
-            if voucher_status in VoucherStatus.values and self._vouchers_enabled(self._get_voucher_settings()):
-                qs = qs.filter(self._voucher_status_filter(voucher_status))
-
-            certificate_status = self.request.GET.get("certificate", "")
-            if certificate_status in CertificateStatus.values:
-                qs = qs.filter(self._certificate_status_filter(certificate_status))
-
             qs = (
-                qs.annotate(
+                TeamMemberApplication.objects.filter(event=event, status=ApplicationStatus.ACCEPTED)
+                .select_related("user", "certificate")
+                .annotate(
                     shifts_assigned=Count("user__shift_assignments", filter=Q(user__shift_assignments__shift__event=event)),
                     shifts_checked_in=Count(
                         "user__shift_assignments",
@@ -2728,44 +2590,18 @@ class MembersQuerysetMixin:
                         queryset=MemberVoucher.objects.select_related("voucher"),
                     ),
                 )
-                .order_by("user__fullname", "user__email")
             )
+            return self.apply_filters(qs)
 
-        return qs
-
-    @staticmethod
-    def _parse_role_id(raw):
-        raw = raw.strip()
-        # The length check keeps int() away from strings past Python's digit limit, which raise.
-        if not (raw.isascii() and raw.isdigit()) or len(raw) > len(str(MAX_DB_INTEGER)):
-            return None
-        value = int(raw)
-        return value if value <= MAX_DB_INTEGER else None
-
-    @staticmethod
-    def _voucher_status_filter(voucher_status):
-        # A redeemed voucher counts as claimed even before its status has been synced.
-        claimed = Q(voucher_assignment__status=VoucherStatus.CLAIMED) | Q(voucher_assignment__voucher__redeemed__gt=0)
-        if voucher_status == VoucherStatus.CLAIMED:
-            return claimed
-        if voucher_status == VoucherStatus.SENT:
-            return Q(voucher_assignment__status=VoucherStatus.SENT) & ~claimed
-        return (Q(voucher_assignment__isnull=True) | Q(voucher_assignment__status=VoucherStatus.NOT_SENT)) & ~claimed
-
-    @staticmethod
-    def _certificate_status_filter(certificate_status):
-        downloaded = Q(certificate__downloaded_at__isnull=False)
-        sent = Q(certificate__notified_at__isnull=False) & ~downloaded
-        generated = (
-            Q(certificate__file__isnull=False) & ~Q(certificate__file="") & Q(certificate__notified_at__isnull=True, certificate__downloaded_at__isnull=True)
+    def build_filter_form(self):
+        can_view_email = can_view_email_addresses(self.request.user, self.request.organizer, self.request.event, request=self.request)
+        voucher_settings = self._get_voucher_settings()
+        return MemberFilterForm(
+            self.request.GET,
+            event=self.request.event,
+            hide_emails=not can_view_email,
+            vouchers_enabled=self._vouchers_enabled(voucher_settings),
         )
-        if certificate_status == CertificateStatus.DOWNLOADED:
-            return downloaded
-        if certificate_status == CertificateStatus.SENT:
-            return sent
-        if certificate_status == CertificateStatus.GENERATED:
-            return generated
-        return ~downloaded & ~sent & ~generated
 
     def _get_voucher_settings(self):
         try:
@@ -2777,8 +2613,17 @@ class MembersQuerysetMixin:
     def _vouchers_enabled(voucher_settings):
         return bool(voucher_settings and voucher_settings.enabled and voucher_settings.voucher_tag)
 
+    @staticmethod
+    def _parse_role_id(raw):
+        raw = raw.strip()
+        # The length check keeps int() away from strings past Python's digit limit, which raise.
+        if not (raw.isascii() and raw.isdigit()) or len(raw) > len(str(MAX_DB_INTEGER)):
+            return None
+        value = int(raw)
+        return value if value <= MAX_DB_INTEGER else None
 
-class MembersListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, MembersQuerysetMixin, PaginationMixin, ListView):
+
+class MembersListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, MembersQuerysetMixin, ListView):
     permission = None
     template_name = "teamshifts/members.html"
     context_object_name = "members"
@@ -2820,7 +2665,11 @@ class MembersListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, Memb
                 "plugins:teamshifts:members_download",
                 kwargs={"organizer": self.request.organizer.slug, "event": self.request.event.slug},
             )
-            filters = {key: self.request.GET[key].strip() for key in ("q", "role", "voucher", "certificate") if self.request.GET.get(key, "").strip()}
+            filters = {
+                key: self.request.GET[key].strip()
+                for key in ("query", "q", "role", "voucher", "certificate", "arrived")
+                if self.request.GET.get(key, "").strip()
+            }
             ctx["download_xlsx_url"] = f"{download_url}?{urlencode({**filters, '_format': EXPORT_FORMAT_XLSX})}"
             ctx["download_csv_url"] = f"{download_url}?{urlencode({**filters, '_format': EXPORT_FORMAT_CSV})}"
 
@@ -2915,11 +2764,12 @@ class BulkRemoveMembersView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin
     def post(self, request, *args, **kwargs):
         event = request.event
         members_url = reverse("plugins:teamshifts:members", kwargs={"organizer": request.organizer.slug, "event": event.slug})
+        redirect_url = get_safe_next_url(request, members_url)
         parsed_ids = (MembersQuerysetMixin._parse_role_id(raw) for raw in request.POST.getlist("member_ids"))
         member_ids = [pk for pk in parsed_ids if pk is not None]
         if not member_ids:
             messages.warning(request, _("No members selected."))
-            return redirect(members_url)
+            return redirect(redirect_url)
 
         result = remove_members_from_team(
             event=event,
@@ -2930,7 +2780,7 @@ class BulkRemoveMembersView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin
         )
         if not result["removed"]:
             messages.warning(request, _("None of the selected people are team members any more."))
-            return redirect(members_url)
+            return redirect(redirect_url)
 
         parts = [
             ngettext(
@@ -2965,7 +2815,7 @@ class BulkRemoveMembersView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin
                 % {"count": result["vouchers_cancelled"]}
             )
         messages.success(request, " ".join(str(part) for part in parts))
-        return redirect(members_url)
+        return redirect(redirect_url)
 
 
 class CustomEmailTemplateCreateView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, View):
@@ -4645,8 +4495,8 @@ class BulkSendVouchersView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin,
         else:
             messages.warning(request, summary)
 
-        return redirect(
+        fallback_url = reverse(
             "plugins:teamshifts:members",
-            organizer=request.organizer.slug,
-            event=event.slug,
+            kwargs={"organizer": request.organizer.slug, "event": event.slug},
         )
+        return redirect(get_safe_next_url(request, fallback_url))

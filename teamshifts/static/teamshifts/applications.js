@@ -1,4 +1,3 @@
-import { setupAjaxSorting } from "./list_sorting.js";
 function gettext(msgid) {
     return typeof window.gettext === "function" ? window.gettext(msgid) : msgid;
 }
@@ -12,6 +11,8 @@ function getConfirmMessage(newStatus, emailStatuses) {
 
 function setupStatusDropdowns() {
     document.querySelectorAll(".teamshifts-status-dropdown").forEach((select) => {
+        if (select.dataset.bound === "1") return;
+        select.dataset.bound = "1";
         const currentStatus = select.dataset.currentStatus;
         const emailStatuses = (select.dataset.emailStatuses || "").split(",").filter(Boolean);
 
@@ -50,9 +51,10 @@ function refreshSelectedCount() {
 
 function setupSelectAll() {
     const selectAll = document.getElementById("select-all");
-    if (!selectAll) {
+    if (!selectAll || selectAll.dataset.bound === "1") {
         return;
     }
+    selectAll.dataset.bound = "1";
 
     selectAll.addEventListener("change", () => {
         document.querySelectorAll(".app-checkbox").forEach((checkbox) => {
@@ -64,6 +66,8 @@ function setupSelectAll() {
 
 function setupCheckboxes() {
     document.querySelectorAll(".app-checkbox").forEach((checkbox) => {
+        if (checkbox.dataset.bound === "1") return;
+        checkbox.dataset.bound = "1";
         checkbox.addEventListener("change", refreshSelectedCount);
     });
 }
@@ -77,6 +81,8 @@ function getBulkActionConfirmMessage(action) {
 
 function setupBulkActions() {
     document.querySelectorAll(".teamshifts-bulk-action-btn").forEach((button) => {
+        if (button.dataset.bound === "1") return;
+        button.dataset.bound = "1";
         button.addEventListener("click", (event) => {
             event.preventDefault();
 
@@ -107,7 +113,6 @@ function initializeControls() {
 
 function initializeApplicationsPage() {
     initializeControls();
-    setupAjaxSorting(initializeControls);
 }
 
 if (document.readyState === "loading") {
@@ -117,3 +122,5 @@ if (document.readyState === "loading") {
 } else {
     initializeApplicationsPage();
 }
+
+document.addEventListener("eventyay:ajax-results-replaced", initializeControls);

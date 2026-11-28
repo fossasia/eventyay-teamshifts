@@ -1,4 +1,3 @@
-import { setupAjaxSorting } from "./list_sorting.js";
 function gettext(msgid) {
     return typeof window.gettext === "function" ? window.gettext(msgid) : msgid;
 }
@@ -64,9 +63,10 @@ function updateSelectAllState() {
 
 function setupSelectAll() {
     const selectAll = document.getElementById("select-all");
-    if (!selectAll) {
+    if (!selectAll || selectAll.dataset.bound === "1") {
         return;
     }
+    selectAll.dataset.bound = "1";
 
     selectAll.addEventListener("change", () => {
         document.querySelectorAll(".shift-checkbox").forEach((checkbox) => {
@@ -78,6 +78,8 @@ function setupSelectAll() {
 
 function setupCheckboxes() {
     document.querySelectorAll(".shift-checkbox").forEach((checkbox) => {
+        if (checkbox.dataset.bound === "1") return;
+        checkbox.dataset.bound = "1";
         checkbox.addEventListener("change", () => {
             updateSelectAllState();
             refreshSelectedCount();
@@ -89,6 +91,8 @@ function setupBulkDelete() {
     const i18n = getI18n();
 
     document.querySelectorAll(".teamshifts-bulk-delete-btn").forEach((button) => {
+        if (button.dataset.bound === "1") return;
+        button.dataset.bound = "1";
         button.addEventListener("click", (event) => {
             event.preventDefault();
 
@@ -128,7 +132,16 @@ function initializeControls() {
     refreshSelectedCount();
 }
 
-document.addEventListener("DOMContentLoaded", () => {
+function initializeShiftsPage() {
     initializeControls();
-    setupAjaxSorting(initializeControls);
-});
+}
+
+if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", initializeShiftsPage, {
+        once: true,
+    });
+} else {
+    initializeShiftsPage();
+}
+
+document.addEventListener("eventyay:ajax-results-replaced", initializeControls);

@@ -599,3 +599,74 @@ label .optional {
     margin-top: 0;
     padding-left: 20px;
 }
+
+@media (max-width: 767px) {
+    [data-teamshifts-list]:has(.teamshifts-outbox-table) {
+        max-width: 100%;
+        min-width: 0;
+    }
+
+    .teamshifts-outbox-table {
+        width: 100%;
+        max-width: 100%;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .teamshifts-outbox-table .table {
+        min-width: 650px;
+        margin-bottom: 0;
+    }
+
+    .teamshifts-outbox-table th,
+    .teamshifts-outbox-table td {
+        vertical-align: middle;
+    }
+
+    .teamshifts-outbox-table .btn-toolbar {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        flex-wrap: nowrap;
+        gap: 8px;
+        margin-left: 0;
+    }
+
+    .teamshifts-outbox-table .btn-toolbar .btn-group {
+        float: none;
+        margin-left: 0;
+        flex-shrink: 0;
+    }
+
+    .teamshifts-outbox-table .btn-toolbar .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 34px;
+        height: 32px;
+    }
+}
+
+@media (max-width: 767px) {
+    [data-teamshifts-list]:has(.teamshifts-sent-table) {
+        max-width: 100%;
+        min-width: 0;
+    }
+
+    .teamshifts-sent-table {
+        width: 100%;
+        max-width: 100%;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .teamshifts-sent-table .table {
+        min-width: 650px;
+        margin-bottom: 0;
+    }
+
+    .teamshifts-sent-table th,
+    .teamshifts-sent-table td {
+        vertical-align: middle;
+    }
+}

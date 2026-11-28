@@ -34,9 +34,12 @@
       </a>
     </div>
   </div>
-
   <div data-teamshifts-list>
-  <table class='table'>
+    <div class="table-responsive teamshifts-sent-table"
+         tabindex="0"
+         role="region"
+         aria-label="{% trans 'Sent emails table' %}">
+      <table class='table'>
     <thead>
       <tr>
         <th aria-sort="{% if current_ordering == 'subject' %}ascending{% elif current_ordering == '-subject' %}descending{% else %}none{% endif %}">
@@ -93,7 +96,8 @@
         </tr>
       {% endfor %}
     </tbody>
-  </table>
+      </table>
+    </div>
     {% include "pretixcontrol/pagination.html" %}
   </div>
 {% endblock %}

@@ -32,19 +32,39 @@ export function setupAjaxSorting(onUpdate) {
                 return;
             }
 
+            const scrollContainer = currentList.querySelector(
+                ".teamshifts-outbox-table, .teamshifts-sent-table",
+            );
+            const scrollLeft = scrollContainer?.scrollLeft ?? 0;
+
             const activeElement = document.activeElement;
             const restoreFocus =
                 activeElement instanceof Element && currentList.contains(activeElement);
             const linkLabel = restoreFocus ? activeElement.getAttribute("aria-label") : null;
+            const sortField =
+                restoreFocus && activeElement.matches("a[data-ajax]")
+                    ? new URL(activeElement.href).searchParams.get("sort")
+                    : null;
 
             currentList.replaceWith(updatedList);
 
-            if (restoreFocus && linkLabel) {
+            if (restoreFocus) {
                 const replacementLink = Array.from(
                     updatedList.querySelectorAll("a[data-ajax]"),
-                ).find((candidate) => candidate.getAttribute("aria-label") === linkLabel);
+                ).find((candidate) =>
+                    sortField
+                        ? new URL(candidate.href).searchParams.get("sort") === sortField
+                        : linkLabel && candidate.getAttribute("aria-label") === linkLabel,
+                );
 
                 replacementLink?.focus();
+            }
+
+            const updatedScrollContainer = updatedList.querySelector(
+                ".teamshifts-outbox-table, .teamshifts-sent-table",
+            );
+            if (updatedScrollContainer) {
+                updatedScrollContainer.scrollLeft = scrollLeft;
             }
 
             if (pushHistory) {

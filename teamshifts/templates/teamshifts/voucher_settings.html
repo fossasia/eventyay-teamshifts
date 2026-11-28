@@ -16,6 +16,7 @@
 
 {% block teamshifts_content %}
   {% url 'plugins:teamshifts:members' organizer=request.organizer.slug event=request.event.slug as members_url %}
+  {% url 'control:event.vouchers.bulk' organizer=request.organizer.slug event=request.event.slug as create_batch_url %}
   <p>
     {% blocktrans trimmed %}
       Configure free or discounted tickets for team members.
@@ -23,6 +24,17 @@
       individual codes to members from the <a href='{{ members_url }}'>Members page</a>.
     {% endblocktrans %}
   </p>
+
+  {% if not has_voucher_batches %}
+    <div class='alert alert-info' role='status'>
+      {% blocktrans trimmed %}
+        This event has no voucher batch yet.
+      {% endblocktrans %}
+      <a class='btn btn-default' href='{{ create_batch_url }}'>
+        <i class='fa fa-plus'></i> {% trans 'Create a voucher batch in Tickets →' %}
+      </a>
+    </div>
+  {% endif %}
 
   <form method='post' class='form-horizontal' id='voucher-settings-form'
         data-saved-enabled='{{ voucher_settings.enabled|yesno:"true,false" }}'
@@ -35,6 +47,15 @@
 
       {% bootstrap_field form.enabled layout='horizontal' %}
       {% bootstrap_field form.voucher_tag layout='horizontal' %}
+      <div class='form-group'>
+        <div class='col-md-9 col-md-offset-3'>
+          <p class='help-block' style='margin-top:0'>
+            <a href='{{ create_batch_url }}'>
+              <i class='fa fa-plus'></i> {% trans 'Create a new batch' %}
+            </a>
+          </p>
+        </div>
+      </div>
 
       {% if voucher_settings.voucher_tag %}
         <div class='form-group'>
@@ -62,10 +83,6 @@
            {% if send_vouchers_blocker or form.is_bound %}aria-disabled='true' tabindex='-1'{% else %}href='{{ send_vouchers_url }}'{% endif %}
            aria-describedby='send-vouchers-hint send-vouchers-unsaved-hint'>
           <i class='fa fa-paper-plane'></i> {% trans 'Send vouchers' %}
-        </a>
-        <a class='btn btn-default'
-           href='{% url "control:event.vouchers.bulk" organizer=request.organizer.slug event=request.event.slug %}'>
-          <i class='fa fa-plus'></i> {% trans 'Create a voucher batch in Tickets →' %}
         </a>
         <div>
           <p id='send-vouchers-hint' class='ts-send-vouchers-hint'{% if not send_vouchers_blocker or form.is_bound %} hidden{% endif %}>

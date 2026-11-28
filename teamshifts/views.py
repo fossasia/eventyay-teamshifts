@@ -15,21 +15,29 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied
 from django.db import IntegrityError, transaction
 from django.db.models import (
+    Case,
     CharField,
     Count,
+    DecimalField,
     DurationField,
     ExpressionWrapper,
     F,
     Func,
+    IntegerField,
     JSONField,
     Max,
+    OuterRef,
     Prefetch,
     Q,
+    Subquery,
     Sum,
+    TextField,
     Value,
+    When,
 )
 from django.db.models.fields.json import KeyTextTransform
-from django.db.models.functions import Cast, Coalesce, Lower, NullIf
+from django.db.models.functions import Cast, Coalesce, Length, Lower, NullIf, Replace
+from django.db.models.lookups import LessThanOrEqual
 from django.forms import inlineformset_factory
 from django.forms.models import model_to_dict
 from django.http import FileResponse, Http404, HttpResponse, HttpResponseBadRequest, HttpResponseRedirect, JsonResponse
@@ -104,6 +112,7 @@ from .models import (
     CertificateStatus,
     EmailTemplateRoles,
     MemberVoucher,
+    QuestionVariant,
     Shift,
     ShiftAssignment,
     ShiftLocation,
@@ -967,17 +976,146 @@ class QuestionToggleView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, V
         return JsonResponse({"success": True, "field": field, "value": value})
 
 
+class CastToNumeric(Func):
+    """Cast to PostgreSQL's unconstrained ``numeric``, which keeps every digit of a decimal (unlike float)."""
+
+    template = "CAST(%(expressions)s AS numeric)"
+    output_field = DecimalField()
+
+
 class ApplicationListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, FilteredListMixin, Sortable, ListView):
     permission = None
     template_name = "teamshifts/applications.html"
     context_object_name = "applications"
     default_sort_field = "-created_at"
-    sortable_fields = ("user__fullname", "status", "created_at")
     secondary_sort = {
+        # An unknown sort key (e.g. a column that is no longer shown) falls back to the default order.
+        "": ["-created_at", "-pk"],
         "user__fullname": ["pk"],
         "status": ["pk"],
         "created_at": ["pk"],
     }
+    # How many application fields are shown as columns, in the order set on the form.
+    MAX_FIELD_COLUMNS = 4
+    # Sort key of each built-in field column. Custom question columns use QUESTION_SORT_PREFIX + question pk.
+    BUILTIN_COLUMN_SORT_KEYS = {
+        "full_name": "user__fullname",
+        "email": "user__email",
+        "phone": "phone",
+        "availability": "availability_notes",
+    }
+    QUESTION_SORT_PREFIX = "question_"
+    # Number answers are stored as str(Decimal), e.g. "12", "-0.5", "1E+3" or "1E-7".
+    NUMBER_ANSWER_REGEX = r"^-?([0-9]+\.?[0-9]*|\.[0-9]+)([eE][-+]?[0-9]{1,4})?$"
+    # With the exponent capped at 4 digits, this keeps every cast within PostgreSQL's numeric range.
+    MAX_NUMBER_ANSWER_LENGTH = 1000
+
+    @cached_property
+    def field_columns(self):
+        """The application field columns shown in the table, each with the key used to sort by it."""
+        event = self.request.event
+        with scope(event=event):
+            try:
+                cfm = event.call_for_team_members
+                field_order = normalize_field_order(list(cfm.field_order))
+            except CallForTeamMembers.DoesNotExist:
+                cfm = None
+                field_order = list(CFM_BUILTIN_FIELD_KEYS)
+
+            can_view_email = can_view_email_addresses(self.request.user, self.request.organizer, event, request=self.request)
+            custom_questions = {str(q.pk): q for q in TeamApplicationQuestion.objects.filter(event=event, active=True)}
+
+            active_keys = []
+            for k in field_order:
+                if k == "role":
+                    continue
+                if k == "email" and not can_view_email:
+                    continue
+                if k in CFM_BUILTIN_FIELD_KEYS:
+                    if cfm and getattr(cfm, f"ask_{k}", "optional") == "do_not_ask":
+                        continue
+                    active_keys.append(k)
+                elif str(k) in custom_questions:
+                    active_keys.append(k)
+
+            builtin_labels = {
+                "full_name": _("Name"),
+                "email": _("Email"),
+                "phone": _("Phone"),
+                "availability": _("Availability"),
+            }
+            columns = []
+            for raw_key in active_keys[: self.MAX_FIELD_COLUMNS]:
+                key = str(raw_key)
+                if key in self.BUILTIN_COLUMN_SORT_KEYS:
+                    columns.append({"key": key, "label": builtin_labels[key], "sort_key": self.BUILTIN_COLUMN_SORT_KEYS[key]})
+                elif key in custom_questions:
+                    question = custom_questions[key]
+                    columns.append(
+                        {
+                            "key": key,
+                            "label": question.question,
+                            "sort_key": f"{self.QUESTION_SORT_PREFIX}{question.pk}",
+                            "question": question,
+                        }
+                    )
+            return columns
+
+    @property
+    def sortable_fields(self):
+        # Only the columns shown are sortable, so email is sortable only for users who may see it.
+        return [col["sort_key"] for col in self.field_columns] + ["status", "created_at"]
+
+    @classmethod
+    def _answer_sort_value(cls, question):
+        """Expression that sorts a question's answers the way they are shown in the table.
+
+        Empty answers become NULL so they can be kept last in both directions.
+        """
+        answer = NullIf("answer", Value(""), output_field=TextField())
+        variant = question.variant
+        if variant == QuestionVariant.NUMBER:
+            # Cast only answers that are valid numbers; anything else sorts with the empty answers.
+            is_number = Q(answer__regex=cls.NUMBER_ANSWER_REGEX) & Q(LessThanOrEqual(Length("answer"), cls.MAX_NUMBER_ANSWER_LENGTH))
+            return Case(When(is_number, then=CastToNumeric("answer")), default=None, output_field=DecimalField())
+        if variant == QuestionVariant.BOOLEAN:
+            # Sort "No" before "Yes" in every language rather than by the translated words.
+            return Case(When(answer="false", then=Value(0)), When(answer="true", then=Value(1)), default=None, output_field=IntegerField())
+        if variant in (QuestionVariant.DATE, QuestionVariant.DATETIME):
+            # Stored as "YYYY-MM-DD[ HH:MM]", so text order is chronological order.
+            return answer
+        if variant == QuestionVariant.MULTIPLE:
+            # Selected options are stored one per line and shown comma-separated.
+            return Lower(Replace(answer, Value("\n"), Value(", "), output_field=TextField()))
+        # Text, URLs, phone numbers, countries and choice answers (stored as the displayed option text).
+        return Lower(answer)
+
+    def _field_column_sort_expression(self, sort_key):
+        for col in self.field_columns:
+            if col["sort_key"] != sort_key:
+                continue
+            if sort_key == "user__fullname":
+                # Name keeps the base Sortable handling.
+                return None
+            if sort_key == "user__email":
+                return Lower("user__email")
+            if sort_key in ("phone", "availability_notes"):
+                return Lower(NullIf(sort_key, Value(""), output_field=TextField()))
+            question = col["question"]
+            answers = TeamApplicationAnswer.objects.filter(application=OuterRef("pk"), question=question)
+            return Subquery(answers.annotate(sort_value=self._answer_sort_value(question)).values("sort_value")[:1])
+        return None
+
+    def sort_queryset(self, qs):
+        sort = self.request.GET.get("sort") or ""
+        descending = sort.startswith("-")
+        expression = self._field_column_sort_expression(sort[1:] if descending else sort)
+        if expression is None:
+            return super().sort_queryset(qs)
+        qs = qs.alias(column_sort=expression)
+        ordering = F("column_sort").desc(nulls_last=True) if descending else F("column_sort").asc(nulls_last=True)
+        # Applications with the same answer are listed by name.
+        return qs.order_by(ordering, Lower("user__fullname"), "pk")
 
     def build_filter_form(self):
         can_view_email = can_view_email_addresses(self.request.user, self.request.organizer, self.request.event, request=self.request)
@@ -1005,45 +1143,7 @@ class ApplicationListView(PluginActiveMixin, TeamShiftsPermissionRequiredMixin, 
         ctx = super().get_context_data(**kwargs)
         event = self.request.event
         with scope(event=event):
-            try:
-                cfm = event.call_for_team_members
-                field_order = normalize_field_order(list(cfm.field_order))
-            except CallForTeamMembers.DoesNotExist:
-                cfm = None
-                field_order = list(CFM_BUILTIN_FIELD_KEYS)
-
-            can_view_email = can_view_email_addresses(self.request.user, self.request.organizer, event, request=self.request)
-
-            custom_questions = {str(q.pk): q.question for q in TeamApplicationQuestion.objects.filter(event=event, active=True)}
-
-            active_keys = []
-            for k in field_order:
-                if k == "role":
-                    continue
-                if k == "email" and not can_view_email:
-                    continue
-                if k in CFM_BUILTIN_FIELD_KEYS:
-                    if cfm and getattr(cfm, f"ask_{k}", "optional") == "do_not_ask":
-                        continue
-                    active_keys.append(k)
-                elif str(k) in custom_questions:
-                    active_keys.append(k)
-
-            dynamic_keys = active_keys[:4]
-            columns = []
-
-            for raw_key in dynamic_keys:
-                key = str(raw_key)
-                if key == "full_name":
-                    columns.append({"key": key, "label": _("Name")})
-                elif key == "email":
-                    columns.append({"key": key, "label": _("Email")})
-                elif key == "phone":
-                    columns.append({"key": key, "label": _("Phone")})
-                elif key == "availability":
-                    columns.append({"key": key, "label": _("Availability")})
-                elif key in custom_questions:
-                    columns.append({"key": key, "label": custom_questions[key]})
+            columns = self.field_columns
 
             applications = list(ctx["applications"])
             for app in applications:

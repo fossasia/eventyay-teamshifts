@@ -103,6 +103,18 @@ def test_application_list_filter_and_ajax(orga_client, event, test_data):
     assert b"Bob Builder" in ajax_resp.content
     assert b"Alice Wonder" not in ajax_resp.content
 
+    with scope(event=event):
+        ShiftAssignment.objects.create(
+            shift=test_data["shift1"],
+            team_member=test_data["app1"].user,
+            role=test_data["role_lead"],
+        )
+    role_resp = orga_client.get(url, {"role": test_data["role_lead"].pk})
+    assert role_resp.status_code == 200
+    assert b"Assigned shift role" in role_resp.content
+    assert b"Alice Wonder" in role_resp.content
+    assert b"Bob Builder" not in role_resp.content
+
 
 @pytest.mark.django_db
 def test_members_list_filter_and_ajax(orga_client, event, test_data):

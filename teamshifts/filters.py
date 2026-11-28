@@ -97,6 +97,15 @@ class LenientModelChoiceField(forms.ModelChoiceField):
         return None
 
 
+def filter_by_assigned_shift_role(queryset, event, role):
+    """Filter application or member querysets to users with a shift assignment in ``role``."""
+    matching_users = ShiftAssignment.objects.filter(
+        role=role,
+        shift__event=event,
+    ).values("team_member_id")
+    return queryset.filter(user_id__in=matching_users)
+
+
 class ApplicationFilterForm(TeamShiftsFilterForm):
     default_order = ("-created_at", "-pk")
 
@@ -110,11 +119,19 @@ class ApplicationFilterForm(TeamShiftsFilterForm):
         choices=(("", _("All statuses")),) + tuple(ApplicationStatus.choices),
         required=False,
     )
+    role = LenientModelChoiceField(
+        label=_("Assigned shift role"),
+        queryset=TeamRole.objects.none(),
+        required=False,
+        empty_label=_("All roles"),
+    )
 
     def __init__(self, *args, event=None, hide_emails=False, **kwargs):
         self.event = event
         self.hide_emails = hide_emails
         super().__init__(*args, **kwargs)
+        if event:
+            self.fields["role"].queryset = TeamRole.objects.filter(event=event)
         if hide_emails:
             self.fields["query"].widget.attrs.update(
                 {
@@ -134,6 +151,9 @@ class ApplicationFilterForm(TeamShiftsFilterForm):
 
         if fdata.get("status"):
             queryset = queryset.filter(status=fdata["status"])
+
+        if role := fdata.get("role"):
+            queryset = filter_by_assigned_shift_role(queryset, self.event, role)
 
         return self.apply_ordering(queryset)
 
@@ -209,11 +229,7 @@ class MemberFilterForm(TeamShiftsFilterForm):
             queryset = queryset.filter(lookup)
 
         if role := fdata.get("role"):
-            matching_users = ShiftAssignment.objects.filter(
-                role=role,
-                shift__event=self.event,
-            ).values("team_member_id")
-            queryset = queryset.filter(user_id__in=matching_users)
+            queryset = filter_by_assigned_shift_role(queryset, self.event, role)
 
         voucher_status = fdata.get("voucher")
         if self.vouchers_enabled and voucher_status in VoucherStatus.values:

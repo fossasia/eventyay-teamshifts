@@ -77,21 +77,41 @@ def test_application_filter_query_and_privacy(event, django_user_model):
 
 
 @pytest.mark.django_db
-def test_application_filter_status_and_no_role(event, django_user_model):
+def test_application_filter_status_and_role(event, django_user_model, role_a, role_b, location_a):
     with scope(event=event):
         user_alice = django_user_model.objects.create_user(email="alice@test.com", fullname="Alice")
         user_bob = django_user_model.objects.create_user(email="bob@test.com", fullname="Bob")
         app_a = TeamMemberApplication.objects.create(event=event, user=user_alice, status=ApplicationStatus.ACCEPTED)
         app_b = TeamMemberApplication.objects.create(event=event, user=user_bob, status=ApplicationStatus.PENDING)
 
+        shift = Shift.objects.create(
+            event=event,
+            name="Morning Shift",
+            location=location_a,
+            start_time=now(),
+            end_time=now() + timedelta(hours=2),
+        )
+        ShiftAssignment.objects.create(shift=shift, team_member=user_alice, role=role_a)
+
         qs = TeamMemberApplication.objects.filter(event=event)
 
         form = ApplicationFilterForm({"status": ApplicationStatus.ACCEPTED}, event=event)
-        assert "role" not in form.fields
+        assert "role" in form.fields
+        assert str(form.fields["role"].label) == "Assigned shift role"
         assert form.is_valid()
         results = list(form.filter_qs(qs))
         assert results == [app_a]
         assert app_b not in results
+
+        form = ApplicationFilterForm({"role": role_a.pk}, event=event)
+        assert form.is_valid()
+        results = list(form.filter_qs(qs))
+        assert results == [app_a]
+
+        form = ApplicationFilterForm({"role": role_b.pk}, event=event)
+        assert form.is_valid()
+        results = list(form.filter_qs(qs))
+        assert not results
 
 
 @pytest.mark.django_db
